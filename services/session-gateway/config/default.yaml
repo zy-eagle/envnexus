@@ -1,0 +1,16 @@
+app:
+  name: session-gateway
+  env: local
+  log_level: info
+
+server:
+  host: 0.0.0.0
+  port: 8081
+  public_ws_url: ws://localhost:8081
+
+redis:
+  addr: ${ENX_REDIS_ADDR}
+
+platform_api:
+  base_url: http://platform-api:8080
+  internal_token: ${ENX_INTERNAL_TOKEN}

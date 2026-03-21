@@ -1,0 +1,28 @@
+app:
+  name: platform-api
+  env: local
+  log_level: info
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  public_base_url: http://localhost:8080
+  read_timeout_seconds: 15
+  write_timeout_seconds: 15
+
+database:
+  dsn: ${ENX_DATABASE_DSN}
+  max_open_conns: 20
+  max_idle_conns: 10
+
+redis:
+  addr: ${ENX_REDIS_ADDR}
+
+object_storage:
+  endpoint: ${ENX_OBJECT_STORAGE_ENDPOINT}
+  bucket: ${ENX_OBJECT_STORAGE_BUCKET}
+
+security:
+  jwt_secret: ${ENX_JWT_SECRET}
+  device_token_secret: ${ENX_DEVICE_TOKEN_SECRET}
+  enroll_signing_secret: ${ENX_ENROLL_SIGNING_SECRET}

@@ -1,0 +1,108 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: envnexus
+    volumes:
+      - ./volumes/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    volumes:
+      - ./volumes/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - ./volumes/minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  platform-api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/platform-api.Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  session-gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/session-gateway.Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      platform-api:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  job-runner:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/job-runner.Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      platform-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  console-web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/console-web.Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      platform-api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
