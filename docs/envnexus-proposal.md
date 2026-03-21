@@ -1,28 +1,3 @@
----
-name: EnvNexus Proposal
-overview: 为一个以 EnvNexus 为统一商业品牌、中文名环枢的开放平台驱动、租户专属分发、支持 Hosted/Hybrid/Private 三种模型密钥模式的跨平台本地诊断与修复 Agent 生成最终形态方案文档，覆盖品牌命名、Logo 方向、平台架构、终端架构、安全模型、分发注册、交互协议与实施路线。
-todos:
-  - id: unify-branding
-    content: 统一产品品牌命名、子产品命名、英文缩写、Logo 方向与对外口径
-    status: pending
-  - id: define-platform-scope
-    content: 明确开放平台第一版支持的租户能力、角色权限、交互协议和私有化边界
-    status: pending
-  - id: design-agent-runtime
-    content: 细化终端 Agent Core、本地 UI、Local API、环境探测与工具执行运行时
-    status: pending
-  - id: design-security-and-policy
-    content: 定义 Hosted/Hybrid/Private 三种密钥模式下的审批机制、策略优先级与审计模型
-    status: pending
-  - id: design-distribution-and-enrollment
-    content: 设计租户专属下载链接、首次激活、设备注册和配置拉取流程
-    status: pending
-  - id: prepare-roadmap
-    content: 把最终形态拆解为开放平台 MVP、审批式修复、私有化支持三个实施阶段
-    status: pending
-isProject: false
----
-
 # EnvNexus 商业产品方案文档
 
 ## 0. 品牌统一方案
