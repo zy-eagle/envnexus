@@ -18,6 +18,8 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
 	package_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/package"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/tenant"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
 )
 
 func main() {
@@ -31,6 +33,8 @@ func main() {
 	var deviceRepo repository.DeviceRepository
 	var auditRepo repository.AuditRepository
 	var pkgRepo repository.PackageRepository
+	var userRepo repository.UserRepository
+	var modelProfileRepo repository.ModelProfileRepository
 
 	dsn := os.Getenv("ENX_DATABASE_DSN")
 	if dsn != "" {
@@ -43,6 +47,8 @@ func main() {
 		deviceRepo = repository.NewMySQLDeviceRepository(db)
 		auditRepo = repository.NewMySQLAuditRepository(db)
 		pkgRepo = repository.NewMySQLPackageRepository(db)
+		userRepo = repository.NewMySQLUserRepository(db)
+		modelProfileRepo = repository.NewMySQLModelProfileRepository(db)
 	} else {
 		log.Println("ENX_DATABASE_DSN not set, falling back to MemoryTenantRepository")
 		tenantRepo = repository.NewMemoryTenantRepository()
@@ -55,10 +61,14 @@ func main() {
 	enrollService := enrollment.NewService(enrollRepo, deviceRepo)
 	auditService := audit.NewService(auditRepo)
 	pkgService := package_svc.NewService(pkgRepo)
+	authService := auth.NewService(userRepo)
+	modelProfileService := model_profile.NewService(modelProfileRepo)
 
 	tenantHandler := httphandler.NewTenantHandler(tenantService)
 	tokenHandler := httphandler.NewTokenHandler(enrollService)
 	pkgHandler := httphandler.NewPackageHandler(pkgService)
+	authHandler := httphandler.NewAuthHandler(authService)
+	modelProfileHandler := httphandler.NewModelProfileHandler(modelProfileService)
 	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
 	agentAuditHandler := agent.NewAuditHandler(auditService)
 
@@ -79,6 +89,8 @@ func main() {
 		tenantHandler.RegisterRoutes(v1)
 		tokenHandler.RegisterRoutes(v1)
 		pkgHandler.RegisterRoutes(v1)
+		authHandler.RegisterRoutes(v1)
+		modelProfileHandler.RegisterRoutes(v1)
 	}
 
 	// Agent API group

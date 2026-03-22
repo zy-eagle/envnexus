@@ -10,6 +10,7 @@ type TenantRepository interface {
 	Create(ctx context.Context, tenant *domain.Tenant) error
 	GetByID(ctx context.Context, id string) (*domain.Tenant, error)
 	GetBySlug(ctx context.Context, slug string) (*domain.Tenant, error)
+	List(ctx context.Context) ([]*domain.Tenant, error)
 }
 
 // MemoryTenantRepository is a simple in-memory implementation for MVP
@@ -42,4 +43,12 @@ func (r *MemoryTenantRepository) GetBySlug(ctx context.Context, slug string) (*d
 		}
 	}
 	return nil, nil
+}
+
+func (r *MemoryTenantRepository) List(ctx context.Context) ([]*domain.Tenant, error) {
+	var list []*domain.Tenant
+	for _, t := range r.tenants {
+		list = append(list, t)
+	}
+	return list, nil
 }

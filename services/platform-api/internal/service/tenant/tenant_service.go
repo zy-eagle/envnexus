@@ -65,3 +65,23 @@ func (s *Service) GetTenant(ctx context.Context, id string) (*dto.TenantResponse
 		UpdatedAt: tenant.UpdatedAt,
 	}, nil
 }
+
+func (s *Service) ListTenants(ctx context.Context) ([]*dto.TenantResponse, error) {
+	tenants, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp []*dto.TenantResponse
+	for _, t := range tenants {
+		resp = append(resp, &dto.TenantResponse{
+			ID:        t.ID,
+			Name:      t.Name,
+			Slug:      t.Slug,
+			Status:    string(t.Status),
+			CreatedAt: t.CreatedAt,
+			UpdatedAt: t.UpdatedAt,
+		})
+	}
+	return resp, nil
+}

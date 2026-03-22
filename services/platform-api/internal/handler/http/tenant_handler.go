@@ -22,7 +22,8 @@ func (h *TenantHandler) RegisterRoutes(router *gin.RouterGroup) {
 	tenants := router.Group("/tenants")
 	{
 		tenants.POST("", h.CreateTenant)
-		tenants.GET("/:id", h.GetTenant)
+		tenants.GET("", h.ListTenants)
+		tenants.GET("/:tenantId", h.GetTenant)
 	}
 }
 
@@ -43,7 +44,7 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 }
 
 func (h *TenantHandler) GetTenant(c *gin.Context) {
-	id := c.Param("id")
+	id := c.Param("tenantId")
 	
 	resp, err := h.tenantService.GetTenant(c.Request.Context(), id)
 	if err != nil {
@@ -52,4 +53,14 @@ func (h *TenantHandler) GetTenant(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+func (h *TenantHandler) ListTenants(c *gin.Context) {
+	resp, err := h.tenantService.ListTenants(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": resp})
 }

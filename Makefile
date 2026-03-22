@@ -1,4 +1,22 @@
-.PHONY: build run-platform run-gateway run-runner run-agent
+.PHONY: build run-platform run-gateway run-runner run-agent deploy deploy-web deploy-api stop restart status
+
+deploy:
+	@./deploy.sh start
+
+deploy-web:
+	@./deploy.sh web
+
+deploy-api:
+	@./deploy.sh api
+
+stop:
+	@./deploy.sh stop
+
+restart:
+	@./deploy.sh restart
+
+status:
+	@./deploy.sh status
 
 build:
 	@echo "Building platform-api..."

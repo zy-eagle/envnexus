@@ -43,3 +43,12 @@ func (r *MySQLTenantRepository) GetBySlug(ctx context.Context, slug string) (*do
 	}
 	return &tenant, nil
 }
+
+func (r *MySQLTenantRepository) List(ctx context.Context) ([]*domain.Tenant, error) {
+	var tenants []*domain.Tenant
+	err := r.db.WithContext(ctx).Find(&tenants).Error
+	if err != nil {
+		return nil, err
+	}
+	return tenants, nil
+}
