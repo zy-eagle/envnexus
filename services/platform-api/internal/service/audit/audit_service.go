@@ -55,3 +55,31 @@ func (s *Service) ReportEvent(ctx context.Context, tenantID string, req dto.Repo
 		CreatedAt:    event.CreatedAt,
 	}, nil
 }
+
+func (s *Service) ListEvents(ctx context.Context, tenantID string) ([]*dto.AuditEventResponse, error) {
+	events, err := s.auditRepo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp []*dto.AuditEventResponse
+	for _, e := range events {
+		var payload map[string]interface{}
+		if len(e.Payload) > 0 {
+			_ = json.Unmarshal(e.Payload, &payload)
+		}
+
+		resp = append(resp, &dto.AuditEventResponse{
+			ID:           e.ID,
+			TenantID:     e.TenantID,
+			DeviceID:     e.DeviceID,
+			SessionID:    e.SessionID,
+			ActionType:   e.ActionType,
+			Status:       e.Status,
+			Payload:      payload,
+			ErrorMessage: e.ErrorMessage,
+			CreatedAt:    e.CreatedAt,
+		})
+	}
+	return resp, nil
+}

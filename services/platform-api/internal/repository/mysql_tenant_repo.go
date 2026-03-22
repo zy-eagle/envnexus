@@ -52,3 +52,11 @@ func (r *MySQLTenantRepository) List(ctx context.Context) ([]*domain.Tenant, err
 	}
 	return tenants, nil
 }
+
+func (r *MySQLTenantRepository) Update(ctx context.Context, tenant *domain.Tenant) error {
+	return r.db.WithContext(ctx).Save(tenant).Error
+}
+
+func (r *MySQLTenantRepository) Delete(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Delete(&domain.Tenant{}, "id = ?", id).Error
+}

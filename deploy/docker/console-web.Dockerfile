@@ -1,32 +1,35 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# 1. Install dependencies using pnpm and Taobao mirror
-RUN npm install -g pnpm && \
-    pnpm config set registry https://registry.npmmirror.com && \
-    pnpm config set fetch-retries 5 && \
-    pnpm config set fetch-retry-mintimeout 20000 && \
-    pnpm config set fetch-retry-maxtimeout 120000
+# Enable corepack for pnpm and set npm mirror
+RUN corepack enable && \
+    npm config set registry https://registry.npmmirror.com
 
+# Copy package.json and lockfile first to leverage Docker cache
 COPY apps/console-web/package.json apps/console-web/pnpm-lock.yaml ./
-# Only install production dependencies first if possible, or just install all
-RUN pnpm install --frozen-lockfile
 
-# 2. Copy source code and build
+# Install dependencies using pnpm with mirror
+RUN pnpm config set registry https://registry.npmmirror.com && \
+    pnpm install --frozen-lockfile --prefer-offline
+
+# Copy source code and build
 COPY apps/console-web/ ./
+# Disable Next.js telemetry to speed up build
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm run build
 
-# 3. Production image
+# Production image
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
+# Copy standalone output and static files
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

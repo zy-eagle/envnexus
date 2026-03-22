@@ -85,3 +85,37 @@ func (s *Service) ListTenants(ctx context.Context) ([]*dto.TenantResponse, error
 	}
 	return resp, nil
 }
+
+func (s *Service) UpdateTenant(ctx context.Context, id string, req dto.UpdateTenantRequest) (*dto.TenantResponse, error) {
+	tenant, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if tenant == nil {
+		return nil, errors.New("tenant not found")
+	}
+
+	if req.Name != "" {
+		tenant.Name = req.Name
+	}
+	if req.Status != "" {
+		tenant.Status = domain.TenantStatus(req.Status)
+	}
+
+	if err := s.repo.Update(ctx, tenant); err != nil {
+		return nil, err
+	}
+
+	return &dto.TenantResponse{
+		ID:        tenant.ID,
+		Name:      tenant.Name,
+		Slug:      tenant.Slug,
+		Status:    string(tenant.Status),
+		CreatedAt: tenant.CreatedAt,
+		UpdatedAt: tenant.UpdatedAt,
+	}, nil
+}
+
+func (s *Service) DeleteTenant(ctx context.Context, id string) error {
+	return s.repo.Delete(ctx, id)
+}

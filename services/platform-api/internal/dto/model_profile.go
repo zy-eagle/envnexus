@@ -26,3 +26,13 @@ type CreateModelProfileRequest struct {
 	ParamsJSON string `json:"params_json" binding:"required"`
 	SecretMode string `json:"secret_mode" binding:"required"`
 }
+
+type UpdateModelProfileRequest struct {
+	Name       string `json:"name"`
+	Provider   string `json:"provider"`
+	BaseURL    string `json:"base_url"`
+	ModelName  string `json:"model_name"`
+	ParamsJSON string `json:"params_json"`
+	SecretMode string `json:"secret_mode"`
+	Status     string `json:"status"`
+}

@@ -3,6 +3,7 @@ package device
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,4 +51,38 @@ func (m *IdentityManager) GetOrCreateDeviceID() (string, error) {
 	}
 
 	return newID, nil
+}
+
+// SaveIdentity saves the full identity including tenant and token
+func (m *IdentityManager) SaveIdentity(identity *Identity) error {
+	if err := os.MkdirAll(m.configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config dir: %w", err)
+	}
+
+	idFile := filepath.Join(m.configDir, "identity.json")
+	
+	// We'll use a simple JSON format for now
+	data := fmt.Sprintf(`{"device_id":"%s","tenant_id":"%s","token":"%s"}`, 
+		identity.DeviceID, identity.TenantID, identity.Token)
+		
+	if err := os.WriteFile(idFile, []byte(data), 0600); err != nil {
+		return fmt.Errorf("failed to write identity: %w", err)
+	}
+	return nil
+}
+
+// GetIdentity retrieves the saved identity
+func (m *IdentityManager) GetIdentity() (*Identity, error) {
+	idFile := filepath.Join(m.configDir, "identity.json")
+	data, err := os.ReadFile(idFile)
+	if err != nil {
+		return nil, err
+	}
+	
+	var id Identity
+	if err := json.Unmarshal(data, &id); err != nil {
+		return nil, err
+	}
+	
+	return &id, nil
 }

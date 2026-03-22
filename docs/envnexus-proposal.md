@@ -144,6 +144,7 @@ PRD、技术方案、商业方案统一使用以下命名：
 - 首批低风险审批式修复工具
 - 审计事件上报与查询
 - 单机 `Docker Compose` 部署
+- **控制台前端中英双语支持**
 
 ### 1.3 首版非目标
 
@@ -1610,7 +1611,7 @@ attached
 
 首版代码生成完成后，必须至少生成并能跑通以下组件：
 
-- `apps/console-web`
+- `apps/console-web` (需包含中英双语支持)
 - `apps/agent-desktop`
 - `apps/agent-core`
 - `services/platform-api`
@@ -2226,6 +2227,7 @@ apps/console-web/
       auth/
       tenant/
       observability/
+      i18n/
     hooks/
     stores/
     types/
@@ -2250,6 +2252,7 @@ apps/console-web/
 
 前端约束固定如下：
 
+- **国际化 (i18n)**：控制台前端必须全面支持中英双语（`zh` / `en`），所有硬编码文案必须通过 `i18n` 上下文进行管理，支持用户在界面上动态切换语言。
 - 控制台前端只通过 `platform-api` 暴露的 HTTP API 读写配置，不直连数据库、`Redis`、对象存储
 - 认证、租户上下文、权限快照必须在统一会话层处理，不允许散落在页面组件里重复判断
 - 业务模块只能通过统一 API SDK 访问后端，不允许页面内直接拼接请求协议

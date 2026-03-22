@@ -14,11 +14,16 @@ const dict = {
     status: "Status",
     actions: "Actions",
     createTitle: "Create Model Profile",
+    editTitle: "Edit Model Profile",
     baseURL: "Base URL",
     paramsJSON: "Params (JSON)",
     secretMode: "Secret Mode",
     cancel: "Cancel",
     create: "Create",
+    save: "Save",
+    edit: "Edit",
+    delete: "Delete",
+    confirmDelete: "Are you sure you want to delete this profile?",
   },
   zh: {
     title: "模型配置",
@@ -30,11 +35,16 @@ const dict = {
     status: "状态",
     actions: "操作",
     createTitle: "创建模型配置",
+    editTitle: "编辑模型配置",
     baseURL: "基础 URL",
     paramsJSON: "参数 (JSON)",
     secretMode: "密钥模式",
     cancel: "取消",
     create: "创建",
+    save: "保存",
+    edit: "编辑",
+    delete: "删除",
+    confirmDelete: "确定要删除此配置吗？",
   }
 };
 
@@ -51,6 +61,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
   const { lang } = useLanguage();
   const t = dict[lang];
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -63,6 +74,32 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
     params_json: '{}',
     secret_mode: 'env'
   });
+
+  const openCreateModal = () => {
+    setEditingId(null);
+    setFormData({
+      name: '',
+      provider: 'openai',
+      base_url: 'https://api.openai.com/v1',
+      model_name: 'gpt-4',
+      params_json: '{}',
+      secret_mode: 'env'
+    });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (profile: ModelProfile) => {
+    setEditingId(profile.id);
+    setFormData({
+      name: profile.name,
+      provider: profile.provider,
+      base_url: profile.base_url,
+      model_name: profile.model_name,
+      params_json: profile.params_json || '{}',
+      secret_mode: profile.secret_mode || 'env'
+    });
+    setIsModalOpen(true);
+  };
 
   const fetchProfiles = async () => {
     try {
@@ -87,12 +124,17 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
     fetchProfiles();
   }, [params.tenantId]);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/tenants/${params.tenantId}/model-profiles`, {
-        method: 'POST',
+      const url = editingId 
+        ? `/api/v1/tenants/${params.tenantId}/model-profiles/${editingId}`
+        : `/api/v1/tenants/${params.tenantId}/model-profiles`;
+      const method = editingId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
@@ -103,10 +145,30 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
         setIsModalOpen(false);
         fetchProfiles();
       } else {
-        alert('Failed to create profile');
+        alert('Failed to save profile');
       }
     } catch (error) {
-      console.error('Error creating profile:', error);
+      console.error('Error saving profile:', error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm(t.confirmDelete)) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/v1/tenants/${params.tenantId}/model-profiles/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        fetchProfiles();
+      } else {
+        alert('Failed to delete profile');
+      }
+    } catch (error) {
+      console.error('Error deleting profile:', error);
     }
   };
 
@@ -115,7 +177,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
         >
           {t.addProfile}
@@ -125,8 +187,8 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <h2 className="text-xl font-semibold mb-4">{t.createTitle}</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
+            <h2 className="text-xl font-semibold mb-4">{editingId ? t.editTitle : t.createTitle}</h2>
+            <form onSubmit={handleSave} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.name}</label>
                 <input 
@@ -182,7 +244,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
                 >
-                  {t.create}
+                  {editingId ? t.save : t.create}
                 </button>
               </div>
             </form>
@@ -203,6 +265,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.provider}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.modelName}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.status}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{t.actions}</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -215,6 +278,20 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
                     <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
                       {profile.status}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button 
+                      onClick={() => openEditModal(profile)}
+                      className="text-blue-600 hover:text-blue-900 mr-4"
+                    >
+                      {t.edit}
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(profile.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      {t.delete}
+                    </button>
                   </td>
                 </tr>
               ))}

@@ -23,6 +23,23 @@ func (h *AuthHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		authGroup.POST("/login", h.Login)
 	}
+	
+	// Add /me endpoint
+	router.GET("/me", h.Me)
+}
+
+func (h *AuthHandler) Me(c *gin.Context) {
+	// TODO: Implement actual token validation and user extraction
+	// For MVP, we return a mock user
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"id": "usr_mock123",
+			"username": "admin",
+			"email": "admin@envnexus.local",
+			"role": "admin",
+			"tenant_id": "tenant_default",
+		},
+	})
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {

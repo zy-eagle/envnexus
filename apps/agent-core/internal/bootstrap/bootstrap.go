@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/api"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/audit"
@@ -13,6 +14,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/enrollment"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/governance"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/lifecycle"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/session"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
@@ -53,22 +55,74 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 
 	// 3. Enroll if needed
 	log.Println("[boot.enroll_if_needed] Checking enrollment status...")
-	// For MVP, we use a hardcoded demo token if no local token exists
-	// In production, this would be read from a bootstrap config file dropped by the installer
-	demoToken := "demo-token"
-	platformURL := "http://localhost:8080" // Should come from config
-
-	enrollClient := enrollment.NewClient(platformURL)
-	enrollResp, err := enrollClient.Enroll(ctx, demoToken, deviceID)
-	if err != nil {
-		log.Printf("Enrollment failed (might be already enrolled or platform unreachable): %v\n", err)
+	
+	var deviceToken string
+	var tenantID string
+	
+	// Check if we already have an identity
+	if id, err := b.identityManager.GetIdentity(); err == nil && id.Token != "" {
+		log.Println("Found existing identity, skipping enrollment.")
+		deviceToken = id.Token
+		tenantID = id.TenantID
 	} else {
-		log.Printf("Successfully enrolled! TenantID: %s\n", enrollResp.TenantID)
-		// TODO: Save the DeviceToken securely
+		// For MVP, we use a hardcoded demo token if no local token exists
+		// In production, this would be read from a bootstrap config file dropped by the installer
+		demoToken := "demo-token"
+		platformURL := "http://localhost:8080" // Should come from config
+
+		enrollClient := enrollment.NewClient(platformURL)
+		enrollResp, err := enrollClient.Enroll(ctx, demoToken, deviceID)
+		if err != nil {
+			log.Printf("Enrollment failed (might be already enrolled or platform unreachable): %v\n", err)
+			// Fallback for MVP if not enrolled and no token saved
+			deviceToken = "dummy-device-token"
+			tenantID = "dummy-tenant"
+		} else {
+			log.Printf("Successfully enrolled! TenantID: %s\n", enrollResp.TenantID)
+			deviceToken = enrollResp.DeviceToken
+			tenantID = enrollResp.TenantID
+			
+			// Save the identity
+			err = b.identityManager.SaveIdentity(&device.Identity{
+				DeviceID: deviceID,
+				TenantID: tenantID,
+				Token:    deviceToken,
+			})
+			if err != nil {
+				log.Printf("Failed to save identity: %v\n", err)
+			}
+		}
 	}
+
+	platformURL := "http://localhost:8080" // Should come from config
 
 	// 4. Pull remote config
 	log.Println("[boot.pull_remote_config] Pulling remote configuration...")
+	lifecycleClient := lifecycle.NewClient(platformURL, deviceID, deviceToken)
+	configResp, err := lifecycleClient.GetConfig(ctx)
+	if err != nil {
+		log.Printf("Failed to pull config: %v\n", err)
+	} else {
+		log.Printf("Successfully pulled config version: %s\n", configResp.ConfigVersion)
+	}
+
+	// Start heartbeat loop
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := lifecycleClient.Heartbeat(ctx); err != nil {
+					log.Printf("Heartbeat failed: %v\n", err)
+				} else {
+					log.Println("Heartbeat successful")
+				}
+			}
+		}
+	}()
 
 	// 5. Start local API
 	log.Println("[boot.start_local_api] Starting local API...")

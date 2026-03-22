@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 )
@@ -11,6 +12,8 @@ type TenantRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.Tenant, error)
 	GetBySlug(ctx context.Context, slug string) (*domain.Tenant, error)
 	List(ctx context.Context) ([]*domain.Tenant, error)
+	Update(ctx context.Context, tenant *domain.Tenant) error
+	Delete(ctx context.Context, id string) error
 }
 
 // MemoryTenantRepository is a simple in-memory implementation for MVP
@@ -51,4 +54,17 @@ func (r *MemoryTenantRepository) List(ctx context.Context) ([]*domain.Tenant, er
 		list = append(list, t)
 	}
 	return list, nil
+}
+
+func (r *MemoryTenantRepository) Update(ctx context.Context, tenant *domain.Tenant) error {
+	if _, exists := r.tenants[tenant.ID]; !exists {
+		return errors.New("tenant not found")
+	}
+	r.tenants[tenant.ID] = tenant
+	return nil
+}
+
+func (r *MemoryTenantRepository) Delete(ctx context.Context, id string) error {
+	delete(r.tenants, id)
+	return nil
 }

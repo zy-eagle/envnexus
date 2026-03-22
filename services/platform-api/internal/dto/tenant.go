@@ -7,6 +7,11 @@ type CreateTenantRequest struct {
 	Slug string `json:"slug" binding:"required"`
 }
 
+type UpdateTenantRequest struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
 type TenantResponse struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`

@@ -46,6 +46,8 @@ type DeviceRepository interface {
 	Create(ctx context.Context, device *domain.Device) error
 	GetByID(ctx context.Context, id string) (*domain.Device, error)
 	Update(ctx context.Context, device *domain.Device) error
+	ListByTenantID(ctx context.Context, tenantID string) ([]*domain.Device, error)
+	Delete(ctx context.Context, id string, tenantID string) error
 }
 
 type MySQLDeviceRepository struct {
@@ -74,4 +76,19 @@ func (r *MySQLDeviceRepository) GetByID(ctx context.Context, id string) (*domain
 
 func (r *MySQLDeviceRepository) Update(ctx context.Context, device *domain.Device) error {
 	return r.db.WithContext(ctx).Save(device).Error
+}
+
+func (r *MySQLDeviceRepository) ListByTenantID(ctx context.Context, tenantID string) ([]*domain.Device, error) {
+	var devices []*domain.Device
+	err := r.db.WithContext(ctx).Where("tenant_id = ? AND deleted_at IS NULL", tenantID).Find(&devices).Error
+	if err != nil {
+		return nil, err
+	}
+	return devices, nil
+}
+
+func (r *MySQLDeviceRepository) Delete(ctx context.Context, id string, tenantID string) error {
+	return r.db.WithContext(ctx).Model(&domain.Device{}).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		Update("deleted_at", gorm.Expr("NOW()")).Error
 }

@@ -1,0 +1,130 @@
+package agent_profile
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+)
+
+type Service struct {
+	repo repository.AgentProfileRepository
+}
+
+func NewService(repo repository.AgentProfileRepository) *Service {
+	return &Service{
+		repo: repo,
+	}
+}
+
+func (s *Service) ListProfiles(ctx context.Context, tenantID string) ([]*dto.AgentProfileResponse, error) {
+	profiles, err := s.repo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp []*dto.AgentProfileResponse
+	for _, p := range profiles {
+		resp = append(resp, &dto.AgentProfileResponse{
+			ID:               p.ID,
+			TenantID:         p.TenantID,
+			Name:             p.Name,
+			ModelProfileID:   p.ModelProfileID,
+			PolicyProfileID:  p.PolicyProfileID,
+			CapabilitiesJSON: p.CapabilitiesJSON,
+			UpdateChannel:    p.UpdateChannel,
+			Status:           p.Status,
+			Version:          p.Version,
+			CreatedAt:        p.CreatedAt,
+			UpdatedAt:        p.UpdatedAt,
+		})
+	}
+	return resp, nil
+}
+
+func (s *Service) CreateProfile(ctx context.Context, tenantID string, req dto.CreateAgentProfileRequest) (*dto.AgentProfileResponse, error) {
+	id := uuid.New().String()
+	profile := &domain.AgentProfile{
+		ID:               id,
+		TenantID:         tenantID,
+		Name:             req.Name,
+		ModelProfileID:   req.ModelProfileID,
+		PolicyProfileID:  req.PolicyProfileID,
+		CapabilitiesJSON: req.CapabilitiesJSON,
+		UpdateChannel:    req.UpdateChannel,
+		Status:           "active",
+		Version:          1,
+	}
+
+	if err := s.repo.Create(ctx, profile); err != nil {
+		return nil, err
+	}
+
+	return &dto.AgentProfileResponse{
+		ID:               profile.ID,
+		TenantID:         profile.TenantID,
+		Name:             profile.Name,
+		ModelProfileID:   profile.ModelProfileID,
+		PolicyProfileID:  profile.PolicyProfileID,
+		CapabilitiesJSON: profile.CapabilitiesJSON,
+		UpdateChannel:    profile.UpdateChannel,
+		Status:           profile.Status,
+		Version:          profile.Version,
+		CreatedAt:        profile.CreatedAt,
+		UpdatedAt:        profile.UpdatedAt,
+	}, nil
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, tenantID, id string, req dto.UpdateAgentProfileRequest) (*dto.AgentProfileResponse, error) {
+	profile, err := s.repo.GetByID(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if profile == nil {
+		return nil, context.Canceled // Or a proper not found error
+	}
+
+	if req.Name != "" {
+		profile.Name = req.Name
+	}
+	if req.ModelProfileID != "" {
+		profile.ModelProfileID = req.ModelProfileID
+	}
+	if req.PolicyProfileID != "" {
+		profile.PolicyProfileID = req.PolicyProfileID
+	}
+	if req.CapabilitiesJSON != "" {
+		profile.CapabilitiesJSON = req.CapabilitiesJSON
+	}
+	if req.UpdateChannel != "" {
+		profile.UpdateChannel = req.UpdateChannel
+	}
+	if req.Status != "" {
+		profile.Status = req.Status
+	}
+	profile.Version++
+
+	if err := s.repo.Update(ctx, profile); err != nil {
+		return nil, err
+	}
+
+	return &dto.AgentProfileResponse{
+		ID:               profile.ID,
+		TenantID:         profile.TenantID,
+		Name:             profile.Name,
+		ModelProfileID:   profile.ModelProfileID,
+		PolicyProfileID:  profile.PolicyProfileID,
+		CapabilitiesJSON: profile.CapabilitiesJSON,
+		UpdateChannel:    profile.UpdateChannel,
+		Status:           profile.Status,
+		Version:          profile.Version,
+		CreatedAt:        profile.CreatedAt,
+		UpdatedAt:        profile.UpdatedAt,
+	}, nil
+}
+
+func (s *Service) DeleteProfile(ctx context.Context, tenantID, id string) error {
+	return s.repo.Delete(ctx, id, tenantID)
+}

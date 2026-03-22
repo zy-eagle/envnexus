@@ -77,14 +77,14 @@ export default function Sidebar() {
             {expanded.tenant && (
               <ul className="mt-2 space-y-1 pl-4 border-l border-gray-100 ml-3">
                 <li><Link href="/tenants" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.allTenants}</Link></li>
-                <li><Link href="/tenants/default/devices" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.devices}</Link></li>
-                <li><Link href="/tenants/default/sessions" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.sessions}</Link></li>
-                <li><Link href="/tenants/default/audit-events" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.auditEvents}</Link></li>
-                <li><Link href="/tenants/default/download-packages" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.downloadPackages}</Link></li>
-                <li><Link href="/tenants/default/model-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.modelProfiles}</Link></li>
-                <li><Link href="/tenants/default/policy-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.policyProfiles}</Link></li>
-                <li><Link href="/tenants/default/agent-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.agentProfiles}</Link></li>
-                <li><Link href="/tenants/default/governance" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.governance}</Link></li>
+                <li><Link href="/tenants/tenant_default/devices" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.devices}</Link></li>
+                <li><Link href="/tenants/tenant_default/sessions" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.sessions}</Link></li>
+                <li><Link href="/tenants/tenant_default/audit-events" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.auditEvents}</Link></li>
+                <li><Link href="/tenants/tenant_default/download-packages" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.downloadPackages}</Link></li>
+                <li><Link href="/tenants/tenant_default/model-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.modelProfiles}</Link></li>
+                <li><Link href="/tenants/tenant_default/policy-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.policyProfiles}</Link></li>
+                <li><Link href="/tenants/tenant_default/agent-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.agentProfiles}</Link></li>
+                <li><Link href="/tenants/tenant_default/governance" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.governance}</Link></li>
               </ul>
             )}
           </li>

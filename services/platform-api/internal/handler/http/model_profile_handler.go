@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,8 @@ func (h *ModelProfileHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		profiles.GET("", h.ListProfiles)
 		profiles.POST("", h.CreateProfile)
+		profiles.PUT("/:id", h.UpdateProfile)
+		profiles.DELETE("/:id", h.DeleteProfile)
 	}
 }
 
@@ -52,4 +55,40 @@ func (h *ModelProfileHandler) CreateProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"data": resp})
+}
+
+func (h *ModelProfileHandler) UpdateProfile(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	id := c.Param("id")
+
+	var req dto.UpdateModelProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.profileService.UpdateProfile(c.Request.Context(), tenantID, id, req)
+	if err != nil {
+		if err == context.Canceled { // Quick hack for not found
+			c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": resp})
+}
+
+func (h *ModelProfileHandler) DeleteProfile(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	id := c.Param("id")
+
+	err := h.profileService.DeleteProfile(c.Request.Context(), tenantID, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }

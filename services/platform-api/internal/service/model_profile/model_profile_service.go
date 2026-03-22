@@ -79,3 +79,59 @@ func (s *Service) CreateProfile(ctx context.Context, tenantID string, req dto.Cr
 		UpdatedAt:  profile.UpdatedAt,
 	}, nil
 }
+
+func (s *Service) UpdateProfile(ctx context.Context, tenantID, id string, req dto.UpdateModelProfileRequest) (*dto.ModelProfileResponse, error) {
+	profile, err := s.repo.GetByID(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if profile == nil {
+		return nil, context.Canceled // Or a proper not found error
+	}
+
+	if req.Name != "" {
+		profile.Name = req.Name
+	}
+	if req.Provider != "" {
+		profile.Provider = req.Provider
+	}
+	if req.BaseURL != "" {
+		profile.BaseURL = req.BaseURL
+	}
+	if req.ModelName != "" {
+		profile.ModelName = req.ModelName
+	}
+	if req.ParamsJSON != "" {
+		profile.ParamsJSON = req.ParamsJSON
+	}
+	if req.SecretMode != "" {
+		profile.SecretMode = req.SecretMode
+	}
+	if req.Status != "" {
+		profile.Status = req.Status
+	}
+	profile.Version++
+
+	if err := s.repo.Update(ctx, profile); err != nil {
+		return nil, err
+	}
+
+	return &dto.ModelProfileResponse{
+		ID:         profile.ID,
+		TenantID:   profile.TenantID,
+		Name:       profile.Name,
+		Provider:   profile.Provider,
+		BaseURL:    profile.BaseURL,
+		ModelName:  profile.ModelName,
+		ParamsJSON: profile.ParamsJSON,
+		SecretMode: profile.SecretMode,
+		Status:     profile.Status,
+		Version:    profile.Version,
+		CreatedAt:  profile.CreatedAt,
+		UpdatedAt:  profile.UpdatedAt,
+	}, nil
+}
+
+func (s *Service) DeleteProfile(ctx context.Context, tenantID, id string) error {
+	return s.repo.Delete(ctx, id, tenantID)
+}

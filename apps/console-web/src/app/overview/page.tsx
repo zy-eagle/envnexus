@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 const dict = {
@@ -10,6 +11,32 @@ const dict = {
 export default function OverviewPage() {
   const { lang } = useLanguage();
   const t = dict[lang];
+  const [deviceCount, setDeviceCount] = useState<number | string>('...');
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        // For MVP, we use the default tenant
+        const res = await fetch('/api/v1/tenants/tenant_default/devices', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDeviceCount(data.data?.length || 0);
+        } else {
+          setDeviceCount(0);
+        }
+      } catch (error) {
+        console.error('Failed to fetch device stats:', error);
+        setDeviceCount(0);
+      }
+    };
+
+    fetchStats();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -22,8 +49,8 @@ export default function OverviewPage() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-500">{t.totalDev}</h3>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-3xl font-semibold text-gray-900">3</span>
-            <span className="text-sm text-green-600 font-medium">+100%</span>
+            <span className="text-3xl font-semibold text-gray-900">{deviceCount}</span>
+            <span className="text-sm text-green-600 font-medium"></span>
           </div>
         </div>
 

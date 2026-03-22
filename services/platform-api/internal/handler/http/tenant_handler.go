@@ -24,6 +24,8 @@ func (h *TenantHandler) RegisterRoutes(router *gin.RouterGroup) {
 		tenants.POST("", h.CreateTenant)
 		tenants.GET("", h.ListTenants)
 		tenants.GET("/:tenantId", h.GetTenant)
+		tenants.PUT("/:tenantId", h.UpdateTenant)
+		tenants.DELETE("/:tenantId", h.DeleteTenant)
 	}
 }
 
@@ -63,4 +65,34 @@ func (h *TenantHandler) ListTenants(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": resp})
+}
+
+func (h *TenantHandler) UpdateTenant(c *gin.Context) {
+	id := c.Param("tenantId")
+	
+	var req dto.UpdateTenantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.tenantService.UpdateTenant(c.Request.Context(), id, req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *TenantHandler) DeleteTenant(c *gin.Context) {
+	id := c.Param("tenantId")
+	
+	err := h.tenantService.DeleteTenant(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
