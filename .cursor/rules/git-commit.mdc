@@ -1,0 +1,12 @@
+---
+description: Git commit conventions for this project
+alwaysApply: true
+---
+
+# Git Commit Rules
+
+- Commit messages must be concise and descriptive.
+- NEVER include "Made-with: Cursor", "Made with Cursor", or any similar Cursor attribution in commit messages.
+- Use conventional commit prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+- Write commit messages in English.
+- Use `-F` (file-based) method for multi-line commit messages in PowerShell to avoid shell escaping issues.

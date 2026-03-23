@@ -1,0 +1,24 @@
+---
+description: Core project conventions for EnvNexus
+alwaysApply: true
+---
+
+# Project Conventions
+
+## Internationalization (i18n)
+
+- The project supports both Chinese (zh) and English (en).
+- All user-facing text in console-web and agent-desktop must go through the i18n dictionary — no hardcoded strings.
+- API error messages and log messages remain in English.
+
+## Backend Architecture (Go Services)
+
+- All Go backend services (`platform-api`, `session-gateway`, `job-runner`) must follow DDD (Domain-Driven Design) layered architecture:
+  - `domain/` — Entities, value objects, repository interfaces. No dependencies on other layers.
+  - `repository/` — Implements domain repository interfaces (MySQL/GORM, Redis, etc.).
+  - `service/` — Application services that orchestrate domain objects and repositories.
+  - `handler/` — HTTP layer (Gin). Parses requests, calls services, returns standardized responses.
+  - `dto/` — Data transfer objects for request/response payloads.
+- Dependency injection is done manually in `cmd/*/main.go` (repo -> service -> handler).
+- Use `gorm.io/gorm` for database operations.
+- Use `github.com/gin-gonic/gin` for HTTP routing.
