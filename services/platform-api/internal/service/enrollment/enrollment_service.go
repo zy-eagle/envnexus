@@ -3,56 +3,64 @@ package enrollment
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
+
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
 )
 
 type Service struct {
-	enrollRepo repository.EnrollmentRepository
-	deviceRepo repository.DeviceRepository
+	enrollRepo  repository.EnrollmentRepository
+	deviceRepo  repository.DeviceRepository
+	authService *auth.Service
 }
 
-func NewService(enrollRepo repository.EnrollmentRepository, deviceRepo repository.DeviceRepository) *Service {
+func NewService(enrollRepo repository.EnrollmentRepository, deviceRepo repository.DeviceRepository, authService *auth.Service) *Service {
 	return &Service{
-		enrollRepo: enrollRepo,
-		deviceRepo: deviceRepo,
+		enrollRepo:  enrollRepo,
+		deviceRepo:  deviceRepo,
+		authService: authService,
 	}
 }
 
 func (s *Service) CreateToken(ctx context.Context, tenantID string, req dto.CreateTokenRequest) (*dto.TokenResponse, error) {
-	// Generate a secure random token string
-	bytes := make([]byte, 16)
+	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
-		return nil, err
+		return nil, domain.ErrInternalError
 	}
 	tokenStr := "enx_tok_" + hex.EncodeToString(bytes)
+	hash := sha256.Sum256([]byte(tokenStr))
+	tokenHash := hex.EncodeToString(hash[:])
 
 	now := time.Now()
 	token := &domain.EnrollmentToken{
-		ID:        uuid.New().String(),
-		TenantID:  tenantID,
-		Token:     tokenStr,
-		MaxUses:   req.MaxUses,
-		UsedCount: 0,
-		ExpiresAt: now.Add(time.Duration(req.ExpiresIn) * time.Hour),
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             ulid.Make().String(),
+		TenantID:       tenantID,
+		AgentProfileID: req.AgentProfileID,
+		TokenHash:      tokenHash,
+		Channel:        "stable",
+		MaxUses:        req.MaxUses,
+		UsedCount:      0,
+		ExpiresAt:      now.Add(time.Duration(req.ExpiresIn) * time.Hour),
+		Status:         "active",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	if err := s.enrollRepo.Create(ctx, token); err != nil {
-		return nil, err
+		return nil, domain.ErrInternalError
 	}
 
 	return &dto.TokenResponse{
 		ID:        token.ID,
 		TenantID:  token.TenantID,
-		Token:     token.Token,
+		Token:     tokenStr,
 		MaxUses:   token.MaxUses,
 		UsedCount: token.UsedCount,
 		ExpiresAt: token.ExpiresAt,
@@ -61,60 +69,62 @@ func (s *Service) CreateToken(ctx context.Context, tenantID string, req dto.Crea
 }
 
 func (s *Service) EnrollAgent(ctx context.Context, req dto.AgentEnrollRequest) (*dto.AgentEnrollResponse, error) {
-	// 1. Fetch and validate token
-	token, err := s.enrollRepo.GetByToken(ctx, req.Token)
+	hash := sha256.Sum256([]byte(req.EnrollmentToken))
+	tokenHash := hex.EncodeToString(hash[:])
+
+	token, err := s.enrollRepo.GetByTokenHash(ctx, tokenHash)
 	if err != nil {
-		return nil, err
+		return nil, domain.ErrInternalError
 	}
 	if token == nil {
-		return nil, errors.New("invalid enrollment token")
+		return nil, domain.ErrInvalidEnrollToken
 	}
 	if !token.IsValid() {
-		return nil, errors.New("enrollment token is expired or exhausted")
+		return nil, domain.ErrInvalidEnrollToken
 	}
 
-	// 2. Check if device already exists
-	existingDevice, err := s.deviceRepo.GetByID(ctx, req.DeviceID)
-	if err != nil {
-		return nil, err
+	now := time.Now()
+	hostname := req.Device.Hostname
+	deviceID := ulid.Make().String()
+	newDevice := &domain.Device{
+		ID:              deviceID,
+		TenantID:        token.TenantID,
+		AgentProfileID:  token.AgentProfileID,
+		DeviceName:      req.Device.DeviceName,
+		Hostname:        &hostname,
+		Platform:        req.Device.Platform,
+		Arch:            req.Device.Arch,
+		EnvironmentType: req.Device.EnvironmentType,
+		AgentVersion:    req.Agent.Version,
+		Status:          domain.DeviceStatusActive,
+		PolicyVersion:   1,
+		LastSeenAt:      &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if newDevice.Arch == "" {
+		newDevice.Arch = "amd64"
+	}
+	if newDevice.EnvironmentType == "" {
+		newDevice.EnvironmentType = "physical"
 	}
 
-	if existingDevice == nil {
-		// Create new device
-		newDevice := &domain.Device{
-			ID:        req.DeviceID,
-			TenantID:  token.TenantID,
-			Name:      req.Hostname, // Default name to hostname
-			Hostname:  req.Hostname,
-			OSType:    req.OSType,
-			Status:    domain.DeviceStatusOnline,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		if err := s.deviceRepo.Create(ctx, newDevice); err != nil {
-			return nil, err
-		}
-	} else {
-		// Update existing device
-		existingDevice.Hostname = req.Hostname
-		existingDevice.OSType = req.OSType
-		existingDevice.RecordHeartbeat()
-		if err := s.deviceRepo.Update(ctx, existingDevice); err != nil {
-			return nil, err
-		}
+	if err := s.deviceRepo.Create(ctx, newDevice); err != nil {
+		return nil, domain.ErrInternalError
 	}
 
-	// 3. Mark token as used
 	token.IncrementUsage()
-	if err := s.enrollRepo.Update(ctx, token); err != nil {
-		return nil, err
-	}
+	_ = s.enrollRepo.Update(ctx, token)
 
-	// 4. Generate device token (In a real app, sign a JWT or generate a secure random string)
-	deviceToken := uuid.New().String()
+	deviceToken, err := s.authService.IssueDeviceToken(deviceID, token.TenantID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
 
 	return &dto.AgentEnrollResponse{
-		TenantID:    token.TenantID,
-		DeviceToken: deviceToken,
+		DeviceID:      deviceID,
+		TenantID:      token.TenantID,
+		DeviceToken:   deviceToken,
+		ConfigVersion: 1,
 	}, nil
 }

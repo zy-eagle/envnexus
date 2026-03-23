@@ -3,8 +3,9 @@ package dto
 import "time"
 
 type CreateTokenRequest struct {
-	MaxUses   int `json:"max_uses" binding:"required,min=1"`
-	ExpiresIn int `json:"expires_in_hours" binding:"required,min=1"` // Hours until expiration
+	AgentProfileID string `json:"agent_profile_id"`
+	MaxUses        int    `json:"max_uses" binding:"required,min=1"`
+	ExpiresIn      int    `json:"expires_in" binding:"required,min=1"`
 }
 
 type TokenResponse struct {
@@ -15,4 +16,11 @@ type TokenResponse struct {
 	UsedCount int       `json:"used_count"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type AgentEnrollResponse struct {
+	DeviceID      string `json:"device_id"`
+	TenantID      string `json:"tenant_id"`
+	DeviceToken   string `json:"device_token"`
+	ConfigVersion int    `json:"config_version"`
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -13,44 +14,51 @@ import (
 	"github.com/zy-eagle/envnexus/services/session-gateway/internal/handler/ws"
 )
 
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func main() {
-	// 1. Load config and env vars
-	// 2. Init logger and Redis connection
-	// 3. Init repository, service, handler, middleware
+	port := envOrDefault("ENX_HTTP_PORT", "8081")
+
 	sessionManager := ws.NewSessionManager()
 
 	router := gin.Default()
-	
-	// Health checks
+
 	router.GET("/healthz", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
 	})
 	router.GET("/readyz", func(c *gin.Context) {
-		c.String(http.StatusOK, "Ready")
+		c.JSON(http.StatusOK, gin.H{
+			"status":         "ready",
+			"online_devices": sessionManager.GetOnlineDeviceCount(),
+		})
 	})
 
-	// 4. Register WebSocket routes
 	router.GET("/ws/v1/agent", sessionManager.HandleAgentConnection)
-	// Internal API for platform-api to send commands to agents
 	router.POST("/api/v1/sessions/command", sessionManager.HandleCommand)
 
 	server := &http.Server{
-		Addr:    ":8081",
-		Handler: router,
+		Addr:         fmt.Sprintf(":%s", port),
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
 	}
 
 	go func() {
-		log.Println("Starting session-gateway server on :8081")
+		log.Printf("Starting session-gateway on :%s", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	log.Println("Shutting down session-gateway...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -58,6 +66,5 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
-
-	log.Println("Server exiting")
+	log.Println("Session-gateway exited")
 }

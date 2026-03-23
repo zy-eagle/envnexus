@@ -1,21 +1,69 @@
-// API SDK Placeholder for EnvNexus Platform API
+export interface APIResponse<T = any> {
+  request_id: string;
+  data: T;
+  error: { code: string; message: string } | null;
+}
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("token");
+}
 
-export const apiClient = {
-  async get(endpoint: string) {
-    const res = await fetch(`${API_BASE_URL}${endpoint}`);
-    if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-    return res.json();
-  },
+async function request<T>(
+  method: string,
+  endpoint: string,
+  body?: any
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
 
-  async post(endpoint: string, data: any) {
-    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-    return res.json();
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
+
+  const res = await fetch(`/api/v1${endpoint}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const json: APIResponse<T> = await res.json();
+
+  if (!res.ok || json.error) {
+    const code = json.error?.code || "unknown";
+    const message = json.error?.message || res.statusText;
+
+    if (res.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+    }
+
+    throw new APIError(code, message, res.status);
+  }
+
+  return json.data;
+}
+
+export class APIError extends Error {
+  code: string;
+  status: number;
+
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.code = code;
+    this.status = status;
+    this.name = "APIError";
+  }
+}
+
+export const api = {
+  get: <T = any>(endpoint: string) => request<T>("GET", endpoint),
+  post: <T = any>(endpoint: string, body?: any) => request<T>("POST", endpoint, body),
+  put: <T = any>(endpoint: string, body?: any) => request<T>("PUT", endpoint, body),
+  delete: <T = any>(endpoint: string) => request<T>("DELETE", endpoint),
 };

@@ -10,40 +10,53 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	
+
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/handler/agent"
 	httphandler "github.com/zy-eagle/envnexus/services/platform-api/internal/handler/http"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/agent_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/audit"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
+	package_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/package"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/policy_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
-	package_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/package"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/tenant"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/agent_profile"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
 )
 
-func main() {
-	// 1. Load config and env vars
-	// 2. Init logger, DB, Redis, Object Storage
-	// 3. Run migrations
-	
-	// 4. Init repository
-	var tenantRepo repository.TenantRepository
-	var enrollRepo repository.EnrollmentRepository
-	var deviceRepo repository.DeviceRepository
-	var auditRepo repository.AuditRepository
-	var pkgRepo repository.PackageRepository
-	var userRepo repository.UserRepository
-	var modelProfileRepo repository.ModelProfileRepository
-	var policyProfileRepo repository.PolicyProfileRepository
-	var agentProfileRepo repository.AgentProfileRepository
-	var sessionRepo repository.SessionRepository
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
+func main() {
 	dsn := os.Getenv("ENX_DATABASE_DSN")
+	jwtSecret := envOrDefault("ENX_JWT_SECRET", "dev-jwt-secret-change-me")
+	deviceSecret := envOrDefault("ENX_DEVICE_TOKEN_SECRET", "dev-device-secret-change-me")
+	httpPort := envOrDefault("ENX_HTTP_PORT", "8080")
+
+	// --- Repositories ---
+	var (
+		tenantRepo        repository.TenantRepository
+		enrollRepo        repository.EnrollmentRepository
+		deviceRepo        repository.DeviceRepository
+		auditRepo         repository.AuditRepository
+		pkgRepo           repository.PackageRepository
+		userRepo          repository.UserRepository
+		modelProfileRepo  repository.ModelProfileRepository
+		policyProfileRepo repository.PolicyProfileRepository
+		agentProfileRepo  repository.AgentProfileRepository
+		sessionRepo       repository.SessionRepository
+		approvalRepo      repository.ApprovalRequestRepository
+		roleRepo          repository.RoleRepository
+		toolInvRepo       repository.ToolInvocationRepository
+	)
+
 	if dsn != "" {
 		db, err := repository.NewDB(dsn)
 		if err != nil {
@@ -59,25 +72,32 @@ func main() {
 		policyProfileRepo = repository.NewMySQLPolicyProfileRepository(db)
 		agentProfileRepo = repository.NewMySQLAgentProfileRepository(db)
 		sessionRepo = repository.NewMySQLSessionRepository(db)
+		approvalRepo = repository.NewMySQLApprovalRequestRepository(db)
+		roleRepo = repository.NewMySQLRoleRepository(db)
+		toolInvRepo = repository.NewMySQLToolInvocationRepository(db)
+		log.Println("Connected to MySQL database")
 	} else {
-		log.Println("ENX_DATABASE_DSN not set, falling back to MemoryTenantRepository")
+		log.Println("ENX_DATABASE_DSN not set, using in-memory tenant repo (limited functionality)")
 		tenantRepo = repository.NewMemoryTenantRepository()
-		// For MVP, we'll panic here if no DB is provided since we didn't write memory repos for these
-		log.Println("Warning: Enrollment, Device, Audit, and Package repositories require MySQL for full functionality")
 	}
 
-	// Init service, handler, middleware
+	// Suppress unused variable warnings for repos that are only used with DB
+	_ = roleRepo
+	_ = toolInvRepo
+
+	// --- Services ---
+	authService := auth.NewService(userRepo, jwtSecret, deviceSecret)
 	tenantService := tenant.NewService(tenantRepo)
-	enrollService := enrollment.NewService(enrollRepo, deviceRepo)
+	enrollService := enrollment.NewService(enrollRepo, deviceRepo, authService)
 	auditService := audit.NewService(auditRepo)
 	pkgService := package_svc.NewService(pkgRepo)
-	authService := auth.NewService(userRepo)
 	modelProfileService := model_profile.NewService(modelProfileRepo)
 	policyProfileService := policy_profile.NewService(policyProfileRepo)
 	agentProfileService := agent_profile.NewService(agentProfileRepo)
 	deviceService := device.NewService(deviceRepo)
-	sessionService := session.NewService(sessionRepo)
+	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo)
 
+	// --- Handlers ---
 	tenantHandler := httphandler.NewTenantHandler(tenantService)
 	tokenHandler := httphandler.NewTokenHandler(enrollService)
 	pkgHandler := httphandler.NewPackageHandler(pkgService)
@@ -88,56 +108,70 @@ func main() {
 	deviceHandler := httphandler.NewDeviceHandler(deviceService)
 	sessionHandler := httphandler.NewSessionHandler(sessionService)
 	auditHandler := httphandler.NewAuditHandler(auditService)
-	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
-	agentAuditHandler := agent.NewAuditHandler(auditService)
-	agentLifecycleHandler := agent.NewLifecycleHandler()
 
-	// 5. Register HTTP routes
+	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
+	agentAuditHandler := agent.NewAuditHandler(auditRepo)
+	agentLifecycleHandler := agent.NewLifecycleHandler(deviceRepo, agentProfileRepo, modelProfileRepo, policyProfileRepo)
+
+	// --- Router ---
 	router := gin.Default()
-	
-	// Health checks
+
 	router.GET("/healthz", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
 	})
 	router.GET("/readyz", func(c *gin.Context) {
+		if dsn == "" {
+			c.String(http.StatusServiceUnavailable, "No database configured")
+			return
+		}
 		c.String(http.StatusOK, "Ready")
 	})
 
-	// API v1 group
-	v1 := router.Group("/api/v1")
+	// Public endpoints (no auth required)
+	publicV1 := router.Group("/api/v1")
 	{
-		tenantHandler.RegisterRoutes(v1)
-		tokenHandler.RegisterRoutes(v1)
-		pkgHandler.RegisterRoutes(v1)
-		authHandler.RegisterRoutes(v1)
-		modelProfileHandler.RegisterRoutes(v1)
-		policyProfileHandler.RegisterRoutes(v1)
-		agentProfileHandler.RegisterRoutes(v1)
-		deviceHandler.RegisterRoutes(v1)
-		sessionHandler.RegisterRoutes(v1)
-		auditHandler.RegisterRoutes(v1)
+		publicV1.POST("/auth/login", func(c *gin.Context) { authHandler.Login(c) })
+		publicV1.GET("/bootstrap", func(c *gin.Context) { authHandler.Bootstrap(c) })
 	}
 
-	// Agent API group
-	agentGroup := router.Group("")
-	agentEnrollHandler.RegisterRoutes(agentGroup)
-	agentAuditHandler.RegisterRoutes(agentGroup)
-	agentLifecycleHandler.RegisterRoutes(agentGroup)
+	// Protected console API
+	protectedV1 := router.Group("/api/v1")
+	protectedV1.Use(middleware.JWTAuth(jwtSecret))
+	{
+		protectedV1.GET("/me", func(c *gin.Context) { authHandler.Me(c) })
+		tenantHandler.RegisterRoutes(protectedV1)
+		tokenHandler.RegisterRoutes(protectedV1)
+		pkgHandler.RegisterRoutes(protectedV1)
+		modelProfileHandler.RegisterRoutes(protectedV1)
+		policyProfileHandler.RegisterRoutes(protectedV1)
+		agentProfileHandler.RegisterRoutes(protectedV1)
+		deviceHandler.RegisterRoutes(protectedV1)
+		sessionHandler.RegisterRoutes(protectedV1)
+		auditHandler.RegisterRoutes(protectedV1)
+	}
 
+	// Agent API (device token or open for enrollment)
+	agentEnrollHandler.RegisterRoutes(router.Group(""))
+	agentDeviceGroup := router.Group("")
+	agentDeviceGroup.Use(middleware.DeviceAuth(deviceSecret))
+	agentAuditHandler.RegisterRoutes(agentDeviceGroup)
+	agentLifecycleHandler.RegisterRoutes(agentDeviceGroup)
+
+	// --- Server ---
 	server := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
+		Addr:         ":" + httpPort,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
 	}
 
-	// 6. Start HTTP server
 	go func() {
-		log.Println("Starting platform-api server on :8080")
+		log.Printf("Starting platform-api on :%s", httpPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
 
-	// 7. Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -149,6 +183,5 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
-
-	log.Println("Server exiting")
+	log.Println("Server exited")
 }

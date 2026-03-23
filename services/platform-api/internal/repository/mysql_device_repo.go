@@ -10,8 +10,9 @@ import (
 
 type EnrollmentRepository interface {
 	Create(ctx context.Context, token *domain.EnrollmentToken) error
-	GetByToken(ctx context.Context, token string) (*domain.EnrollmentToken, error)
+	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.EnrollmentToken, error)
 	Update(ctx context.Context, token *domain.EnrollmentToken) error
+	ListByTenant(ctx context.Context, tenantID string) ([]*domain.EnrollmentToken, error)
 }
 
 type MySQLEnrollmentRepository struct {
@@ -26,9 +27,9 @@ func (r *MySQLEnrollmentRepository) Create(ctx context.Context, token *domain.En
 	return r.db.WithContext(ctx).Create(token).Error
 }
 
-func (r *MySQLEnrollmentRepository) GetByToken(ctx context.Context, token string) (*domain.EnrollmentToken, error) {
+func (r *MySQLEnrollmentRepository) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.EnrollmentToken, error) {
 	var et domain.EnrollmentToken
-	err := r.db.WithContext(ctx).Where("token = ?", token).First(&et).Error
+	err := r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).First(&et).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -40,6 +41,12 @@ func (r *MySQLEnrollmentRepository) GetByToken(ctx context.Context, token string
 
 func (r *MySQLEnrollmentRepository) Update(ctx context.Context, token *domain.EnrollmentToken) error {
 	return r.db.WithContext(ctx).Save(token).Error
+}
+
+func (r *MySQLEnrollmentRepository) ListByTenant(ctx context.Context, tenantID string) ([]*domain.EnrollmentToken, error) {
+	var tokens []*domain.EnrollmentToken
+	err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("created_at DESC").Find(&tokens).Error
+	return tokens, err
 }
 
 type DeviceRepository interface {
@@ -64,7 +71,7 @@ func (r *MySQLDeviceRepository) Create(ctx context.Context, device *domain.Devic
 
 func (r *MySQLDeviceRepository) GetByID(ctx context.Context, id string) (*domain.Device, error) {
 	var device domain.Device
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&device).Error
+	err := r.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&device).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -81,14 +88,11 @@ func (r *MySQLDeviceRepository) Update(ctx context.Context, device *domain.Devic
 func (r *MySQLDeviceRepository) ListByTenantID(ctx context.Context, tenantID string) ([]*domain.Device, error) {
 	var devices []*domain.Device
 	err := r.db.WithContext(ctx).Where("tenant_id = ? AND deleted_at IS NULL", tenantID).Find(&devices).Error
-	if err != nil {
-		return nil, err
-	}
-	return devices, nil
+	return devices, err
 }
 
 func (r *MySQLDeviceRepository) Delete(ctx context.Context, id string, tenantID string) error {
 	return r.db.WithContext(ctx).Model(&domain.Device{}).
 		Where("id = ? AND tenant_id = ?", id, tenantID).
-		Update("deleted_at", gorm.Expr("NOW()")).Error
+		Update("deleted_at", gorm.Expr("NOW(3)")).Error
 }

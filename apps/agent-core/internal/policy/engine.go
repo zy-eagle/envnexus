@@ -2,12 +2,13 @@ package policy
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 )
 
@@ -21,13 +22,14 @@ const (
 )
 
 type ApprovalRequest struct {
-	ID        string
-	ToolName  string
-	Params    map[string]interface{}
-	Status    ApprovalStatus
-	CreatedAt time.Time
-	ExpiresAt time.Time
-	ResultCh  chan bool // true if approved, false if denied/expired
+	ID        string                 `json:"id"`
+	ToolName  string                 `json:"tool_name"`
+	RiskLevel string                 `json:"risk_level"`
+	Params    map[string]interface{} `json:"params"`
+	Status    ApprovalStatus         `json:"status"`
+	CreatedAt time.Time              `json:"created_at"`
+	ExpiresAt time.Time              `json:"expires_at"`
+	ResultCh  chan bool              `json:"-"`
 }
 
 type Engine struct {
@@ -41,19 +43,16 @@ func NewEngine() *Engine {
 	}
 }
 
-// Check evaluates if a tool execution requires approval.
-// If it does, it blocks until approval is granted or denied.
 func (e *Engine) Check(ctx context.Context, tool tools.Tool, params map[string]interface{}) (bool, error) {
 	if tool.IsReadOnly() {
-		// Read-only tools pass immediately
 		return true, nil
 	}
 
-	// Write tools require approval
-	reqID := uuid.New().String()
+	reqID := generateID()
 	req := &ApprovalRequest{
 		ID:        reqID,
 		ToolName:  tool.Name(),
+		RiskLevel: tool.RiskLevel(),
 		Params:    params,
 		Status:    StatusPending,
 		CreatedAt: time.Now(),
@@ -65,10 +64,7 @@ func (e *Engine) Check(ctx context.Context, tool tools.Tool, params map[string]i
 	e.pendingApprovals[reqID] = req
 	e.mu.Unlock()
 
-	log.Printf("Tool '%s' requires approval. Created approval request: %s\n", tool.Name(), reqID)
-
-	// In a real app, we would notify the local UI or platform about this pending request here.
-	// For MVP, we'll just wait on the channel.
+	log.Printf("[policy] Tool '%s' (risk: %s) requires approval. Request: %s\n", tool.Name(), tool.RiskLevel(), reqID)
 
 	select {
 	case <-ctx.Done():
@@ -92,7 +88,6 @@ func (e *Engine) removeRequest(id string) {
 	delete(e.pendingApprovals, id)
 }
 
-// Resolve is called by the UI or API to approve or deny a request
 func (e *Engine) Resolve(id string, approved bool) error {
 	e.mu.Lock()
 	req, exists := e.pendingApprovals[id]
@@ -107,12 +102,11 @@ func (e *Engine) Resolve(id string, approved bool) error {
 	} else {
 		req.Status = StatusDenied
 	}
-	
+
 	req.ResultCh <- approved
 	return nil
 }
 
-// GetPending returns all currently pending approval requests (useful for UI)
 func (e *Engine) GetPending() []*ApprovalRequest {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -122,4 +116,10 @@ func (e *Engine) GetPending() []*ApprovalRequest {
 		list = append(list, req)
 	}
 	return list
+}
+
+func generateID() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

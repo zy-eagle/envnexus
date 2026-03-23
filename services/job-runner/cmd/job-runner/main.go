@@ -15,11 +15,17 @@ import (
 	"gorm.io/gorm"
 )
 
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func main() {
-	// 1. Load config and env vars
 	dsn := os.Getenv("ENX_DATABASE_DSN")
-	
-	// 2. Init logger, DB, Redis, Object Storage
+	healthPort := envOrDefault("ENX_HEALTH_PORT", "8082")
+
 	var db *gorm.DB
 	if dsn != "" {
 		var err error
@@ -27,53 +33,56 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to connect to database: %v", err)
 		}
-		log.Println("Successfully connected to MySQL database")
+		log.Println("Connected to MySQL database")
 	} else {
-		log.Println("Warning: ENX_DATABASE_DSN not set, workers requiring DB will fail")
+		log.Println("Warning: ENX_DATABASE_DSN not set, workers requiring DB will be disabled")
 	}
 
-	// 3. Init repository, service, worker
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 4. Start task consumers
 	if db != nil {
-		tokenWorker := worker.NewTokenCleanupWorker(db)
-		go tokenWorker.Start(ctx)
+		go worker.NewTokenCleanupWorker(db).Start(ctx)
+		go worker.NewLinkCleanupWorker(db).Start(ctx)
+		go worker.NewAuditFlushWorker(db).Start(ctx)
+		go worker.NewSessionCleanupWorker(db).Start(ctx)
 	}
-	// 5. Start health check HTTP server
+
 	router := gin.Default()
-	
-	// Health checks
 	router.GET("/healthz", func(c *gin.Context) {
-		c.String(http.StatusOK, "OK")
+		status := "ok"
+		if db == nil {
+			status = "degraded (no database)"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":  status,
+			"workers": []string{"token_cleanup", "link_cleanup", "audit_flush", "session_cleanup"},
+		})
 	})
 
 	server := &http.Server{
-		Addr:    ":8082", // Internal port for health checks
+		Addr:    ":" + healthPort,
 		Handler: router,
 	}
 
 	go func() {
-		log.Println("Starting job-runner health server on :8082")
+		log.Printf("Starting job-runner health server on :%s", healthPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
 
-	// 6. Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down job-runner...")
+	cancel()
 
-	// Use a new variable name for the shutdown context to avoid shadowing/redeclaring
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
-
-	log.Println("job-runner exiting")
+	log.Println("job-runner exited")
 }

@@ -4,8 +4,8 @@ services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: envnexus
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-envnexus}
     volumes:
       - ./volumes/mysql:/var/lib/mysql
     healthcheck:
@@ -28,8 +28,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - ./volumes/minio:/data
     healthcheck:
@@ -49,10 +49,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
-        condition: service_healthy
     ports:
-      - "8080:8080"
+      - "${ENX_PLATFORM_API_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 10s
@@ -68,8 +66,10 @@ services:
     depends_on:
       platform-api:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
-      - "8081:8081"
+      - "${ENX_SESSION_GATEWAY_PORT:-8081}:8081"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
       interval: 10s
@@ -105,4 +105,4 @@ services:
       platform-api:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${ENX_CONSOLE_PORT:-3000}:3000"

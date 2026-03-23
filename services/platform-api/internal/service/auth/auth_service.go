@@ -2,39 +2,71 @@ package auth
 
 import (
 	"context"
-	"errors"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/oklog/ulid/v2"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 )
 
 type Service struct {
-	userRepo repository.UserRepository
+	userRepo        repository.UserRepository
+	jwtSecret       string
+	deviceSecret    string
+	tokenExpiration time.Duration
 }
 
-func NewService(userRepo repository.UserRepository) *Service {
+func NewService(userRepo repository.UserRepository, jwtSecret, deviceSecret string) *Service {
 	return &Service{
-		userRepo: userRepo,
+		userRepo:        userRepo,
+		jwtSecret:       jwtSecret,
+		deviceSecret:    deviceSecret,
+		tokenExpiration: 24 * time.Hour,
 	}
 }
 
 func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error) {
 	user, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
-		return nil, err
+		return nil, domain.ErrInternalError
 	}
 	if user == nil {
-		return nil, errors.New("invalid email or password")
+		return nil, domain.ErrInvalidCredentials
 	}
 
-	// For MVP: Plain text password check
-	if user.PasswordHash != req.Password {
-		return nil, errors.New("invalid email or password")
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		return nil, domain.ErrInvalidCredentials
 	}
+
+	now := time.Now()
+	claims := &middleware.Claims{
+		UserID:      user.ID,
+		TenantID:    user.TenantID,
+		Email:       user.Email,
+		DisplayName: user.DisplayName,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.tokenExpiration)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        ulid.Make().String(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString([]byte(s.jwtSecret))
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+
+	user.LastLoginAt = &now
+	_ = s.userRepo.Update(ctx, user)
 
 	resp := &dto.LoginResponse{
-		AccessToken: "mock-jwt-token-" + user.ID,
-		ExpiresIn:   3600,
+		AccessToken: tokenStr,
+		ExpiresIn:   int(s.tokenExpiration.Seconds()),
 	}
 	resp.User.ID = user.ID
 	resp.User.TenantID = user.TenantID
@@ -42,4 +74,28 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginRe
 	resp.User.DisplayName = user.DisplayName
 
 	return resp, nil
+}
+
+func (s *Service) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
+	return s.userRepo.GetByID(ctx, userID)
+}
+
+func (s *Service) IssueDeviceToken(deviceID, tenantID string) (string, error) {
+	now := time.Now()
+	claims := &middleware.DeviceClaims{
+		DeviceID: deviceID,
+		TenantID: tenantID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(365 * 24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        ulid.Make().String(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.deviceSecret))
+}
+
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bytes), err
 }

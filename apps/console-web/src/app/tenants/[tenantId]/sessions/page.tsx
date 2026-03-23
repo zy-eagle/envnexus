@@ -2,35 +2,25 @@
 
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { api } from '@/lib/api/client';
+import ConsoleLayout from '@/components/ConsoleLayout';
 
 const dict = {
   en: {
-    title: "Sessions",
-    noSessions: "No sessions found.",
-    deviceId: "Device ID",
-    transport: "Transport",
-    status: "Status",
-    initiator: "Initiator",
-    startedAt: "Started At",
-    endedAt: "Ended At",
-    actions: "Actions",
-    view: "View",
+    title: "Sessions", noSessions: "No sessions found.", deviceId: "Device ID",
+    transport: "Transport", status: "Status", initiator: "Initiator",
+    startedAt: "Started At", actions: "Actions", view: "View", abort: "Abort",
+    confirmAbort: "Are you sure you want to abort this session?"
   },
   zh: {
-    title: "会话管理",
-    noSessions: "暂无会话记录。",
-    deviceId: "设备 ID",
-    transport: "传输方式",
-    status: "状态",
-    initiator: "发起方",
-    startedAt: "开始时间",
-    endedAt: "结束时间",
-    actions: "操作",
-    view: "查看",
+    title: "会话管理", noSessions: "暂无会话记录。", deviceId: "设备 ID",
+    transport: "传输方式", status: "状态", initiator: "发起方",
+    startedAt: "开始时间", actions: "操作", view: "查看", abort: "终止",
+    confirmAbort: "确定要终止此会话吗？"
   }
 };
 
-export default function SessionsPage({ params }: { params: { tenantId: string } }) {
+function SessionsContent({ tenantId }: { tenantId: string }) {
   const { lang } = useLanguage();
   const t = dict[lang];
   const [sessions, setSessions] = useState<any[]>([]);
@@ -38,14 +28,8 @@ export default function SessionsPage({ params }: { params: { tenantId: string } 
 
   const fetchSessions = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/tenants/${params.tenantId}/sessions`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSessions(data.data || []);
-      }
+      const data = await api.get<{ items: any[] }>(`/tenants/${tenantId}/sessions`);
+      setSessions(data.items || []);
     } catch (error) {
       console.error('Failed to fetch sessions:', error);
     } finally {
@@ -53,15 +37,34 @@ export default function SessionsPage({ params }: { params: { tenantId: string } 
     }
   };
 
-  useEffect(() => {
-    fetchSessions();
-  }, [params.tenantId]);
+  const handleAbort = async (sessionId: string) => {
+    if (!confirm(t.confirmAbort)) return;
+    try {
+      await api.post(`/sessions/${sessionId}/abort`, { reason: "User requested" });
+      fetchSessions();
+    } catch (error) {
+      console.error('Failed to abort session:', error);
+    }
+  };
+
+  useEffect(() => { fetchSessions(); }, [tenantId]);
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case 'created': case 'attached': return 'bg-blue-100 text-blue-800';
+      case 'diagnosing': case 'executing': return 'bg-yellow-100 text-yellow-800';
+      case 'awaiting_approval': return 'bg-orange-100 text-orange-800';
+      case 'completed': return 'bg-green-100 text-green-800';
+      case 'aborted': case 'expired': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const isActive = (status: string) => !['completed', 'aborted', 'expired'].includes(status);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
-      </div>
+      <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
@@ -72,21 +75,21 @@ export default function SessionsPage({ params }: { params: { tenantId: string } 
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.deviceId}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.transport}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.status}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.initiator}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.startedAt}</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{t.actions}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.deviceId}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.transport}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.status}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.initiator}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.startedAt}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">{t.actions}</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {sessions.map((session) => (
-                <tr key={session.id}>
+              {sessions.map((session: any) => (
+                <tr key={session.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{session.device_id}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{session.transport}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor(session.status)}`}>
                       {session.status}
                     </span>
                   </td>
@@ -94,8 +97,11 @@ export default function SessionsPage({ params }: { params: { tenantId: string } 
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {new Date(session.started_at).toLocaleString()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                     <button className="text-blue-600 hover:text-blue-900">{t.view}</button>
+                    {isActive(session.status) && (
+                      <button onClick={() => handleAbort(session.id)} className="text-red-600 hover:text-red-900">{t.abort}</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -104,5 +110,13 @@ export default function SessionsPage({ params }: { params: { tenantId: string } 
         )}
       </div>
     </div>
+  );
+}
+
+export default function SessionsPage({ params }: { params: { tenantId: string } }) {
+  return (
+    <ConsoleLayout>
+      <SessionsContent tenantId={params.tenantId} />
+    </ConsoleLayout>
   );
 }

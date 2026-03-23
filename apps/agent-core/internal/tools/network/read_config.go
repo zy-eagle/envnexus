@@ -26,6 +26,10 @@ func (t *ReadNetworkConfigTool) IsReadOnly() bool {
 	return true
 }
 
+func (t *ReadNetworkConfigTool) RiskLevel() string {
+	return "L0"
+}
+
 func (t *ReadNetworkConfigTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

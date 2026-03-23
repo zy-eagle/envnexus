@@ -1,120 +1,239 @@
 package ws
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins for MVP. In production, validate against allowed origins.
 		return true
 	},
+	HandshakeTimeout: 10 * time.Second,
+}
+
+type EventEnvelope struct {
+	EventID   string      `json:"event_id"`
+	EventType string      `json:"event_type"`
+	TenantID  string      `json:"tenant_id,omitempty"`
+	DeviceID  string      `json:"device_id,omitempty"`
+	SessionID string      `json:"session_id,omitempty"`
+	Timestamp string      `json:"timestamp"`
+	Payload   interface{} `json:"payload"`
+}
+
+type DeviceConnection struct {
+	Conn     *websocket.Conn
+	DeviceID string
+	TenantID string
+	SendCh   chan []byte
 }
 
 type SessionManager struct {
-	// A simple map to hold active connections. Key: DeviceID
-	connections map[string]*websocket.Conn
+	connections map[string]*DeviceConnection
 	mu          sync.RWMutex
 }
 
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
-		connections: make(map[string]*websocket.Conn),
+		connections: make(map[string]*DeviceConnection),
 	}
 }
 
-// HandleCommand receives an HTTP request and forwards the JSON payload to the connected agent
 func (m *SessionManager) HandleCommand(c *gin.Context) {
 	deviceID := c.Query("device_id")
 	if deviceID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing device_id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing device_id"})
 		return
 	}
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read body"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read body"})
 		return
 	}
 	defer c.Request.Body.Close()
 
 	m.mu.RLock()
-	conn, ok := m.connections[deviceID]
+	dc, ok := m.connections[deviceID]
 	m.mu.RUnlock()
 
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Device not connected"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "device not connected"})
 		return
 	}
 
-	// Forward the raw JSON to the agent
-	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
-		log.Printf("Failed to send command to %s: %v\n", deviceID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send command"})
-		return
+	select {
+	case dc.SendCh <- body:
+		c.JSON(http.StatusOK, gin.H{"status": "command_sent"})
+	default:
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "device send buffer full"})
+	}
+}
+
+func (m *SessionManager) SendToDevice(deviceID string, envelope EventEnvelope) error {
+	m.mu.RLock()
+	dc, ok := m.connections[deviceID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "command_sent"})
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case dc.SendCh <- data:
+		return nil
+	default:
+		return nil
+	}
 }
 
 func (m *SessionManager) HandleAgentConnection(c *gin.Context) {
-	// 1. Authenticate the request (e.g., via Authorization header or query param)
 	deviceID := c.Query("device_id")
 	if deviceID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing device_id"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing device_id"})
 		return
 	}
 
-	// 2. Upgrade HTTP to WebSocket
+	tenantID := c.Query("tenant_id")
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("Failed to upgrade connection: %v\n", err)
+		log.Printf("Failed to upgrade connection for device %s: %v\n", deviceID, err)
 		return
 	}
 
-	// 3. Register connection
+	dc := &DeviceConnection{
+		Conn:     conn,
+		DeviceID: deviceID,
+		TenantID: tenantID,
+		SendCh:   make(chan []byte, 64),
+	}
+
 	m.mu.Lock()
-	m.connections[deviceID] = conn
+	if old, exists := m.connections[deviceID]; exists {
+		close(old.SendCh)
+		old.Conn.Close()
+	}
+	m.connections[deviceID] = dc
 	m.mu.Unlock()
 
-	log.Printf("Device %s connected via WebSocket\n", deviceID)
+	log.Printf("Device %s connected (tenant: %s)\n", deviceID, tenantID)
 
-	// 4. Start read loop
-	go m.readPump(deviceID, conn)
+	go m.writePump(dc)
+	go m.readPump(dc)
 }
 
-func (m *SessionManager) readPump(deviceID string, conn *websocket.Conn) {
+func (m *SessionManager) writePump(dc *DeviceConnection) {
+	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
-		m.mu.Lock()
-		delete(m.connections, deviceID)
-		m.mu.Unlock()
-		conn.Close()
-		log.Printf("Device %s disconnected\n", deviceID)
+		ticker.Stop()
+		dc.Conn.Close()
 	}()
 
 	for {
-		messageType, p, err := conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("Error reading message from %s: %v\n", deviceID, err)
+		select {
+		case msg, ok := <-dc.SendCh:
+			if !ok {
+				_ = dc.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
 			}
-			break
-		}
-		
-		log.Printf("Received message from %s (type %d): %s\n", deviceID, messageType, string(p))
-		
-		// MVP: Simple echo back
-		if err := conn.WriteMessage(messageType, p); err != nil {
-			log.Printf("Error writing message to %s: %v\n", deviceID, err)
-			break
+			_ = dc.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := dc.Conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				log.Printf("Write error for device %s: %v\n", dc.DeviceID, err)
+				return
+			}
+		case <-ticker.C:
+			_ = dc.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := dc.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
+}
+
+func (m *SessionManager) readPump(dc *DeviceConnection) {
+	defer func() {
+		m.mu.Lock()
+		if current, ok := m.connections[dc.DeviceID]; ok && current == dc {
+			delete(m.connections, dc.DeviceID)
+		}
+		m.mu.Unlock()
+		close(dc.SendCh)
+		dc.Conn.Close()
+		log.Printf("Device %s disconnected\n", dc.DeviceID)
+	}()
+
+	dc.Conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	dc.Conn.SetPongHandler(func(string) error {
+		dc.Conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		return nil
+	})
+
+	for {
+		_, p, err := dc.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("Read error from device %s: %v\n", dc.DeviceID, err)
+			}
+			return
+		}
+
+		var envelope EventEnvelope
+		if err := json.Unmarshal(p, &envelope); err != nil {
+			log.Printf("Invalid event from device %s: %v\n", dc.DeviceID, err)
+			continue
+		}
+
+		envelope.DeviceID = dc.DeviceID
+		envelope.TenantID = dc.TenantID
+
+		m.handleAgentEvent(dc, envelope)
+	}
+}
+
+func (m *SessionManager) handleAgentEvent(dc *DeviceConnection, evt EventEnvelope) {
+	switch evt.EventType {
+	case "heartbeat.ping":
+		ack := EventEnvelope{
+			EventID:   evt.EventID,
+			EventType: "heartbeat.pong",
+			DeviceID:  dc.DeviceID,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		}
+		data, _ := json.Marshal(ack)
+		select {
+		case dc.SendCh <- data:
+		default:
+		}
+
+	case "session.input", "approval.submit", "session.abort":
+		log.Printf("Agent event [%s] from device %s, session %s\n", evt.EventType, dc.DeviceID, evt.SessionID)
+
+	case "tool.completed", "tool.failed":
+		log.Printf("Tool event [%s] from device %s: %v\n", evt.EventType, dc.DeviceID, evt.Payload)
+
+	default:
+		log.Printf("Unhandled event type [%s] from device %s\n", evt.EventType, dc.DeviceID)
+	}
+}
+
+func (m *SessionManager) GetOnlineDeviceCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.connections)
 }

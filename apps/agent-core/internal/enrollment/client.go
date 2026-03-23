@@ -20,34 +20,64 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 15 * time.Second,
 		},
 	}
 }
 
 type EnrollRequest struct {
-	Token    string `json:"token"`
-	DeviceID string `json:"device_id"`
-	Hostname string `json:"hostname"`
-	OSType   string `json:"os_type"`
+	EnrollmentToken string     `json:"enrollment_token"`
+	Device          DeviceInfo `json:"device"`
+	Agent           AgentInfo  `json:"agent"`
+}
+
+type DeviceInfo struct {
+	DeviceName      string `json:"device_name"`
+	Hostname        string `json:"hostname"`
+	Platform        string `json:"platform"`
+	Arch            string `json:"arch"`
+	EnvironmentType string `json:"environment_type"`
+}
+
+type AgentInfo struct {
+	Version string `json:"version"`
 }
 
 type EnrollResponse struct {
-	TenantID    string `json:"tenant_id"`
-	DeviceToken string `json:"device_token"`
+	DeviceID      string `json:"device_id"`
+	TenantID      string `json:"tenant_id"`
+	DeviceToken   string `json:"device_token"`
+	ConfigVersion int    `json:"config_version"`
 }
 
-func (c *Client) Enroll(ctx context.Context, token, deviceID string) (*EnrollResponse, error) {
+type APIResponse struct {
+	Data  json.RawMessage `json:"data"`
+	Error *APIError       `json:"error"`
+}
+
+type APIError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func (c *Client) Enroll(ctx context.Context, enrollmentToken, agentVersion string) (*EnrollResponse, error) {
 	hostname, _ := os.Hostname()
 	if hostname == "" {
 		hostname = "unknown-host"
 	}
 
 	reqBody := EnrollRequest{
-		Token:    token,
-		DeviceID: deviceID,
-		Hostname: hostname,
-		OSType:   runtime.GOOS,
+		EnrollmentToken: enrollmentToken,
+		Device: DeviceInfo{
+			DeviceName:      hostname,
+			Hostname:        hostname,
+			Platform:        runtime.GOOS,
+			Arch:            runtime.GOARCH,
+			EnvironmentType: "physical",
+		},
+		Agent: AgentInfo{
+			Version: agentVersion,
+		},
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -68,13 +98,18 @@ func (c *Client) Enroll(ctx context.Context, token, deviceID string) (*EnrollRes
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("enrollment failed with status: %d", resp.StatusCode)
+	var apiResp APIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if apiResp.Error != nil {
+		return nil, fmt.Errorf("enrollment failed: [%s] %s", apiResp.Error.Code, apiResp.Error.Message)
 	}
 
 	var enrollResp EnrollResponse
-	if err := json.NewDecoder(resp.Body).Decode(&enrollResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(apiResp.Data, &enrollResp); err != nil {
+		return nil, fmt.Errorf("failed to parse enrollment data: %w", err)
 	}
 
 	return &enrollResp, nil

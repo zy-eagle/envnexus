@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { api, APIError } from '@/lib/api/client';
+import { useRouter } from 'next/navigation';
 
 const dict = {
   en: {
@@ -28,31 +29,31 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+    setSubmitting(true);
+
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
+      const resp = await api.post<{
+        access_token: string;
+        expires_in: number;
+        user: { id: string; tenant_id: string; email: string; display_name: string };
+      }>('/auth/login', { email, password });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || t.loginFailed);
-      }
-
-      const { data } = await res.json();
-      // Store token and user info
-      localStorage.setItem('token', data.access_token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      
+      localStorage.setItem('token', resp.access_token);
+      localStorage.setItem('user', JSON.stringify(resp.user));
       router.push('/overview');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      if (err instanceof APIError) {
+        setError(err.message);
+      } else {
+        setError(t.loginFailed);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -100,9 +101,10 @@ export default function LoginPage() {
           <div>
             <button
               type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              disabled={submitting}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
-              {t.signInBtn}
+              {submitting ? '...' : t.signInBtn}
             </button>
           </div>
         </form>

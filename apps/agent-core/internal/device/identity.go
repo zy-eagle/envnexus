@@ -1,8 +1,6 @@
 package device
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,69 +18,55 @@ type IdentityManager struct {
 }
 
 func NewIdentityManager(configDir string) *IdentityManager {
-	return &IdentityManager{
-		configDir: configDir,
-	}
+	return &IdentityManager{configDir: configDir}
 }
 
-// GetOrCreateDeviceID retrieves the existing device ID or generates a new one.
 func (m *IdentityManager) GetOrCreateDeviceID() (string, error) {
 	idFile := filepath.Join(m.configDir, "device_id")
 
-	// Try to read existing ID
 	data, err := os.ReadFile(idFile)
 	if err == nil && len(data) > 0 {
 		return string(data), nil
 	}
 
-	// Generate new ID
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("failed to generate device ID: %w", err)
-	}
-	newID := hex.EncodeToString(bytes)
-
-	// Save new ID
-	if err := os.MkdirAll(m.configDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create config dir: %w", err)
-	}
-	if err := os.WriteFile(idFile, []byte(newID), 0600); err != nil {
-		return "", fmt.Errorf("failed to write device ID: %w", err)
-	}
-
-	return newID, nil
+	return "", fmt.Errorf("no device identity found")
 }
 
-// SaveIdentity saves the full identity including tenant and token
 func (m *IdentityManager) SaveIdentity(identity *Identity) error {
 	if err := os.MkdirAll(m.configDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
 
+	if err := os.WriteFile(filepath.Join(m.configDir, "device_id"), []byte(identity.DeviceID), 0600); err != nil {
+		return fmt.Errorf("failed to write device_id: %w", err)
+	}
+
 	idFile := filepath.Join(m.configDir, "identity.json")
-	
-	// We'll use a simple JSON format for now
-	data := fmt.Sprintf(`{"device_id":"%s","tenant_id":"%s","token":"%s"}`, 
-		identity.DeviceID, identity.TenantID, identity.Token)
-		
-	if err := os.WriteFile(idFile, []byte(data), 0600); err != nil {
+	data, err := json.MarshalIndent(identity, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal identity: %w", err)
+	}
+	if err := os.WriteFile(idFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write identity: %w", err)
 	}
 	return nil
 }
 
-// GetIdentity retrieves the saved identity
 func (m *IdentityManager) GetIdentity() (*Identity, error) {
 	idFile := filepath.Join(m.configDir, "identity.json")
 	data, err := os.ReadFile(idFile)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var id Identity
 	if err := json.Unmarshal(data, &id); err != nil {
 		return nil, err
 	}
-	
 	return &id, nil
+}
+
+func (m *IdentityManager) HasIdentity() bool {
+	id, err := m.GetIdentity()
+	return err == nil && id != nil && id.Token != ""
 }

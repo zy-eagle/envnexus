@@ -22,7 +22,11 @@ func (t *FlushDNSTool) Description() string {
 }
 
 func (t *FlushDNSTool) IsReadOnly() bool {
-	return false // This is a write/modify action
+	return false
+}
+
+func (t *FlushDNSTool) RiskLevel() string {
+	return "L2"
 }
 
 func (t *FlushDNSTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {

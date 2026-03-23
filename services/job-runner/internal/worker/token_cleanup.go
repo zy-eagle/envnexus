@@ -9,23 +9,25 @@ import (
 )
 
 type TokenCleanupWorker struct {
-	db *gorm.DB
+	db       *gorm.DB
+	interval time.Duration
 }
 
 func NewTokenCleanupWorker(db *gorm.DB) *TokenCleanupWorker {
-	return &TokenCleanupWorker{db: db}
+	return &TokenCleanupWorker{db: db, interval: 1 * time.Hour}
 }
 
 func (w *TokenCleanupWorker) Start(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	log.Println("Starting TokenCleanupWorker...")
+	log.Println("[token_cleanup] Worker started")
+	w.cleanup(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Stopping TokenCleanupWorker...")
+			log.Println("[token_cleanup] Worker stopped")
 			return
 		case <-ticker.C:
 			w.cleanup(ctx)
@@ -34,18 +36,15 @@ func (w *TokenCleanupWorker) Start(ctx context.Context) {
 }
 
 func (w *TokenCleanupWorker) cleanup(ctx context.Context) {
-	log.Println("Running token cleanup job...")
-	
-	// Delete tokens that are expired or have reached max uses
-	result := w.db.WithContext(ctx).Exec(`
-		DELETE FROM enrollment_tokens 
-		WHERE expires_at < ? OR used_count >= max_uses
-	`, time.Now())
-
+	result := w.db.WithContext(ctx).Exec(
+		`UPDATE enrollment_tokens SET status = 'expired' WHERE status = 'active' AND (expires_at < ? OR used_count >= max_uses)`,
+		time.Now(),
+	)
 	if result.Error != nil {
-		log.Printf("Failed to cleanup tokens: %v\n", result.Error)
+		log.Printf("[token_cleanup] Error: %v\n", result.Error)
 		return
 	}
-
-	log.Printf("Cleaned up %d expired/exhausted tokens\n", result.RowsAffected)
+	if result.RowsAffected > 0 {
+		log.Printf("[token_cleanup] Expired %d tokens\n", result.RowsAffected)
+	}
 }

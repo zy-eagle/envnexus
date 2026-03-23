@@ -14,4 +14,7 @@ type AgentProfile struct {
 	Version          int
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	DeletedAt        *time.Time
 }
+
+func (a *AgentProfile) TableName() string { return "agent_profiles" }

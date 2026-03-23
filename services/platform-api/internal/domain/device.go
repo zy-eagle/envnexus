@@ -5,31 +5,47 @@ import "time"
 type DeviceStatus string
 
 const (
-	DeviceStatusOnline      DeviceStatus = "online"
-	DeviceStatusOffline     DeviceStatus = "offline"
-	DeviceStatusQuarantined DeviceStatus = "quarantined"
-	DeviceStatusRevoked     DeviceStatus = "revoked"
+	DeviceStatusDownloaded        DeviceStatus = "downloaded"
+	DeviceStatusBootstrapping     DeviceStatus = "bootstrapping"
+	DeviceStatusPendingActivation DeviceStatus = "pending_activation"
+	DeviceStatusActive            DeviceStatus = "active"
+	DeviceStatusPolicyOutdated    DeviceStatus = "policy_outdated"
+	DeviceStatusQuarantined       DeviceStatus = "quarantined"
+	DeviceStatusRevoked           DeviceStatus = "revoked"
+	DeviceStatusRetired           DeviceStatus = "retired"
 )
 
-// Device represents a managed endpoint agent.
 type Device struct {
 	ID              string
 	TenantID        string
-	Name            string
-	Hostname        string
-	OSType          string
+	AgentProfileID  string
+	DeviceName      string
+	Hostname        *string
+	Platform        string
+	Arch            string
+	EnvironmentType string
+	AgentVersion    string
 	Status          DeviceStatus
-	LastHeartbeatAt *time.Time
+	PolicyVersion   int
+	LastSeenAt      *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	DeletedAt       *time.Time
 }
 
-// RecordHeartbeat updates the device's last heartbeat time and status.
-func (d *Device) RecordHeartbeat() {
+func (d *Device) TableName() string { return "devices" }
+
+func (d *Device) RecordHeartbeat(agentVersion string, policyVersion int) {
 	now := time.Now()
-	d.LastHeartbeatAt = &now
-	if d.Status == DeviceStatusOffline {
-		d.Status = DeviceStatusOnline
+	d.LastSeenAt = &now
+	d.AgentVersion = agentVersion
+	d.PolicyVersion = policyVersion
+	if d.Status == DeviceStatusPendingActivation {
+		d.Status = DeviceStatusActive
 	}
 	d.UpdatedAt = now
+}
+
+func (d *Device) IsRevoked() bool {
+	return d.Status == DeviceStatusRevoked || d.Status == DeviceStatusRetired
 }

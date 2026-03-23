@@ -27,6 +27,10 @@ func (t *ReadSystemInfoTool) IsReadOnly() bool {
 	return true
 }
 
+func (t *ReadSystemInfoTool) RiskLevel() string {
+	return "L0"
+}
+
 func (t *ReadSystemInfoTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

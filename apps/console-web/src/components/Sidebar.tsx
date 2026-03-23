@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { useAuth } from '@/lib/auth/AuthContext';
 
 const translations = {
   en: {
@@ -41,12 +42,14 @@ const translations = {
 
 export default function Sidebar() {
   const { lang } = useLanguage();
+  const { tenantId, logout } = useAuth();
   const [expanded, setExpanded] = useState({
     tenant: true,
     platform: true
   });
 
   const t = translations[lang];
+  const tid = tenantId || 'default';
 
   const toggle = (key: keyof typeof expanded) => {
     setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
@@ -65,49 +68,43 @@ export default function Sidebar() {
             </Link>
           </li>
 
-          {/* Tenant Management */}
           <li>
-            <button 
+            <button
               onClick={() => toggle('tenant')}
               className="w-full flex items-center justify-between px-3 py-2 mt-4 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:bg-gray-50 rounded-md transition-colors"
             >
               <span>{t.tenantMgmt}</span>
-              <span className="text-gray-400 text-[10px]">{expanded.tenant ? '▼' : '▶'}</span>
+              <span className="text-gray-400 text-[10px]">{expanded.tenant ? '\u25BC' : '\u25B6'}</span>
             </button>
             {expanded.tenant && (
               <ul className="mt-2 space-y-1 pl-4 border-l border-gray-100 ml-3">
                 <li><Link href="/tenants" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.allTenants}</Link></li>
-                <li><Link href="/tenants/tenant_default/devices" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.devices}</Link></li>
-                <li><Link href="/tenants/tenant_default/sessions" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.sessions}</Link></li>
-                <li><Link href="/tenants/tenant_default/audit-events" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.auditEvents}</Link></li>
-                <li><Link href="/tenants/tenant_default/download-packages" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.downloadPackages}</Link></li>
-                <li><Link href="/tenants/tenant_default/model-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.modelProfiles}</Link></li>
-                <li><Link href="/tenants/tenant_default/policy-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.policyProfiles}</Link></li>
-                <li><Link href="/tenants/tenant_default/agent-profiles" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.agentProfiles}</Link></li>
-                <li><Link href="/tenants/tenant_default/governance" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.governance}</Link></li>
+                <li><Link href={`/tenants/${tid}/devices`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.devices}</Link></li>
+                <li><Link href={`/tenants/${tid}/sessions`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.sessions}</Link></li>
+                <li><Link href={`/tenants/${tid}/audit-events`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.auditEvents}</Link></li>
+                <li><Link href={`/tenants/${tid}/download-packages`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.downloadPackages}</Link></li>
+                <li><Link href={`/tenants/${tid}/model-profiles`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.modelProfiles}</Link></li>
+                <li><Link href={`/tenants/${tid}/policy-profiles`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.policyProfiles}</Link></li>
+                <li><Link href={`/tenants/${tid}/agent-profiles`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.agentProfiles}</Link></li>
+                <li><Link href={`/tenants/${tid}/governance`} className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.governance}</Link></li>
               </ul>
             )}
           </li>
 
-          {/* Platform */}
           <li>
-            <button 
+            <button
               onClick={() => toggle('platform')}
               className="w-full flex items-center justify-between px-3 py-2 mt-4 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:bg-gray-50 rounded-md transition-colors"
             >
               <span>{t.platform}</span>
-              <span className="text-gray-400 text-[10px]">{expanded.platform ? '▼' : '▶'}</span>
+              <span className="text-gray-400 text-[10px]">{expanded.platform ? '\u25BC' : '\u25B6'}</span>
             </button>
             {expanded.platform && (
               <ul className="mt-2 space-y-1 pl-4 border-l border-gray-100 ml-3">
                 <li><Link href="/settings" className="block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600">{t.settings}</Link></li>
                 <li>
-                  <button 
-                    onClick={() => {
-                      localStorage.removeItem('token');
-                      localStorage.removeItem('user');
-                      window.location.href = '/login';
-                    }}
+                  <button
+                    onClick={logout}
                     className="w-full text-left block px-3 py-2 text-sm text-gray-700 rounded-md hover:bg-gray-100 hover:text-blue-600"
                   >
                     {t.signOut}

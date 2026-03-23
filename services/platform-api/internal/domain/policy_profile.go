@@ -11,4 +11,7 @@ type PolicyProfile struct {
 	Version    int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	DeletedAt  *time.Time
 }
+
+func (p *PolicyProfile) TableName() string { return "policy_profiles" }

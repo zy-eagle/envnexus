@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/api"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/audit"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/config"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/device"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/enrollment"
@@ -24,10 +24,11 @@ import (
 
 type Bootstrapper struct {
 	identityManager *device.IdentityManager
+	configManager   *config.Manager
+	configDir       string
 }
 
 func NewBootstrapper() *Bootstrapper {
-	// Default to a local config directory for now
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = "."
@@ -36,135 +37,130 @@ func NewBootstrapper() *Bootstrapper {
 
 	return &Bootstrapper{
 		identityManager: device.NewIdentityManager(configDir),
+		configManager:   config.NewManager(configDir),
+		configDir:       configDir,
 	}
 }
 
 func (b *Bootstrapper) Run(ctx context.Context) error {
-	log.Println("Starting agent bootstrap sequence...")
+	log.Println("[boot] Starting agent bootstrap sequence...")
+	cfg := b.configManager.Get()
 
-	// 1. Load Local Config
-	log.Println("[boot.load_local_config] Loading configuration...")
+	// Step 1: Check device identity / enroll if needed
+	var deviceID, deviceToken, tenantID string
 
-	// 2. Check Device Identity
-	log.Println("[boot.check_device_identity] Checking device identity...")
-	deviceID, err := b.identityManager.GetOrCreateDeviceID()
-	if err != nil {
-		return fmt.Errorf("failed to get/create device identity: %w", err)
-	}
-	log.Printf("Device ID: %s\n", deviceID)
-
-	// 3. Enroll if needed
-	log.Println("[boot.enroll_if_needed] Checking enrollment status...")
-	
-	var deviceToken string
-	var tenantID string
-	
-	// Check if we already have an identity
-	if id, err := b.identityManager.GetIdentity(); err == nil && id.Token != "" {
-		log.Println("Found existing identity, skipping enrollment.")
+	if b.identityManager.HasIdentity() {
+		id, _ := b.identityManager.GetIdentity()
+		deviceID = id.DeviceID
 		deviceToken = id.Token
 		tenantID = id.TenantID
+		log.Printf("[boot] Loaded existing identity: device=%s, tenant=%s\n", deviceID, tenantID)
 	} else {
-		// For MVP, we use a hardcoded demo token if no local token exists
-		// In production, this would be read from a bootstrap config file dropped by the installer
-		demoToken := "demo-token"
-		platformURL := "http://localhost:8080" // Should come from config
-
-		enrollClient := enrollment.NewClient(platformURL)
-		enrollResp, err := enrollClient.Enroll(ctx, demoToken, deviceID)
-		if err != nil {
-			log.Printf("Enrollment failed (might be already enrolled or platform unreachable): %v\n", err)
-			// Fallback for MVP if not enrolled and no token saved
-			deviceToken = "dummy-device-token"
-			tenantID = "dummy-tenant"
+		log.Println("[boot] No identity found, attempting enrollment...")
+		if cfg.EnrollmentToken == "" {
+			log.Println("[boot] No enrollment token configured. Set ENX_ENROLLMENT_TOKEN or wait for installer.")
+			log.Println("[boot] Running in standalone mode...")
+			deviceID = "standalone"
 		} else {
-			log.Printf("Successfully enrolled! TenantID: %s\n", enrollResp.TenantID)
-			deviceToken = enrollResp.DeviceToken
-			tenantID = enrollResp.TenantID
-			
-			// Save the identity
-			err = b.identityManager.SaveIdentity(&device.Identity{
-				DeviceID: deviceID,
-				TenantID: tenantID,
-				Token:    deviceToken,
-			})
+			enrollClient := enrollment.NewClient(cfg.PlatformURL)
+			resp, err := enrollClient.Enroll(ctx, cfg.EnrollmentToken, cfg.AgentVersion)
 			if err != nil {
-				log.Printf("Failed to save identity: %v\n", err)
-			}
-		}
-	}
+				log.Printf("[boot] Enrollment failed: %v\n", err)
+				log.Println("[boot] Running in standalone mode...")
+				deviceID = "standalone"
+			} else {
+				deviceID = resp.DeviceID
+				deviceToken = resp.DeviceToken
+				tenantID = resp.TenantID
+				log.Printf("[boot] Enrolled successfully: device=%s, tenant=%s\n", deviceID, tenantID)
 
-	platformURL := "http://localhost:8080" // Should come from config
-
-	// 4. Pull remote config
-	log.Println("[boot.pull_remote_config] Pulling remote configuration...")
-	lifecycleClient := lifecycle.NewClient(platformURL, deviceID, deviceToken)
-	configResp, err := lifecycleClient.GetConfig(ctx)
-	if err != nil {
-		log.Printf("Failed to pull config: %v\n", err)
-	} else {
-		log.Printf("Successfully pulled config version: %s\n", configResp.ConfigVersion)
-	}
-
-	// Start heartbeat loop
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := lifecycleClient.Heartbeat(ctx); err != nil {
-					log.Printf("Heartbeat failed: %v\n", err)
-				} else {
-					log.Println("Heartbeat successful")
+				if err := b.identityManager.SaveIdentity(&device.Identity{
+					DeviceID: deviceID,
+					TenantID: tenantID,
+					Token:    deviceToken,
+				}); err != nil {
+					log.Printf("[boot] Failed to save identity: %v\n", err)
 				}
+
+				b.configManager.Update(func(c *config.AgentConfig) {
+					c.ConfigVersion = resp.ConfigVersion
+				})
 			}
 		}
-	}()
-
-	// 5. Start local API
-	log.Println("[boot.start_local_api] Starting local API...")
-	
-	// Initialize Policy & Approval Engine
-	policyEngine := policy.NewEngine()
-	
-	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine)
-	if err := localServer.Start(); err != nil {
-		log.Printf("Failed to start local API: %v\n", err)
 	}
 
-	// 6. Start workers
-	log.Println("[boot.start_workers] Starting background workers...")
-	
-	// Initialize Tool Registry
+	// Step 2: Pull remote config
+	if deviceToken != "" {
+		log.Println("[boot] Pulling remote configuration...")
+		lifecycleClient := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
+		configResp, err := lifecycleClient.GetConfig(ctx, cfg.ConfigVersion)
+		if err != nil {
+			log.Printf("[boot] Config pull failed: %v\n", err)
+		} else if configResp.HasUpdate {
+			log.Printf("[boot] Config updated to version %d\n", configResp.ConfigVersion)
+			b.configManager.Update(func(c *config.AgentConfig) {
+				c.ConfigVersion = configResp.ConfigVersion
+			})
+		} else {
+			log.Println("[boot] Config is up to date")
+		}
+	}
+
+	// Step 3: Initialize tool registry
 	registry := tools.NewRegistry()
 	registry.Register(network.NewReadNetworkConfigTool())
-	registry.Register(network.NewFlushDNSTool()) // Add a write tool
+	registry.Register(network.NewFlushDNSTool())
 	registry.Register(system.NewReadSystemInfoTool())
+	log.Printf("[boot] Registered %d tools\n", registry.Count())
 
-	// Initialize Audit Client
-	auditClient := audit.NewClient(platformURL, deviceID)
+	// Step 4: Initialize engines
+	policyEngine := policy.NewEngine()
+	auditClient := audit.NewClient(cfg.PlatformURL, deviceID, deviceToken)
 
-	// Initialize Diagnosis Engine
-	diagnosisEngine := diagnosis.NewEngine(registry)
-	
-	// Initialize Governance Engine
+	// Start audit batch flush loop
+	go auditClient.StartFlushLoop(ctx, 15*time.Second)
+
+	// Step 5: Start local API
+	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine)
+	if err := localServer.Start(); err != nil {
+		log.Printf("[boot] Failed to start local API: %v\n", err)
+	}
+
+	// Step 6: Start heartbeat loop
+	if deviceToken != "" {
+		lifecycleClient := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
+		go func() {
+			interval := time.Duration(cfg.HeartbeatSeconds) * time.Second
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					currentCfg := b.configManager.Get()
+					if err := lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion); err != nil {
+						log.Printf("[heartbeat] Failed: %v\n", err)
+					}
+				}
+			}
+		}()
+	}
+
+	// Step 7: Start governance engine
 	governanceEngine := governance.NewEngine()
 	governanceEngine.Start(ctx)
 
-	// Start WebSocket client to connect to session-gateway
-	wsURL := "ws://localhost:8081/ws/v1/agent" // Should come from config
-	wsClient := session.NewWSClient(wsURL, deviceID, registry, auditClient, policyEngine)
-	wsClient.Start(ctx)
+	// Step 8: Connect to session gateway
+	if deviceToken != "" {
+		wsClient := session.NewWSClient(cfg.WSURL, deviceID, tenantID, registry, auditClient, policyEngine)
+		wsClient.Start(ctx)
+	}
 
-	// Run a mock diagnosis to show it works
-	go func() {
-		time.Sleep(2 * time.Second)
-		diagnosisEngine.RunDiagnosis(ctx, "network is slow")
-	}()
+	// Step 9: Initialize diagnosis engine
+	diagnosisEngine := diagnosis.NewEngine(registry)
+	_ = diagnosisEngine
 
-	log.Println("[boot.ready] Bootstrap complete.")
+	log.Println("[boot] Bootstrap complete. Agent is running.")
 	return nil
 }

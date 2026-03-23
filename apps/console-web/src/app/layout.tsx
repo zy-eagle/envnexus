@@ -1,7 +1,5 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import Sidebar from '@/components/Sidebar'
-import Header from '@/components/Header'
 import { LanguageProvider } from '@/lib/i18n/LanguageContext'
 
 export const metadata: Metadata = {
@@ -16,19 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="flex h-screen bg-gray-50 text-gray-900 overflow-hidden">
+      <body className="bg-gray-50 text-gray-900">
         <LanguageProvider>
-          <Sidebar />
-
-          {/* Main Content */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <Header />
-
-            {/* Page Content */}
-            <main className="flex-1 overflow-y-auto p-6">
-              {children}
-            </main>
-          </div>
+          {children}
         </LanguageProvider>
       </body>
     </html>

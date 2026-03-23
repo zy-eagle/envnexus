@@ -7,67 +7,113 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
 type Client struct {
-	baseURL    string
-	deviceID   string
-	httpClient *http.Client
+	baseURL     string
+	deviceID    string
+	deviceToken string
+	httpClient  *http.Client
+
+	mu    sync.Mutex
+	queue []EventItem
 }
 
-func NewClient(baseURL, deviceID string) *Client {
+type EventItem struct {
+	EventType    string      `json:"event_type"`
+	SessionID    string      `json:"session_id,omitempty"`
+	EventPayload interface{} `json:"event_payload"`
+}
+
+type BatchRequest struct {
+	Events []EventItem `json:"events"`
+}
+
+func NewClient(baseURL, deviceID, deviceToken string) *Client {
 	return &Client{
-		baseURL:  baseURL,
-		deviceID: deviceID,
+		baseURL:     baseURL,
+		deviceID:    deviceID,
+		deviceToken: deviceToken,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		queue: make([]EventItem, 0, 32),
 	}
 }
 
-type ReportEventRequest struct {
-	DeviceID     string                 `json:"device_id"`
-	SessionID    string                 `json:"session_id"`
-	ActionType   string                 `json:"action_type"`
-	Status       string                 `json:"status"`
-	Payload      map[string]interface{} `json:"payload"`
-	ErrorMessage string                 `json:"error_message"`
-}
-
-func (c *Client) ReportEvent(ctx context.Context, actionType, status, sessionID, errMsg string, payload map[string]interface{}) error {
-	reqBody := ReportEventRequest{
-		DeviceID:     c.deviceID,
+func (c *Client) Enqueue(eventType, sessionID string, payload interface{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queue = append(c.queue, EventItem{
+		EventType:    eventType,
 		SessionID:    sessionID,
-		ActionType:   actionType,
-		Status:       status,
-		Payload:      payload,
-		ErrorMessage: errMsg,
-	}
+		EventPayload: payload,
+	})
+}
 
+func (c *Client) StartFlushLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.Flush(context.Background())
+			return
+		case <-ticker.C:
+			c.Flush(ctx)
+		}
+	}
+}
+
+func (c *Client) Flush(ctx context.Context) {
+	c.mu.Lock()
+	if len(c.queue) == 0 {
+		c.mu.Unlock()
+		return
+	}
+	batch := make([]EventItem, len(c.queue))
+	copy(batch, c.queue)
+	c.queue = c.queue[:0]
+	c.mu.Unlock()
+
+	reqBody := BatchRequest{Events: batch}
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return fmt.Errorf("failed to marshal audit event: %w", err)
+		log.Printf("[audit] Failed to marshal batch: %v\n", err)
+		return
 	}
 
 	url := fmt.Sprintf("%s/agent/v1/audit-events", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		log.Printf("[audit] Failed to create request: %v\n", err)
+		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// TODO: Add Authorization header with DeviceToken
+	if c.deviceToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.deviceToken)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("audit report request failed: %w", err)
+		log.Printf("[audit] Batch flush failed: %v\n", err)
+		c.mu.Lock()
+		c.queue = append(batch, c.queue...)
+		c.mu.Unlock()
+		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("audit report failed with status: %d", resp.StatusCode)
+		log.Printf("[audit] Batch flush returned status %d\n", resp.StatusCode)
+	} else {
+		log.Printf("[audit] Flushed %d events\n", len(batch))
 	}
+}
 
-	log.Printf("Successfully reported audit event: %s", actionType)
-	return nil
+func (c *Client) ReportEvent(ctx context.Context, eventType, sessionID string, payload interface{}) {
+	c.Enqueue(eventType, sessionID, payload)
 }
