@@ -31,6 +31,8 @@ type ApprovalRequest struct {
 	UpdatedAt           time.Time
 }
 
+func (a *ApprovalRequest) TableName() string { return "approval_requests" }
+
 func (a *ApprovalRequest) CanApprove() bool {
 	return a.Status == ApprovalStatusPendingUser
 }
@@ -39,9 +41,45 @@ func (a *ApprovalRequest) CanDeny() bool {
 	return a.Status == ApprovalStatusPendingUser
 }
 
+func (a *ApprovalRequest) CanTransitionTo(target ApprovalStatus) bool {
+	allowed := map[ApprovalStatus][]ApprovalStatus{
+		ApprovalStatusDrafted:     {ApprovalStatusPendingUser},
+		ApprovalStatusPendingUser: {ApprovalStatusApproved, ApprovalStatusDenied, ApprovalStatusExpired},
+		ApprovalStatusApproved:    {ApprovalStatusExecuting},
+		ApprovalStatusExecuting:   {ApprovalStatusSucceeded, ApprovalStatusFailed},
+		ApprovalStatusFailed:      {ApprovalStatusRolledBack},
+	}
+	targets, ok := allowed[a.Status]
+	if !ok {
+		return false
+	}
+	for _, t := range targets {
+		if t == target {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *ApprovalRequest) TransitionTo(target ApprovalStatus) bool {
+	if !a.CanTransitionTo(target) {
+		return false
+	}
+	a.Status = target
+	a.UpdatedAt = time.Now()
+	return true
+}
+
 func (a *ApprovalRequest) IsExpired() bool {
 	if a.ExpiresAt == nil {
 		return false
 	}
 	return time.Now().After(*a.ExpiresAt)
+}
+
+func (a *ApprovalRequest) IsTerminal() bool {
+	return a.Status == ApprovalStatusDenied ||
+		a.Status == ApprovalStatusExpired ||
+		a.Status == ApprovalStatusSucceeded ||
+		a.Status == ApprovalStatusRolledBack
 }

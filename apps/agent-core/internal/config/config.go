@@ -28,7 +28,7 @@ func NewManager(configDir string) *Manager {
 		configDir: configDir,
 		config: &AgentConfig{
 			PlatformURL:      envOrDefault("ENX_PLATFORM_URL", "http://localhost:8080"),
-			WSURL:            envOrDefault("ENX_WS_URL", "ws://localhost:8081/ws/v1/agent"),
+			WSURL:            envOrDefault("ENX_WS_URL", "ws://localhost:8081/ws/v1/sessions"),
 			EnrollmentToken:  os.Getenv("ENX_ENROLLMENT_TOKEN"),
 			ConfigVersion:    0,
 			HeartbeatSeconds: 30,

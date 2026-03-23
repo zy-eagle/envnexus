@@ -43,14 +43,15 @@ func (h *SessionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	sess, err := h.sessionService.CreateSession(c.Request.Context(), req)
+	result, err := h.sessionService.CreateSession(c.Request.Context(), req)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
 	mw.RespondSuccess(c, http.StatusCreated, gin.H{
-		"session_id": sess.ID,
-		"status":     sess.Status,
+		"session_id": result.Session.ID,
+		"status":     result.Session.Status,
+		"ws_token":   result.WSToken,
 	})
 }
 

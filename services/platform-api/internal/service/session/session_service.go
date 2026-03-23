@@ -9,6 +9,7 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
 )
 
 type Service struct {
@@ -16,6 +17,7 @@ type Service struct {
 	approvalRepo repository.ApprovalRequestRepository
 	deviceRepo   repository.DeviceRepository
 	auditRepo    repository.AuditRepository
+	authService  *auth.Service
 }
 
 func NewService(
@@ -23,12 +25,14 @@ func NewService(
 	approvalRepo repository.ApprovalRequestRepository,
 	deviceRepo repository.DeviceRepository,
 	auditRepo repository.AuditRepository,
+	authService *auth.Service,
 ) *Service {
 	return &Service{
 		sessionRepo:  sessionRepo,
 		approvalRepo: approvalRepo,
 		deviceRepo:   deviceRepo,
 		auditRepo:    auditRepo,
+		authService:  authService,
 	}
 }
 
@@ -36,7 +40,12 @@ func (s *Service) ListByTenant(ctx context.Context, tenantID string) ([]*domain.
 	return s.sessionRepo.ListByTenant(ctx, tenantID)
 }
 
-func (s *Service) CreateSession(ctx context.Context, req dto.CreateSessionRequest) (*domain.Session, error) {
+type CreateSessionResult struct {
+	Session *domain.Session
+	WSToken string
+}
+
+func (s *Service) CreateSession(ctx context.Context, req dto.CreateSessionRequest) (*CreateSessionResult, error) {
 	device, err := s.deviceRepo.GetByID(ctx, req.DeviceID)
 	if err != nil {
 		return nil, domain.ErrInternalError
@@ -49,7 +58,7 @@ func (s *Service) CreateSession(ctx context.Context, req dto.CreateSessionReques
 	}
 
 	now := time.Now()
-	session := &domain.Session{
+	sess := &domain.Session{
 		ID:            ulid.Make().String(),
 		TenantID:      device.TenantID,
 		DeviceID:      req.DeviceID,
@@ -61,11 +70,19 @@ func (s *Service) CreateSession(ctx context.Context, req dto.CreateSessionReques
 		UpdatedAt:     now,
 	}
 
-	if err := s.sessionRepo.Create(ctx, session); err != nil {
+	if err := s.sessionRepo.Create(ctx, sess); err != nil {
 		return nil, domain.ErrInternalError
 	}
 
-	return session, nil
+	wsToken, err := s.authService.IssueSessionToken(sess.DeviceID, sess.TenantID, sess.ID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+
+	return &CreateSessionResult{
+		Session: sess,
+		WSToken: wsToken,
+	}, nil
 }
 
 func (s *Service) GetByID(ctx context.Context, sessionID string) (*domain.Session, error) {
@@ -107,7 +124,16 @@ func (s *Service) ApproveSession(ctx context.Context, sessionID string, approval
 	approval.ApprovedAt = &now
 	approval.UpdatedAt = now
 
-	return s.approvalRepo.Update(ctx, approval)
+	if err := s.approvalRepo.Update(ctx, approval); err != nil {
+		return domain.ErrInternalError
+	}
+
+	s.recordAudit(ctx, session.TenantID, session.DeviceID, sessionID, "approval.approved", map[string]interface{}{
+		"approval_id": approvalRequestID,
+		"approver":    approverUserID,
+	})
+
+	return nil
 }
 
 func (s *Service) DenySession(ctx context.Context, sessionID string, approvalRequestID string, reason string) error {
@@ -124,7 +150,12 @@ func (s *Service) DenySession(ctx context.Context, sessionID string, approvalReq
 
 	approval.Status = domain.ApprovalStatusDenied
 	approval.UpdatedAt = time.Now()
-	return s.approvalRepo.Update(ctx, approval)
+
+	if err := s.approvalRepo.Update(ctx, approval); err != nil {
+		return domain.ErrInternalError
+	}
+
+	return nil
 }
 
 func (s *Service) AbortSession(ctx context.Context, sessionID string, reason string) error {
@@ -136,5 +167,144 @@ func (s *Service) AbortSession(ctx context.Context, sessionID string, reason str
 	if !session.TransitionTo(domain.SessionStatusAborted) {
 		return domain.ErrSessionInvalidState
 	}
+
+	if err := s.sessionRepo.Update(ctx, session); err != nil {
+		return domain.ErrInternalError
+	}
+
+	s.recordAudit(ctx, session.TenantID, session.DeviceID, sessionID, "session.aborted", map[string]interface{}{
+		"reason": reason,
+	})
+
+	return nil
+}
+
+func (s *Service) TransitionSession(ctx context.Context, sessionID string, target domain.SessionStatus) error {
+	session, err := s.sessionRepo.GetByID(ctx, sessionID)
+	if err != nil || session == nil {
+		return domain.ErrSessionNotFound
+	}
+
+	if !session.TransitionTo(target) {
+		return domain.ErrSessionInvalidState
+	}
+
 	return s.sessionRepo.Update(ctx, session)
+}
+
+func (s *Service) CreateApprovalRequest(ctx context.Context, sessionID, deviceID, actionJSON, riskLevel string) (*domain.ApprovalRequest, error) {
+	session, err := s.sessionRepo.GetByID(ctx, sessionID)
+	if err != nil || session == nil {
+		return nil, domain.ErrSessionNotFound
+	}
+
+	now := time.Now()
+	expires := now.Add(10 * time.Minute)
+
+	approval := &domain.ApprovalRequest{
+		ID:                  ulid.Make().String(),
+		SessionID:           sessionID,
+		DeviceID:            deviceID,
+		RequestedActionJSON: actionJSON,
+		RiskLevel:           riskLevel,
+		Status:              domain.ApprovalStatusPendingUser,
+		ExpiresAt:           &expires,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+
+	if err := s.approvalRepo.Create(ctx, approval); err != nil {
+		return nil, domain.ErrInternalError
+	}
+
+	if session.CanTransitionTo(domain.SessionStatusAwaitingApproval) {
+		session.TransitionTo(domain.SessionStatusAwaitingApproval)
+		_ = s.sessionRepo.Update(ctx, session)
+	}
+
+	return approval, nil
+}
+
+func (s *Service) MarkApprovalExecuting(ctx context.Context, approvalID string) error {
+	approval, err := s.approvalRepo.GetByID(ctx, approvalID)
+	if err != nil || approval == nil {
+		return domain.ErrApprovalNotFound
+	}
+	if approval.Status != domain.ApprovalStatusApproved {
+		return domain.ErrApprovalInvalidState
+	}
+
+	now := time.Now()
+	approval.Status = domain.ApprovalStatusExecuting
+	approval.ExecutedAt = &now
+	approval.UpdatedAt = now
+	return s.approvalRepo.Update(ctx, approval)
+}
+
+func (s *Service) MarkApprovalSucceeded(ctx context.Context, approvalID string) error {
+	approval, err := s.approvalRepo.GetByID(ctx, approvalID)
+	if err != nil || approval == nil {
+		return domain.ErrApprovalNotFound
+	}
+	if approval.Status != domain.ApprovalStatusExecuting {
+		return domain.ErrApprovalInvalidState
+	}
+
+	approval.Status = domain.ApprovalStatusSucceeded
+	approval.UpdatedAt = time.Now()
+	return s.approvalRepo.Update(ctx, approval)
+}
+
+func (s *Service) MarkApprovalFailed(ctx context.Context, approvalID string) error {
+	approval, err := s.approvalRepo.GetByID(ctx, approvalID)
+	if err != nil || approval == nil {
+		return domain.ErrApprovalNotFound
+	}
+	if approval.Status != domain.ApprovalStatusExecuting {
+		return domain.ErrApprovalInvalidState
+	}
+
+	approval.Status = domain.ApprovalStatusFailed
+	approval.UpdatedAt = time.Now()
+	return s.approvalRepo.Update(ctx, approval)
+}
+
+func (s *Service) MarkApprovalRolledBack(ctx context.Context, approvalID string) error {
+	approval, err := s.approvalRepo.GetByID(ctx, approvalID)
+	if err != nil || approval == nil {
+		return domain.ErrApprovalNotFound
+	}
+	if approval.Status != domain.ApprovalStatusFailed {
+		return domain.ErrApprovalInvalidState
+	}
+
+	approval.Status = domain.ApprovalStatusRolledBack
+	approval.UpdatedAt = time.Now()
+	return s.approvalRepo.Update(ctx, approval)
+}
+
+func (s *Service) GetApprovalByID(ctx context.Context, approvalID string) (*domain.ApprovalRequest, error) {
+	approval, err := s.approvalRepo.GetByID(ctx, approvalID)
+	if err != nil || approval == nil {
+		return nil, domain.ErrApprovalNotFound
+	}
+	return approval, nil
+}
+
+func (s *Service) GetPendingApproval(ctx context.Context, sessionID string) (*domain.ApprovalRequest, error) {
+	return s.approvalRepo.GetPendingBySession(ctx, sessionID)
+}
+
+func (s *Service) recordAudit(ctx context.Context, tenantID, deviceID, sessionID, eventType string, details interface{}) {
+	if s.auditRepo == nil {
+		return
+	}
+	_ = s.auditRepo.Create(ctx, &domain.AuditEvent{
+		ID:        ulid.Make().String(),
+		TenantID:  tenantID,
+		DeviceID:  &deviceID,
+		SessionID: &sessionID,
+		EventType: eventType,
+		CreatedAt: time.Now(),
+	})
 }

@@ -18,14 +18,16 @@ type Service struct {
 	userRepo        repository.UserRepository
 	jwtSecret       string
 	deviceSecret    string
+	sessionSecret   string
 	tokenExpiration time.Duration
 }
 
-func NewService(userRepo repository.UserRepository, jwtSecret, deviceSecret string) *Service {
+func NewService(userRepo repository.UserRepository, jwtSecret, deviceSecret, sessionSecret string) *Service {
 	return &Service{
 		userRepo:        userRepo,
 		jwtSecret:       jwtSecret,
 		deviceSecret:    deviceSecret,
+		sessionSecret:   sessionSecret,
 		tokenExpiration: 24 * time.Hour,
 	}
 }
@@ -93,6 +95,26 @@ func (s *Service) IssueDeviceToken(deviceID, tenantID string) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.deviceSecret))
+}
+
+func (s *Service) IssueSessionToken(deviceID, tenantID, sessionID string) (string, error) {
+	now := time.Now()
+	claims := &middleware.SessionTokenClaims{
+		DeviceID:  deviceID,
+		TenantID:  tenantID,
+		SessionID: sessionID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(30 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        ulid.Make().String(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.sessionSecret))
+}
+
+func (s *Service) GetSessionSecret() string {
+	return s.sessionSecret
 }
 
 func HashPassword(password string) (string, error) {

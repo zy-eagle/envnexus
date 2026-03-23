@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/audit"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 )
@@ -29,6 +32,7 @@ type WSClient struct {
 	serverURL    string
 	deviceID     string
 	tenantID     string
+	deviceToken  string
 	conn         *websocket.Conn
 	mu           sync.Mutex
 	done         chan struct{}
@@ -36,18 +40,21 @@ type WSClient struct {
 	registry     *tools.Registry
 	auditClient  *audit.Client
 	policyEngine *policy.Engine
+	diagEngine   *diagnosis.Engine
 }
 
-func NewWSClient(serverURL, deviceID, tenantID string, registry *tools.Registry, auditClient *audit.Client, policyEngine *policy.Engine) *WSClient {
+func NewWSClient(serverURL, deviceID, tenantID, deviceToken string, registry *tools.Registry, auditClient *audit.Client, policyEngine *policy.Engine, diagEngine *diagnosis.Engine) *WSClient {
 	return &WSClient{
 		serverURL:    serverURL,
 		deviceID:     deviceID,
 		tenantID:     tenantID,
+		deviceToken:  deviceToken,
 		done:         make(chan struct{}),
 		sendCh:       make(chan []byte, 64),
 		registry:     registry,
 		auditClient:  auditClient,
 		policyEngine: policyEngine,
+		diagEngine:   diagEngine,
 	}
 }
 
@@ -65,17 +72,7 @@ func (c *WSClient) Stop() {
 }
 
 func (c *WSClient) connectLoop(ctx context.Context) {
-	u, err := url.Parse(c.serverURL)
-	if err != nil {
-		log.Printf("[ws] Invalid server URL: %v\n", err)
-		return
-	}
-	q := u.Query()
-	q.Set("device_id", c.deviceID)
-	q.Set("tenant_id", c.tenantID)
-	u.RawQuery = q.Encode()
-	dialURL := u.String()
-
+	dialURL := c.buildDialURL()
 	backoff := time.Second * 2
 	maxBackoff := time.Minute
 
@@ -123,6 +120,26 @@ func (c *WSClient) connectLoop(ctx context.Context) {
 
 		time.Sleep(time.Second)
 	}
+}
+
+func (c *WSClient) buildDialURL() string {
+	u, err := url.Parse(c.serverURL)
+	if err != nil {
+		log.Printf("[ws] Invalid server URL: %v, using as-is\n", err)
+		return c.serverURL
+	}
+
+	if u.Path == "" || u.Path == "/" {
+		u.Path = "/ws/v1/sessions/" + c.deviceID
+	}
+
+	q := u.Query()
+	if c.deviceToken != "" {
+		q.Set("token", c.deviceToken)
+	}
+	q.Set("tenant_id", c.tenantID)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (c *WSClient) readPump(errChan chan<- error) {
@@ -195,20 +212,112 @@ func (c *WSClient) writePump(errChan chan<- error) {
 
 func (c *WSClient) handleServerEvent(evt EventEnvelope) {
 	switch evt.EventType {
-	case "execute_tool":
-		c.handleExecuteTool(evt)
+	case "session.created":
+		log.Printf("[ws] Session created: %s\n", evt.SessionID)
+		c.handleSessionCreated(evt)
+
+	case "diagnosis.started":
+		log.Printf("[ws] Diagnosis started for session: %s\n", evt.SessionID)
+
+	case "diagnosis.completed":
+		log.Printf("[ws] Diagnosis completed for session: %s\n", evt.SessionID)
+
+	case "approval.requested":
+		log.Printf("[ws] Approval requested for session: %s\n", evt.SessionID)
+		c.handleApprovalRequested(evt)
+
+	case "approval.expired":
+		log.Printf("[ws] Approval expired for session: %s\n", evt.SessionID)
+
+	case "tool.started":
+		log.Printf("[ws] Tool started for session: %s\n", evt.SessionID)
+		c.handleToolStarted(evt)
+
+	case "tool.completed":
+		log.Printf("[ws] Tool completed for session: %s\n", evt.SessionID)
+
+	case "session.completed":
+		log.Printf("[ws] Session completed: %s\n", evt.SessionID)
+
 	case "heartbeat.pong":
 		log.Println("[ws] Heartbeat pong received")
-	case "session.start":
-		log.Printf("[ws] Session started: %s\n", evt.SessionID)
-	case "session.end":
-		log.Printf("[ws] Session ended: %s\n", evt.SessionID)
+
 	default:
 		log.Printf("[ws] Unhandled event: %s\n", evt.EventType)
 	}
 }
 
-func (c *WSClient) handleExecuteTool(evt EventEnvelope) {
+func (c *WSClient) handleSessionCreated(evt EventEnvelope) {
+	payloadMap, ok := evt.Payload.(map[string]interface{})
+	if !ok {
+		return
+	}
+	initialMessage, _ := payloadMap["initial_message"].(string)
+	if initialMessage == "" {
+		return
+	}
+
+	c.SendEvent(EventEnvelope{
+		EventID:   generateEventID(),
+		EventType: "diagnosis.started",
+		DeviceID:  c.deviceID,
+		SessionID: evt.SessionID,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Payload:   map[string]interface{}{"intent": initialMessage},
+	})
+
+	go func() {
+		result, err := c.diagEngine.RunDiagnosis(context.Background(), evt.SessionID, initialMessage)
+		if err != nil {
+			log.Printf("[ws] Diagnosis failed for session %s: %v", evt.SessionID, err)
+			c.SendEvent(EventEnvelope{
+				EventID:   generateEventID(),
+				EventType: "diagnosis.completed",
+				DeviceID:  c.deviceID,
+				SessionID: evt.SessionID,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Payload:   map[string]interface{}{"error": err.Error()},
+			})
+			return
+		}
+
+		c.SendEvent(EventEnvelope{
+			EventID:   generateEventID(),
+			EventType: "diagnosis.completed",
+			DeviceID:  c.deviceID,
+			SessionID: evt.SessionID,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Payload:   result,
+		})
+
+		if result.ApprovalRequired && len(result.RecommendedActions) > 0 {
+			for _, action := range result.RecommendedActions {
+				c.SendEvent(EventEnvelope{
+					EventID:   generateEventID(),
+					EventType: "approval.requested",
+					DeviceID:  c.deviceID,
+					SessionID: evt.SessionID,
+					Timestamp: time.Now().UTC().Format(time.RFC3339),
+					Payload: map[string]interface{}{
+						"tool_name":   action.ToolName,
+						"description": action.Description,
+						"risk_level":  action.RiskLevel,
+						"params":      action.Params,
+					},
+				})
+			}
+		}
+
+		c.auditClient.ReportEvent(context.Background(), "diagnosis.completed", evt.SessionID, map[string]interface{}{
+			"problem_type": result.ProblemType,
+			"confidence":   result.Confidence,
+			"findings":     len(result.Findings),
+			"actions":      len(result.RecommendedActions),
+		})
+	}()
+}
+
+func (c *WSClient) handleToolStarted(evt EventEnvelope) {
 	payloadMap, ok := evt.Payload.(map[string]interface{})
 	if !ok {
 		return
@@ -224,7 +333,9 @@ func (c *WSClient) handleExecuteTool(evt EventEnvelope) {
 		return
 	}
 
-	approved, err := c.policyEngine.Check(context.Background(), tool, payloadMap)
+	params, _ := payloadMap["params"].(map[string]interface{})
+
+	approved, err := c.policyEngine.Check(context.Background(), tool, params)
 	if err != nil || !approved {
 		c.auditClient.ReportEvent(context.Background(), "tool.denied", evt.SessionID, map[string]interface{}{
 			"tool_name": toolName,
@@ -234,14 +345,23 @@ func (c *WSClient) handleExecuteTool(evt EventEnvelope) {
 		return
 	}
 
-	result, err := tool.Execute(context.Background(), payloadMap)
+	result, err := tool.Execute(context.Background(), params)
 
-	c.auditClient.ReportEvent(context.Background(), "tool.completed", evt.SessionID, map[string]interface{}{
+	eventType := "tool.completed"
+	if err != nil || (result != nil && result.Status == "failed") {
+		eventType = "tool.failed"
+	}
+
+	c.auditClient.ReportEvent(context.Background(), eventType, evt.SessionID, map[string]interface{}{
 		"tool_name": toolName,
 		"result":    result,
 	})
 
 	c.sendToolResult(evt.SessionID, toolName, result, err)
+}
+
+func (c *WSClient) handleApprovalRequested(evt EventEnvelope) {
+	c.auditClient.ReportEvent(context.Background(), "approval.requested", evt.SessionID, evt.Payload)
 }
 
 func (c *WSClient) sendToolResult(sessionID, toolName string, result *tools.ToolResult, err error) {
@@ -262,6 +382,7 @@ func (c *WSClient) sendToolResult(sessionID, toolName string, result *tools.Tool
 	}
 
 	envelope := EventEnvelope{
+		EventID:   generateEventID(),
 		EventType: evtType,
 		DeviceID:  c.deviceID,
 		SessionID: sessionID,
@@ -278,9 +399,21 @@ func (c *WSClient) sendToolResult(sessionID, toolName string, result *tools.Tool
 }
 
 func (c *WSClient) SendEvent(evt EventEnvelope) {
+	if evt.EventID == "" {
+		evt.EventID = generateEventID()
+	}
+	if evt.Timestamp == "" {
+		evt.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	}
 	data, _ := json.Marshal(evt)
 	select {
 	case c.sendCh <- data:
 	default:
 	}
+}
+
+func generateEventID() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

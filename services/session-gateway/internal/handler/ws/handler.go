@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -41,12 +42,20 @@ type DeviceConnection struct {
 type SessionManager struct {
 	connections map[string]*DeviceConnection
 	mu          sync.RWMutex
+	tokenSecret string
+	redisClient *RedisClient
 }
 
-func NewSessionManager() *SessionManager {
+func NewSessionManager(tokenSecret string) *SessionManager {
 	return &SessionManager{
 		connections: make(map[string]*DeviceConnection),
+		tokenSecret: tokenSecret,
 	}
+}
+
+func (m *SessionManager) SetRedisClient(rc *RedisClient) {
+	m.redisClient = rc
+	rc.SetManager(m)
 }
 
 func (m *SessionManager) HandleCommand(c *gin.Context) {
@@ -86,7 +95,7 @@ func (m *SessionManager) SendToDevice(deviceID string, envelope EventEnvelope) e
 	m.mu.RUnlock()
 
 	if !ok {
-		return nil
+		return fmt.Errorf("device %s not connected", deviceID)
 	}
 
 	data, err := json.Marshal(envelope)
@@ -98,18 +107,79 @@ func (m *SessionManager) SendToDevice(deviceID string, envelope EventEnvelope) e
 	case dc.SendCh <- data:
 		return nil
 	default:
-		return nil
+		return fmt.Errorf("send buffer full for device %s", deviceID)
 	}
 }
 
+func (m *SessionManager) BroadcastToTenant(tenantID string, envelope EventEnvelope) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return
+	}
+
+	for _, dc := range m.connections {
+		if dc.TenantID == tenantID {
+			select {
+			case dc.SendCh <- data:
+			default:
+			}
+		}
+	}
+}
+
+// POST /api/v1/sessions/:sessionId/events — platform-api dispatches events to agents
+func (m *SessionManager) HandleSessionEvent(c *gin.Context) {
+	var envelope EventEnvelope
+	if err := c.ShouldBindJSON(&envelope); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	deviceID := envelope.DeviceID
+	if deviceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing device_id in envelope"})
+		return
+	}
+
+	if err := m.SendToDevice(deviceID, envelope); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "delivered"})
+}
+
+// GET /ws/v1/sessions/:deviceId?token=... — agent connects with session token
 func (m *SessionManager) HandleAgentConnection(c *gin.Context) {
-	deviceID := c.Query("device_id")
+	deviceID := c.Param("deviceId")
+	if deviceID == "" {
+		deviceID = c.Query("device_id")
+	}
 	if deviceID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing device_id"})
 		return
 	}
 
-	tenantID := c.Query("tenant_id")
+	token := c.Query("token")
+	tenantID := ""
+
+	if m.tokenSecret != "" && token != "" {
+		claims, err := ValidateSessionToken(token, m.tokenSecret)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session token"})
+			return
+		}
+		if claims.DeviceID != deviceID {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "token device mismatch"})
+			return
+		}
+		tenantID = claims.TenantID
+	} else {
+		tenantID = c.Query("tenant_id")
+	}
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -221,14 +291,46 @@ func (m *SessionManager) handleAgentEvent(dc *DeviceConnection, evt EventEnvelop
 		default:
 		}
 
-	case "session.input", "approval.submit", "session.abort":
-		log.Printf("Agent event [%s] from device %s, session %s\n", evt.EventType, dc.DeviceID, evt.SessionID)
+	case "session.input":
+		log.Printf("Session input from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
 
-	case "tool.completed", "tool.failed":
-		log.Printf("Tool event [%s] from device %s: %v\n", evt.EventType, dc.DeviceID, evt.Payload)
+	case "approval.submit":
+		log.Printf("Approval submit from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
+
+	case "session.abort":
+		log.Printf("Session abort from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
+
+	case "tool.completed":
+		log.Printf("Tool completed from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
+
+	case "tool.failed":
+		log.Printf("Tool failed from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
+
+	case "diagnosis.started":
+		log.Printf("Diagnosis started from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
+
+	case "diagnosis.completed":
+		log.Printf("Diagnosis completed from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
+
+	case "approval.requested":
+		log.Printf("Approval requested from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		m.publishToRedis(evt)
 
 	default:
 		log.Printf("Unhandled event type [%s] from device %s\n", evt.EventType, dc.DeviceID)
+	}
+}
+
+func (m *SessionManager) publishToRedis(evt EventEnvelope) {
+	if m.redisClient != nil {
+		m.redisClient.Publish(evt)
 	}
 }
 
@@ -236,4 +338,21 @@ func (m *SessionManager) GetOnlineDeviceCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.connections)
+}
+
+func (m *SessionManager) GetOnlineDevices() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	devices := make([]string, 0, len(m.connections))
+	for id := range m.connections {
+		devices = append(devices, id)
+	}
+	return devices
+}
+
+func (m *SessionManager) IsDeviceOnline(deviceID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, ok := m.connections[deviceID]
+	return ok
 }

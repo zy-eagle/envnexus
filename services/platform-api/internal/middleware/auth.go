@@ -101,3 +101,10 @@ type DeviceClaims struct {
 	TenantID string `json:"tenant_id"`
 	jwt.RegisteredClaims
 }
+
+type SessionTokenClaims struct {
+	DeviceID  string `json:"device_id"`
+	TenantID  string `json:"tenant_id"`
+	SessionID string `json:"session_id"`
+	jwt.RegisteredClaims
+}

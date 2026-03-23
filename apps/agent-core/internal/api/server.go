@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/device"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 )
 
@@ -17,31 +18,32 @@ type LocalServer struct {
 	server          *http.Server
 	identityManager *device.IdentityManager
 	policyEngine    *policy.Engine
+	diagEngine      *diagnosis.Engine
+	startTime       time.Time
 }
 
-func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine) *LocalServer {
+func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine, diagEngine *diagnosis.Engine) *LocalServer {
 	return &LocalServer{
 		port:            port,
 		identityManager: identityManager,
 		policyEngine:    policyEngine,
+		diagEngine:      diagEngine,
+		startTime:       time.Now(),
 	}
 }
 
 func (s *LocalServer) Start() error {
-	// Use release mode for local server to reduce log noise
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	// Local API routes
 	api := router.Group("/local/v1")
 	{
 		api.GET("/runtime/status", s.handleRuntimeStatus)
 		api.GET("/device", s.handleDevice)
-		
-		// Approval routes for local UI
 		api.GET("/approvals/pending", s.handleGetPendingApprovals)
 		api.POST("/approvals/:id/resolve", s.handleResolveApproval)
+		api.POST("/diagnose", s.handleDiagnose)
 	}
 
 	s.server = &http.Server{
@@ -68,8 +70,9 @@ func (s *LocalServer) Stop(ctx context.Context) error {
 
 func (s *LocalServer) handleRuntimeStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"status": "running",
-		"uptime": time.Now().Unix(), // In a real app, track start time
+		"status":    "running",
+		"uptime_ms": time.Since(s.startTime).Milliseconds(),
+		"started":   s.startTime.Format(time.RFC3339),
 	})
 }
 
@@ -82,7 +85,6 @@ func (s *LocalServer) handleDevice(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"device_id": deviceID,
-		// In a real app, return full device state, tenant info, etc.
 	})
 }
 
@@ -99,7 +101,7 @@ type ResolveApprovalRequest struct {
 
 func (s *LocalServer) handleResolveApproval(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	var req ResolveApprovalRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -112,4 +114,29 @@ func (s *LocalServer) handleResolveApproval(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "resolved"})
+}
+
+type DiagnoseRequest struct {
+	SessionID string `json:"session_id"`
+	Intent    string `json:"intent" binding:"required"`
+}
+
+func (s *LocalServer) handleDiagnose(c *gin.Context) {
+	var req DiagnoseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.SessionID == "" {
+		req.SessionID = "local"
+	}
+
+	result, err := s.diagEngine.RunDiagnosis(c.Request.Context(), req.SessionID, req.Intent)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"diagnosis": result})
 }

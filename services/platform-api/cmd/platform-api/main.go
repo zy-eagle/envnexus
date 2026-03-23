@@ -38,6 +38,7 @@ func main() {
 	dsn := os.Getenv("ENX_DATABASE_DSN")
 	jwtSecret := envOrDefault("ENX_JWT_SECRET", "dev-jwt-secret-change-me")
 	deviceSecret := envOrDefault("ENX_DEVICE_TOKEN_SECRET", "dev-device-secret-change-me")
+	sessionSecret := envOrDefault("ENX_SESSION_TOKEN_SECRET", "dev-session-secret-change-me")
 	httpPort := envOrDefault("ENX_HTTP_PORT", "8080")
 
 	// --- Repositories ---
@@ -86,7 +87,7 @@ func main() {
 	_ = toolInvRepo
 
 	// --- Services ---
-	authService := auth.NewService(userRepo, jwtSecret, deviceSecret)
+	authService := auth.NewService(userRepo, jwtSecret, deviceSecret, sessionSecret)
 	tenantService := tenant.NewService(tenantRepo)
 	enrollService := enrollment.NewService(enrollRepo, deviceRepo, authService)
 	auditService := audit.NewService(auditRepo)
@@ -95,7 +96,7 @@ func main() {
 	policyProfileService := policy_profile.NewService(policyProfileRepo)
 	agentProfileService := agent_profile.NewService(agentProfileRepo)
 	deviceService := device.NewService(deviceRepo)
-	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo)
+	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo, authService)
 
 	// --- Handlers ---
 	tenantHandler := httphandler.NewTenantHandler(tenantService)
@@ -112,6 +113,7 @@ func main() {
 	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
 	agentAuditHandler := agent.NewAuditHandler(auditRepo)
 	agentLifecycleHandler := agent.NewLifecycleHandler(deviceRepo, agentProfileRepo, modelProfileRepo, policyProfileRepo)
+	agentApprovalHandler := agent.NewApprovalHandler(sessionService)
 
 	// --- Router ---
 	router := gin.Default()
@@ -156,6 +158,7 @@ func main() {
 	agentDeviceGroup.Use(middleware.DeviceAuth(deviceSecret))
 	agentAuditHandler.RegisterRoutes(agentDeviceGroup)
 	agentLifecycleHandler.RegisterRoutes(agentDeviceGroup)
+	agentApprovalHandler.RegisterRoutes(agentDeviceGroup)
 
 	// --- Server ---
 	server := &http.Server{
