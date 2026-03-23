@@ -3,18 +3,23 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/handler/agent"
 	httphandler "github.com/zy-eagle/envnexus/services/platform-api/internal/handler/http"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/migrations"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/agent_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/audit"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
@@ -34,12 +39,23 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+func envRequired(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("FATAL: required environment variable %s is not set", key)
+	}
+	return v
+}
+
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	dsn := os.Getenv("ENX_DATABASE_DSN")
-	jwtSecret := envOrDefault("ENX_JWT_SECRET", "dev-jwt-secret-change-me")
-	deviceSecret := envOrDefault("ENX_DEVICE_TOKEN_SECRET", "dev-device-secret-change-me")
-	sessionSecret := envOrDefault("ENX_SESSION_TOKEN_SECRET", "dev-session-secret-change-me")
+	jwtSecret := envRequired("ENX_JWT_SECRET")
+	deviceSecret := envRequired("ENX_DEVICE_TOKEN_SECRET")
+	sessionSecret := envRequired("ENX_SESSION_TOKEN_SECRET")
 	httpPort := envOrDefault("ENX_HTTP_PORT", "8080")
+	corsOrigins := strings.Split(envOrDefault("ENX_CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ",")
 
 	// --- Repositories ---
 	var (
@@ -58,11 +74,15 @@ func main() {
 		toolInvRepo       repository.ToolInvocationRepository
 	)
 
+	var gormDB *gorm.DB
 	if dsn != "" {
-		db, err := repository.NewDB(dsn)
+		var err error
+		gormDB, err = repository.NewDB(dsn)
 		if err != nil {
-			log.Fatalf("Failed to connect to database: %v", err)
+			slog.Error("failed to connect to database", "error", err)
+			os.Exit(1)
 		}
+		db := gormDB
 		tenantRepo = repository.NewMySQLTenantRepository(db)
 		enrollRepo = repository.NewMySQLEnrollmentRepository(db)
 		deviceRepo = repository.NewMySQLDeviceRepository(db)
@@ -76,9 +96,14 @@ func main() {
 		approvalRepo = repository.NewMySQLApprovalRequestRepository(db)
 		roleRepo = repository.NewMySQLRoleRepository(db)
 		toolInvRepo = repository.NewMySQLToolInvocationRepository(db)
-		log.Println("Connected to MySQL database")
+		slog.Info("connected to MySQL database")
+
+		if err := migrations.Run(db); err != nil {
+			slog.Error("auto-migration failed", "error", err)
+			os.Exit(1)
+		}
 	} else {
-		log.Println("ENX_DATABASE_DSN not set, using in-memory tenant repo (limited functionality)")
+		slog.Info("ENX_DATABASE_DSN not set, using in-memory tenant repo (limited functionality)")
 		tenantRepo = repository.NewMemoryTenantRepository()
 	}
 
@@ -118,21 +143,49 @@ func main() {
 	// --- Router ---
 	router := gin.Default()
 
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     corsOrigins,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
+	router.Use(middleware.RateLimiter(50, 100))
+
 	router.GET("/healthz", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
 	})
 	router.GET("/readyz", func(c *gin.Context) {
-		if dsn == "" {
-			c.String(http.StatusServiceUnavailable, "No database configured")
-			return
+		checks := gin.H{}
+		allOK := true
+
+		if gormDB != nil {
+			sqlDB, err := gormDB.DB()
+			if err == nil {
+				err = sqlDB.Ping()
+			}
+			checks["database"] = err == nil
+			if err != nil {
+				allOK = false
+			}
+		} else {
+			checks["database"] = false
+			allOK = false
 		}
-		c.String(http.StatusOK, "Ready")
+
+		if allOK {
+			c.JSON(http.StatusOK, gin.H{"status": "ready", "checks": checks})
+		} else {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+		}
 	})
 
 	// Public endpoints (no auth required)
 	publicV1 := router.Group("/api/v1")
 	{
-		publicV1.POST("/auth/login", func(c *gin.Context) { authHandler.Login(c) })
+		publicV1.POST("/auth/login", middleware.RateLimiter(10, 20), func(c *gin.Context) { authHandler.Login(c) })
 		publicV1.GET("/bootstrap", func(c *gin.Context) { authHandler.Bootstrap(c) })
 	}
 
@@ -169,22 +222,24 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Starting platform-api on :%s", httpPort)
+		slog.Info("starting platform-api", "addr", ":"+httpPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			slog.Error("server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	slog.Info("shutting down server")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		slog.Error("server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Server exited")
+	slog.Info("server exited")
 }

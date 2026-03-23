@@ -3,8 +3,9 @@ package api
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -51,10 +52,11 @@ func (s *LocalServer) Start() error {
 		Handler: router,
 	}
 
-	log.Printf("Starting local API server on %s\n", s.server.Addr)
+	slog.Info("Starting local API server", "addr", s.server.Addr)
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Local API server failed: %v", err)
+			slog.Error("Local API server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 

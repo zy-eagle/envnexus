@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -13,13 +13,23 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-	HandshakeTimeout: 10 * time.Second,
+func newUpgrader(allowedOrigins []string) websocket.Upgrader {
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = true
+	}
+	return websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin: func(r *http.Request) bool {
+			if len(allowed) == 0 {
+				return false
+			}
+			origin := r.Header.Get("Origin")
+			return allowed[origin]
+		},
+		HandshakeTimeout: 10 * time.Second,
+	}
 }
 
 type EventEnvelope struct {
@@ -40,16 +50,18 @@ type DeviceConnection struct {
 }
 
 type SessionManager struct {
-	connections map[string]*DeviceConnection
-	mu          sync.RWMutex
-	tokenSecret string
-	redisClient *RedisClient
+	connections    map[string]*DeviceConnection
+	mu             sync.RWMutex
+	tokenSecret    string
+	redisClient    *RedisClient
+	upgrader       websocket.Upgrader
 }
 
-func NewSessionManager(tokenSecret string) *SessionManager {
+func NewSessionManager(tokenSecret string, allowedOrigins []string) *SessionManager {
 	return &SessionManager{
 		connections: make(map[string]*DeviceConnection),
 		tokenSecret: tokenSecret,
+		upgrader:    newUpgrader(allowedOrigins),
 	}
 }
 
@@ -156,34 +168,30 @@ func (m *SessionManager) HandleSessionEvent(c *gin.Context) {
 func (m *SessionManager) HandleAgentConnection(c *gin.Context) {
 	deviceID := c.Param("deviceId")
 	if deviceID == "" {
-		deviceID = c.Query("device_id")
-	}
-	if deviceID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing device_id"})
 		return
 	}
 
 	token := c.Query("token")
-	tenantID := ""
-
-	if m.tokenSecret != "" && token != "" {
-		claims, err := ValidateSessionToken(token, m.tokenSecret)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session token"})
-			return
-		}
-		if claims.DeviceID != deviceID {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token device mismatch"})
-			return
-		}
-		tenantID = claims.TenantID
-	} else {
-		tenantID = c.Query("tenant_id")
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing session token"})
+		return
 	}
 
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	claims, err := ValidateSessionToken(token, m.tokenSecret)
 	if err != nil {
-		log.Printf("Failed to upgrade connection for device %s: %v\n", deviceID, err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session token"})
+		return
+	}
+	if claims.DeviceID != deviceID {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "token device mismatch"})
+		return
+	}
+	tenantID := claims.TenantID
+
+	conn, err := m.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		slog.Info("Failed to upgrade connection", "device_id", deviceID, "error", err)
 		return
 	}
 
@@ -202,7 +210,7 @@ func (m *SessionManager) HandleAgentConnection(c *gin.Context) {
 	m.connections[deviceID] = dc
 	m.mu.Unlock()
 
-	log.Printf("Device %s connected (tenant: %s)\n", deviceID, tenantID)
+	slog.Info("Device connected", "device_id", deviceID, "tenant_id", tenantID)
 
 	go m.writePump(dc)
 	go m.readPump(dc)
@@ -224,7 +232,7 @@ func (m *SessionManager) writePump(dc *DeviceConnection) {
 			}
 			_ = dc.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := dc.Conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				log.Printf("Write error for device %s: %v\n", dc.DeviceID, err)
+				slog.Info("Write error for device", "device_id", dc.DeviceID, "error", err)
 				return
 			}
 		case <-ticker.C:
@@ -245,7 +253,7 @@ func (m *SessionManager) readPump(dc *DeviceConnection) {
 		m.mu.Unlock()
 		close(dc.SendCh)
 		dc.Conn.Close()
-		log.Printf("Device %s disconnected\n", dc.DeviceID)
+		slog.Info("Device disconnected", "device_id", dc.DeviceID)
 	}()
 
 	dc.Conn.SetReadDeadline(time.Now().Add(90 * time.Second))
@@ -258,14 +266,14 @@ func (m *SessionManager) readPump(dc *DeviceConnection) {
 		_, p, err := dc.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("Read error from device %s: %v\n", dc.DeviceID, err)
+				slog.Info("Read error from device", "device_id", dc.DeviceID, "error", err)
 			}
 			return
 		}
 
 		var envelope EventEnvelope
 		if err := json.Unmarshal(p, &envelope); err != nil {
-			log.Printf("Invalid event from device %s: %v\n", dc.DeviceID, err)
+			slog.Info("Invalid event from device", "device_id", dc.DeviceID, "error", err)
 			continue
 		}
 
@@ -292,39 +300,39 @@ func (m *SessionManager) handleAgentEvent(dc *DeviceConnection, evt EventEnvelop
 		}
 
 	case "session.input":
-		log.Printf("Session input from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Session input from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	case "approval.submit":
-		log.Printf("Approval submit from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Approval submit from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	case "session.abort":
-		log.Printf("Session abort from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Session abort from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	case "tool.completed":
-		log.Printf("Tool completed from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Tool completed from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	case "tool.failed":
-		log.Printf("Tool failed from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Tool failed from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	case "diagnosis.started":
-		log.Printf("Diagnosis started from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Diagnosis started from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	case "diagnosis.completed":
-		log.Printf("Diagnosis completed from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Diagnosis completed from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	case "approval.requested":
-		log.Printf("Approval requested from device %s, session %s\n", dc.DeviceID, evt.SessionID)
+		slog.Info("Approval requested from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
 	default:
-		log.Printf("Unhandled event type [%s] from device %s\n", evt.EventType, dc.DeviceID)
+		slog.Info("Unhandled event type from device", "event_type", evt.EventType, "device_id", dc.DeviceID)
 	}
 }
 

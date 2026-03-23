@@ -2,7 +2,7 @@ package config
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -61,7 +61,7 @@ func (m *Manager) loadFromDisk() {
 	}
 	var diskConfig AgentConfig
 	if err := json.Unmarshal(data, &diskConfig); err != nil {
-		log.Printf("[config] Failed to parse config file: %v\n", err)
+		slog.Error("[config] Failed to parse config file", "error", err)
 		return
 	}
 	if diskConfig.PlatformURL != "" {
@@ -82,12 +82,12 @@ func (m *Manager) saveToDisk() {
 	path := filepath.Join(m.configDir, "agent_config.json")
 	data, err := json.MarshalIndent(m.config, "", "  ")
 	if err != nil {
-		log.Printf("[config] Failed to marshal config: %v\n", err)
+		slog.Error("[config] Failed to marshal config", "error", err)
 		return
 	}
 	_ = os.MkdirAll(m.configDir, 0755)
 	if err := os.WriteFile(path, data, 0600); err != nil {
-		log.Printf("[config] Failed to save config: %v\n", err)
+		slog.Error("[config] Failed to save config", "error", err)
 	}
 }
 

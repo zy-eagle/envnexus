@@ -2,7 +2,7 @@ package governance
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -15,7 +15,7 @@ func NewEngine() *Engine {
 
 // Start begins the periodic governance baseline checks
 func (e *Engine) Start(ctx context.Context) {
-	log.Println("[GovernanceEngine] Starting background baseline checks...")
+	slog.Info("[GovernanceEngine] Starting background baseline checks...")
 	
 	// For MVP, we use a short ticker to demonstrate it works.
 	// In production, this would be hours or days.
@@ -26,7 +26,7 @@ func (e *Engine) Start(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("[GovernanceEngine] Stopping...")
+				slog.Info("[GovernanceEngine] Stopping...")
 				return
 			case <-ticker.C:
 				e.runBaselineCheck(ctx)
@@ -36,6 +36,6 @@ func (e *Engine) Start(ctx context.Context) {
 }
 
 func (e *Engine) runBaselineCheck(ctx context.Context) {
-	log.Println("[GovernanceEngine] Running baseline check: Network Proxy & DNS")
+	slog.Info("[GovernanceEngine] Running baseline check", "scope", "Network Proxy & DNS")
 	// TODO: Call tools to check current state against expected baseline
 }

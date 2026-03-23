@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -82,14 +82,14 @@ func (c *Client) Flush(ctx context.Context) {
 	reqBody := BatchRequest{Events: batch}
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		log.Printf("[audit] Failed to marshal batch: %v\n", err)
+		slog.Error("[audit] Failed to marshal batch", "error", err)
 		return
 	}
 
 	url := fmt.Sprintf("%s/agent/v1/audit-events", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("[audit] Failed to create request: %v\n", err)
+		slog.Error("[audit] Failed to create request", "error", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -99,7 +99,7 @@ func (c *Client) Flush(ctx context.Context) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[audit] Batch flush failed: %v\n", err)
+		slog.Error("[audit] Batch flush failed", "error", err)
 		c.mu.Lock()
 		c.queue = append(batch, c.queue...)
 		c.mu.Unlock()
@@ -108,9 +108,9 @@ func (c *Client) Flush(ctx context.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		log.Printf("[audit] Batch flush returned status %d\n", resp.StatusCode)
+		slog.Warn("[audit] Batch flush unexpected status", "status", resp.StatusCode)
 	} else {
-		log.Printf("[audit] Flushed %d events\n", len(batch))
+		slog.Info("[audit] Flushed events", "count", len(batch))
 	}
 }
 

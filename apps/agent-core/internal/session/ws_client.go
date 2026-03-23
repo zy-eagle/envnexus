@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/url"
 	"sync"
 	"time"
@@ -85,10 +85,10 @@ func (c *WSClient) connectLoop(ctx context.Context) {
 		default:
 		}
 
-		log.Printf("[ws] Connecting to %s\n", dialURL)
+		slog.Info("[ws] Connecting to session-gateway", "dial_url", dialURL)
 		conn, _, err := websocket.DefaultDialer.DialContext(ctx, dialURL, nil)
 		if err != nil {
-			log.Printf("[ws] Dial error: %v. Retrying in %v...\n", err, backoff)
+			slog.Warn("[ws] Dial error, retrying", "error", err, "backoff", backoff)
 			time.Sleep(backoff)
 			backoff = backoff * 2
 			if backoff > maxBackoff {
@@ -98,7 +98,7 @@ func (c *WSClient) connectLoop(ctx context.Context) {
 		}
 
 		backoff = time.Second * 2
-		log.Println("[ws] Connected to session-gateway")
+		slog.Info("[ws] Connected to session-gateway")
 
 		c.mu.Lock()
 		c.conn = conn
@@ -109,7 +109,7 @@ func (c *WSClient) connectLoop(ctx context.Context) {
 		go c.writePump(errChan)
 
 		err = <-errChan
-		log.Printf("[ws] Connection lost: %v. Reconnecting...\n", err)
+		slog.Warn("[ws] Connection lost, reconnecting", "error", err)
 
 		c.mu.Lock()
 		if c.conn != nil {
@@ -125,7 +125,7 @@ func (c *WSClient) connectLoop(ctx context.Context) {
 func (c *WSClient) buildDialURL() string {
 	u, err := url.Parse(c.serverURL)
 	if err != nil {
-		log.Printf("[ws] Invalid server URL: %v, using as-is\n", err)
+		slog.Warn("[ws] Invalid server URL, using as-is", "error", err)
 		return c.serverURL
 	}
 
@@ -166,7 +166,7 @@ func (c *WSClient) readPump(errChan chan<- error) {
 
 		var evt EventEnvelope
 		if err := json.Unmarshal(message, &evt); err != nil {
-			log.Printf("[ws] Invalid message: %v\n", err)
+			slog.Warn("[ws] Invalid message", "error", err)
 			continue
 		}
 
@@ -213,37 +213,37 @@ func (c *WSClient) writePump(errChan chan<- error) {
 func (c *WSClient) handleServerEvent(evt EventEnvelope) {
 	switch evt.EventType {
 	case "session.created":
-		log.Printf("[ws] Session created: %s\n", evt.SessionID)
+		slog.Info("[ws] Session created", "session_id", evt.SessionID)
 		c.handleSessionCreated(evt)
 
 	case "diagnosis.started":
-		log.Printf("[ws] Diagnosis started for session: %s\n", evt.SessionID)
+		slog.Info("[ws] Diagnosis started", "session_id", evt.SessionID)
 
 	case "diagnosis.completed":
-		log.Printf("[ws] Diagnosis completed for session: %s\n", evt.SessionID)
+		slog.Info("[ws] Diagnosis completed", "session_id", evt.SessionID)
 
 	case "approval.requested":
-		log.Printf("[ws] Approval requested for session: %s\n", evt.SessionID)
+		slog.Info("[ws] Approval requested", "session_id", evt.SessionID)
 		c.handleApprovalRequested(evt)
 
 	case "approval.expired":
-		log.Printf("[ws] Approval expired for session: %s\n", evt.SessionID)
+		slog.Warn("[ws] Approval expired", "session_id", evt.SessionID)
 
 	case "tool.started":
-		log.Printf("[ws] Tool started for session: %s\n", evt.SessionID)
+		slog.Info("[ws] Tool started", "session_id", evt.SessionID)
 		c.handleToolStarted(evt)
 
 	case "tool.completed":
-		log.Printf("[ws] Tool completed for session: %s\n", evt.SessionID)
+		slog.Info("[ws] Tool completed", "session_id", evt.SessionID)
 
 	case "session.completed":
-		log.Printf("[ws] Session completed: %s\n", evt.SessionID)
+		slog.Info("[ws] Session completed", "session_id", evt.SessionID)
 
 	case "heartbeat.pong":
-		log.Println("[ws] Heartbeat pong received")
+		slog.Info("[ws] Heartbeat pong received")
 
 	default:
-		log.Printf("[ws] Unhandled event: %s\n", evt.EventType)
+		slog.Info("[ws] Unhandled event", "event_type", evt.EventType)
 	}
 }
 
@@ -269,7 +269,7 @@ func (c *WSClient) handleSessionCreated(evt EventEnvelope) {
 	go func() {
 		result, err := c.diagEngine.RunDiagnosis(context.Background(), evt.SessionID, initialMessage)
 		if err != nil {
-			log.Printf("[ws] Diagnosis failed for session %s: %v", evt.SessionID, err)
+			slog.Error("[ws] Diagnosis failed", "session_id", evt.SessionID, "error", err)
 			c.SendEvent(EventEnvelope{
 				EventID:   generateEventID(),
 				EventType: "diagnosis.completed",
@@ -394,7 +394,7 @@ func (c *WSClient) sendToolResult(sessionID, toolName string, result *tools.Tool
 	select {
 	case c.sendCh <- data:
 	default:
-		log.Println("[ws] Send buffer full, dropping tool result")
+		slog.Warn("[ws] Send buffer full, dropping tool result")
 	}
 }
 

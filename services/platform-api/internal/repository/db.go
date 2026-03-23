@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"log"
+	"log/slog"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -14,6 +14,6 @@ func NewDB(dsn string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	log.Println("Successfully connected to MySQL database")
+	slog.Info("successfully connected to MySQL database")
 	return db, nil
 }

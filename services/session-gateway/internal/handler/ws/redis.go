@@ -3,7 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -40,12 +40,12 @@ func (rc *RedisClient) SetManager(manager *SessionManager) {
 func (rc *RedisClient) Publish(evt EventEnvelope) {
 	data, err := json.Marshal(evt)
 	if err != nil {
-		log.Printf("[redis] Failed to marshal event: %v", err)
+		slog.Info("Failed to marshal event", "component", "redis", "error", err)
 		return
 	}
 	ctx := context.Background()
 	if err := rc.rdb.Publish(ctx, channelAgentEvents, data).Err(); err != nil {
-		log.Printf("[redis] Failed to publish event: %v", err)
+		slog.Info("Failed to publish event", "component", "redis", "error", err)
 	}
 }
 
@@ -54,7 +54,7 @@ func (rc *RedisClient) SubscribeSessionEvents(ctx context.Context) {
 	defer sub.Close()
 
 	ch := sub.Channel()
-	log.Println("[redis] Subscribed to session events channel")
+	slog.Info("Subscribed to session events channel", "component", "redis")
 
 	for {
 		select {
@@ -66,12 +66,12 @@ func (rc *RedisClient) SubscribeSessionEvents(ctx context.Context) {
 			}
 			var evt EventEnvelope
 			if err := json.Unmarshal([]byte(msg.Payload), &evt); err != nil {
-				log.Printf("[redis] Invalid event from channel: %v", err)
+				slog.Info("Invalid event from channel", "component", "redis", "error", err)
 				continue
 			}
 			if evt.DeviceID != "" && rc.manager != nil {
 				if err := rc.manager.SendToDevice(evt.DeviceID, evt); err != nil {
-					log.Printf("[redis] Failed to forward event to device %s: %v", evt.DeviceID, err)
+					slog.Info("Failed to forward event to device", "component", "redis", "device_id", evt.DeviceID, "error", err)
 				}
 			}
 		}

@@ -2,7 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -47,7 +47,7 @@ func NewBootstrapper() *Bootstrapper {
 }
 
 func (b *Bootstrapper) Run(ctx context.Context) error {
-	log.Println("[boot] Starting agent bootstrap sequence...")
+	slog.Info("[boot] Starting agent bootstrap sequence...")
 	cfg := b.configManager.Get()
 
 	// Step 1: Check device identity / enroll if needed
@@ -58,32 +58,31 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 		deviceID = id.DeviceID
 		deviceToken = id.Token
 		tenantID = id.TenantID
-		log.Printf("[boot] Loaded existing identity: device=%s, tenant=%s\n", deviceID, tenantID)
+		slog.Info("[boot] Loaded existing identity", "device", deviceID, "tenant", tenantID)
 	} else {
-		log.Println("[boot] No identity found, attempting enrollment...")
+		slog.Info("[boot] No identity found, attempting enrollment...")
 		if cfg.EnrollmentToken == "" {
-			log.Println("[boot] No enrollment token configured. Set ENX_ENROLLMENT_TOKEN or wait for installer.")
-			log.Println("[boot] Running in standalone mode...")
+			slog.Info("[boot] No enrollment token configured. Set ENX_ENROLLMENT_TOKEN or wait for installer.")
+			slog.Info("[boot] Running in standalone mode...")
 			deviceID = "standalone"
 		} else {
 			enrollClient := enrollment.NewClient(cfg.PlatformURL)
 			resp, err := enrollClient.Enroll(ctx, cfg.EnrollmentToken, cfg.AgentVersion)
 			if err != nil {
-				log.Printf("[boot] Enrollment failed: %v\n", err)
-				log.Println("[boot] Running in standalone mode...")
+				slog.Warn("[boot] Enrollment failed, running in standalone mode", "error", err)
 				deviceID = "standalone"
 			} else {
 				deviceID = resp.DeviceID
 				deviceToken = resp.DeviceToken
 				tenantID = resp.TenantID
-				log.Printf("[boot] Enrolled successfully: device=%s, tenant=%s\n", deviceID, tenantID)
+				slog.Info("[boot] Enrolled successfully", "device", deviceID, "tenant", tenantID)
 
 				if err := b.identityManager.SaveIdentity(&device.Identity{
 					DeviceID: deviceID,
 					TenantID: tenantID,
 					Token:    deviceToken,
 				}); err != nil {
-					log.Printf("[boot] Failed to save identity: %v\n", err)
+					slog.Error("[boot] Failed to save identity", "error", err)
 				}
 
 				b.configManager.Update(func(c *config.AgentConfig) {
@@ -95,18 +94,18 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 
 	// Step 2: Pull remote config
 	if deviceToken != "" {
-		log.Println("[boot] Pulling remote configuration...")
+		slog.Info("[boot] Pulling remote configuration...")
 		lifecycleClient := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
 		configResp, err := lifecycleClient.GetConfig(ctx, cfg.ConfigVersion)
 		if err != nil {
-			log.Printf("[boot] Config pull failed: %v\n", err)
+			slog.Warn("[boot] Config pull failed", "error", err)
 		} else if configResp.HasUpdate {
-			log.Printf("[boot] Config updated to version %d\n", configResp.ConfigVersion)
+			slog.Info("[boot] Config updated", "config_version", configResp.ConfigVersion)
 			b.configManager.Update(func(c *config.AgentConfig) {
 				c.ConfigVersion = configResp.ConfigVersion
 			})
 		} else {
-			log.Println("[boot] Config is up to date")
+			slog.Info("[boot] Config is up to date")
 		}
 	}
 
@@ -117,7 +116,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	registry.Register(system.NewReadSystemInfoTool())
 	registry.Register(service.NewRestartTool())
 	registry.Register(cache.NewRebuildTool())
-	log.Printf("[boot] Registered %d tools\n", registry.Count())
+	slog.Info("[boot] Registered tools", "count", registry.Count())
 
 	// Step 4: Initialize LLM router
 	llmRouter := b.initLLMRouter()
@@ -135,7 +134,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	// Step 6: Start local API
 	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine, diagnosisEngine)
 	if err := localServer.Start(); err != nil {
-		log.Printf("[boot] Failed to start local API: %v\n", err)
+		slog.Error("[boot] Failed to start local API", "error", err)
 	}
 
 	// Step 7: Start heartbeat loop
@@ -152,7 +151,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 				case <-ticker.C:
 					currentCfg := b.configManager.Get()
 					if err := lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion); err != nil {
-						log.Printf("[heartbeat] Failed: %v\n", err)
+						slog.Warn("[heartbeat] Failed", "error", err)
 					}
 				}
 			}
@@ -169,7 +168,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 		wsClient.Start(ctx)
 	}
 
-	log.Println("[boot] Bootstrap complete. Agent is running.")
+	slog.Info("[boot] Bootstrap complete. Agent is running.")
 	return nil
 }
 
@@ -184,7 +183,7 @@ func (b *Bootstrapper) initLLMRouter() *router.Router {
 			Model:   envOrDefault("ENX_OPENAI_MODEL", "gpt-4o-mini"),
 		})
 		llmRouter.RegisterProvider(p)
-		log.Println("[boot] Registered OpenAI provider")
+		slog.Info("[boot] Registered OpenAI provider")
 	}
 
 	if apiKey := os.Getenv("ENX_OPENROUTER_API_KEY"); apiKey != "" {
@@ -195,7 +194,7 @@ func (b *Bootstrapper) initLLMRouter() *router.Router {
 			Model:   envOrDefault("ENX_OPENROUTER_MODEL", ""),
 		})
 		llmRouter.RegisterProvider(p)
-		log.Println("[boot] Registered OpenRouter provider")
+		slog.Info("[boot] Registered OpenRouter provider")
 	}
 
 	if apiKey := os.Getenv("ENX_DEEPSEEK_API_KEY"); apiKey != "" {
@@ -206,7 +205,7 @@ func (b *Bootstrapper) initLLMRouter() *router.Router {
 			Model:   envOrDefault("ENX_DEEPSEEK_MODEL", "deepseek-chat"),
 		})
 		llmRouter.RegisterProvider(p)
-		log.Println("[boot] Registered DeepSeek provider")
+		slog.Info("[boot] Registered DeepSeek provider")
 	}
 
 	if apiKey := os.Getenv("ENX_ANTHROPIC_API_KEY"); apiKey != "" {
@@ -217,7 +216,7 @@ func (b *Bootstrapper) initLLMRouter() *router.Router {
 			Model:   envOrDefault("ENX_ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
 		})
 		llmRouter.RegisterProvider(p)
-		log.Println("[boot] Registered Anthropic provider")
+		slog.Info("[boot] Registered Anthropic provider")
 	}
 
 	if apiKey := os.Getenv("ENX_GEMINI_API_KEY"); apiKey != "" {
@@ -228,7 +227,7 @@ func (b *Bootstrapper) initLLMRouter() *router.Router {
 			Model:   envOrDefault("ENX_GEMINI_MODEL", "gemini-2.0-flash"),
 		})
 		llmRouter.RegisterProvider(p)
-		log.Println("[boot] Registered Gemini provider")
+		slog.Info("[boot] Registered Gemini provider")
 	}
 
 	ollamaURL := envOrDefault("ENX_OLLAMA_URL", "http://localhost:11434")
@@ -238,13 +237,13 @@ func (b *Bootstrapper) initLLMRouter() *router.Router {
 		Model:   envOrDefault("ENX_OLLAMA_MODEL", "llama3.2"),
 	})
 	llmRouter.RegisterProvider(p)
-	log.Println("[boot] Registered Ollama provider (fallback)")
+	slog.Info("[boot] Registered Ollama provider (fallback)")
 
 	if primary := os.Getenv("ENX_LLM_PRIMARY"); primary != "" {
 		llmRouter.SetPrimary(primary)
 	}
 
-	log.Printf("[boot] LLM router initialized with providers: %v", llmRouter.ListProviders())
+	slog.Info("[boot] LLM router initialized", "providers", llmRouter.ListProviders())
 	return llmRouter
 }
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -57,28 +57,28 @@ func NewEngine(registry *tools.Registry, llmRouter *router.Router) *Engine {
 }
 
 func (e *Engine) Plan(ctx context.Context, sessionID, input string) (*DiagnosisPlan, error) {
-	log.Printf("[diagnosis] Planning for session %s: %s", sessionID, input)
+	slog.Info("[diagnosis] Planning", "session_id", sessionID, "input", input)
 
 	plan, err := e.stepIntentParse(ctx, input)
 	if err != nil {
-		log.Printf("[diagnosis] IntentParse failed, using heuristic: %v", err)
+		slog.Warn("[diagnosis] IntentParse failed, using heuristic", "error", err)
 		plan = e.heuristicPlan(input)
 	}
 
 	plan.ToolNames = e.stepEvidencePlan(plan)
-	log.Printf("[diagnosis] Plan: type=%s, tools=%v", plan.ProblemType, plan.ToolNames)
+	slog.Info("[diagnosis] Plan", "problem_type", plan.ProblemType, "tools", plan.ToolNames)
 	return plan, nil
 }
 
 func (e *Engine) Execute(ctx context.Context, sessionID string, plan *DiagnosisPlan) (*DiagnosisResult, error) {
 	start := time.Now()
-	log.Printf("[diagnosis] Executing plan for session %s (type=%s)", sessionID, plan.ProblemType)
+	slog.Info("[diagnosis] Executing plan", "session_id", sessionID, "problem_type", plan.ProblemType)
 
 	evidence := e.stepEvidenceCollect(ctx, plan.ToolNames)
 
 	reasoning, err := e.stepReasoning(ctx, plan, evidence)
 	if err != nil {
-		log.Printf("[diagnosis] Reasoning via LLM failed, using local analysis: %v", err)
+		slog.Warn("[diagnosis] Reasoning via LLM failed, using local analysis", "error", err)
 		reasoning = e.localReasoning(plan, evidence)
 	}
 
@@ -89,9 +89,13 @@ func (e *Engine) Execute(ctx context.Context, sessionID string, plan *DiagnosisP
 		e.stepActionDraft(reasoning)
 	}
 
-	log.Printf("[diagnosis] Complete: type=%s confidence=%.2f findings=%d actions=%d duration=%dms",
-		reasoning.ProblemType, reasoning.Confidence, len(reasoning.Findings),
-		len(reasoning.RecommendedActions), reasoning.DurationMs)
+	slog.Info("[diagnosis] Complete",
+		"problem_type", reasoning.ProblemType,
+		"confidence", reasoning.Confidence,
+		"findings", len(reasoning.Findings),
+		"actions", len(reasoning.RecommendedActions),
+		"duration_ms", reasoning.DurationMs,
+	)
 
 	return reasoning, nil
 }
@@ -189,10 +193,10 @@ func (e *Engine) stepEvidenceCollect(ctx context.Context, toolNames []string) ma
 			defer mu.Unlock()
 			if err != nil {
 				evidence[toolName] = map[string]interface{}{"error": err.Error()}
-				log.Printf("[diagnosis] Tool %s failed: %v", toolName, err)
+				slog.Warn("[diagnosis] Tool failed during evidence collection", "tool", toolName, "error", err)
 			} else {
 				evidence[toolName] = result.Output
-				log.Printf("[diagnosis] Tool %s collected: %s", toolName, result.Summary)
+				slog.Info("[diagnosis] Tool collected", "tool", toolName, "summary", result.Summary)
 			}
 		}(t, name)
 	}
@@ -257,7 +261,7 @@ func (e *Engine) stepActionDraft(result *DiagnosisResult) {
 	for _, action := range result.RecommendedActions {
 		t, ok := e.registry.Get(action.ToolName)
 		if !ok {
-			log.Printf("[diagnosis] ActionDraft: tool %s not found, skipping", action.ToolName)
+			slog.Warn("[diagnosis] ActionDraft: tool not found, skipping", "tool", action.ToolName)
 			continue
 		}
 		action.RiskLevel = t.RiskLevel()

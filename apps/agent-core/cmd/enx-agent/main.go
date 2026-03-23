@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,7 +11,8 @@ import (
 )
 
 func main() {
-	log.Println("Starting enx-agent core...")
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	slog.Info("Starting enx-agent core...")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -19,16 +20,17 @@ func main() {
 	// Run bootstrap sequence
 	bootstrapper := bootstrap.NewBootstrapper()
 	if err := bootstrapper.Run(ctx); err != nil {
-		log.Fatalf("Bootstrap failed: %v", err)
+		slog.Error("Bootstrap failed", "error", err)
+		os.Exit(1)
 	}
 
 	// Wait for interrupt signal to gracefully shutdown the agent
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	
-	log.Println("Shutting down enx-agent...")
+
+	slog.Info("Shutting down enx-agent...")
 	cancel()
 
-	log.Println("enx-agent exiting")
+	slog.Info("enx-agent exiting")
 }

@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,24 +22,37 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+func envRequired(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		slog.Error("required environment variable is not set", "env_key", key)
+		os.Exit(1)
+	}
+	return v
+}
+
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	port := envOrDefault("ENX_HTTP_PORT", "8081")
 	redisAddr := envOrDefault("ENX_REDIS_ADDR", "localhost:6379")
 	redisPassword := os.Getenv("ENX_REDIS_PASSWORD")
-	sessionTokenSecret := envOrDefault("ENX_SESSION_TOKEN_SECRET", "dev-session-secret-change-me")
+	sessionTokenSecret := envRequired("ENX_SESSION_TOKEN_SECRET")
+	allowedOrigins := envOrDefault("ENX_CORS_ALLOWED_ORIGINS", "http://localhost:3000")
 
-	sessionManager := ws.NewSessionManager(sessionTokenSecret)
+	origins := strings.Split(allowedOrigins, ",")
+	sessionManager := ws.NewSessionManager(sessionTokenSecret, origins)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	rc, err := ws.NewRedisClient(redisAddr, redisPassword, 0)
 	if err != nil {
-		log.Printf("Warning: Redis connection failed (%s): %v. Running without pub/sub.", redisAddr, err)
+		slog.Info("Redis connection failed, running without pub/sub", "redis_addr", redisAddr, "error", err)
 	} else {
 		sessionManager.SetRedisClient(rc)
 		go rc.SubscribeSessionEvents(ctx)
-		log.Printf("Connected to Redis at %s", redisAddr)
+		slog.Info("Connected to Redis", "redis_addr", redisAddr)
 	}
 
 	router := gin.Default()
@@ -73,16 +87,17 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Starting session-gateway on :%s", port)
+		slog.Info("Starting session-gateway", "port", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			slog.Error("Server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down session-gateway...")
+	slog.Info("Shutting down session-gateway...")
 
 	cancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -93,7 +108,8 @@ func main() {
 	}
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		slog.Error("Server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Session-gateway exited")
+	slog.Info("Session-gateway exited")
 }

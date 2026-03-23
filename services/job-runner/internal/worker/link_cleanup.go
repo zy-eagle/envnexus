@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -21,12 +21,12 @@ func (w *LinkCleanupWorker) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	log.Println("[link_cleanup] Worker started")
+	slog.Info("Worker started", "worker", "link_cleanup")
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[link_cleanup] Worker stopped")
+			slog.Info("Worker stopped", "worker", "link_cleanup")
 			return
 		case <-ticker.C:
 			w.cleanup(ctx)
@@ -41,10 +41,10 @@ func (w *LinkCleanupWorker) cleanup(ctx context.Context) {
 		cutoff,
 	)
 	if result.Error != nil {
-		log.Printf("[link_cleanup] Error: %v\n", result.Error)
+		slog.Error("Link cleanup failed", "worker", "link_cleanup", "error", result.Error)
 		return
 	}
 	if result.RowsAffected > 0 {
-		log.Printf("[link_cleanup] Expired %d old packages\n", result.RowsAffected)
+		slog.Info("Expired old packages", "worker", "link_cleanup", "count", result.RowsAffected)
 	}
 }

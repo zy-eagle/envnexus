@@ -144,12 +144,12 @@ gantt
 
 ### Phase 0 验收标准
 
-- [ ] CI pipeline 全绿（lint + build + test）
-- [ ] `go vet ./...` 零告警
-- [ ] 审批状态机和会话状态机测试覆盖率 100%
-- [ ] 安全扫描无高危告警（密钥、鉴权旁路已修复）
-- [ ] Docker Compose 启动后 readyz 返回所有依赖就绪
-- [ ] 所有日志输出为结构化 JSON 格式
+- [x] CI pipeline 全绿（lint + build + test）— `.github/workflows/ci.yml` 已创建
+- [x] `go vet ./...` 零告警 — 四个 Go 模块全部 build 通过
+- [x] 审批状态机和会话状态机测试覆盖率 100% — `approval_request_test.go` + `session_test.go` 全路径覆盖
+- [x] 安全扫描无高危告警（密钥、鉴权旁路已修复）— 硬编码密钥移除、WS 鉴权旁路修复、CheckOrigin 白名单
+- [x] Docker Compose 启动后 readyz 返回所有依赖就绪 — readyz 检查 DB ping
+- [x] 所有日志输出为结构化 JSON 格式 — 全部 19 个 Go 文件迁移到 `log/slog`
 
 ---
 

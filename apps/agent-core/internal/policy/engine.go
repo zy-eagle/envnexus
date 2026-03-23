@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -96,7 +96,7 @@ func (e *Engine) Check(ctx context.Context, tool tools.Tool, params map[string]i
 	e.pendingApprovals[reqID] = req
 	e.mu.Unlock()
 
-	log.Printf("[policy] Tool '%s' (risk: %s) requires approval. Request: %s\n", tool.Name(), tool.RiskLevel(), reqID)
+	slog.Info("[policy] Tool requires approval", "tool", tool.Name(), "risk", tool.RiskLevel(), "request_id", reqID)
 
 	if e.platformClient != nil && req.SessionID != "" {
 		go e.syncApprovalToPlatform(req)
@@ -140,8 +140,7 @@ func (e *Engine) CheckWithSession(ctx context.Context, tool tools.Tool, params m
 	e.pendingApprovals[reqID] = req
 	e.mu.Unlock()
 
-	log.Printf("[policy] Tool '%s' (risk: %s) requires approval. Session: %s, Request: %s\n",
-		tool.Name(), tool.RiskLevel(), sessionID, reqID)
+	slog.Info("[policy] Tool requires approval", "tool", tool.Name(), "risk", tool.RiskLevel(), "session_id", sessionID, "request_id", reqID)
 
 	if e.platformClient != nil {
 		go e.syncApprovalToPlatform(req)
@@ -203,7 +202,7 @@ func (e *Engine) syncApprovalToPlatform(req *ApprovalRequest) {
 
 	resp, err := pc.postJSON("/agent/v1/approvals", body)
 	if err != nil {
-		log.Printf("[policy] Failed to sync approval to platform: %v", err)
+		slog.Error("[policy] Failed to sync approval to platform", "error", err)
 		return
 	}
 
@@ -212,7 +211,7 @@ func (e *Engine) syncApprovalToPlatform(req *ApprovalRequest) {
 			e.mu.Lock()
 			req.PlatformID = approvalID
 			e.mu.Unlock()
-			log.Printf("[policy] Approval synced to platform: %s -> %s", req.ID, approvalID)
+			slog.Info("[policy] Approval synced to platform", "request_id", req.ID, "approval_id", approvalID)
 		}
 	}
 }
@@ -250,21 +249,21 @@ func (e *Engine) pollApprovalFromPlatform(ctx context.Context, req *ApprovalRequ
 			status, _ := data["status"].(string)
 			switch ApprovalStatus(status) {
 			case StatusApproved:
-				log.Printf("[policy] Platform approved: %s", platformID)
+				slog.Info("[policy] Platform approved", "platform_id", platformID)
 				select {
 				case req.ResultCh <- true:
 				default:
 				}
 				return
 			case StatusDenied:
-				log.Printf("[policy] Platform denied: %s", platformID)
+				slog.Warn("[policy] Platform denied", "platform_id", platformID)
 				select {
 				case req.ResultCh <- false:
 				default:
 				}
 				return
 			case StatusExpired:
-				log.Printf("[policy] Platform expired: %s", platformID)
+				slog.Warn("[policy] Platform expired", "platform_id", platformID)
 				select {
 				case req.ResultCh <- false:
 				default:

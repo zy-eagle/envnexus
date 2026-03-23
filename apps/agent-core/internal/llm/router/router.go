@@ -3,7 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -100,7 +100,7 @@ func (r *Router) Complete(ctx context.Context, req *CompletionRequest) (*Complet
 	var lastErr error
 	for _, p := range order {
 		if !p.IsAvailable() {
-			log.Printf("[llm/router] Provider %s unavailable, skipping", p.Name())
+			slog.Warn("[llm/router] Provider unavailable, skipping", "provider", p.Name())
 			continue
 		}
 
@@ -111,14 +111,18 @@ func (r *Router) Complete(ctx context.Context, req *CompletionRequest) (*Complet
 
 		if err != nil {
 			lastErr = fmt.Errorf("provider %s: %w", p.Name(), err)
-			log.Printf("[llm/router] Provider %s failed in %dms: %v", p.Name(), time.Since(start).Milliseconds(), err)
+			slog.Warn("[llm/router] Provider failed", "provider", p.Name(), "duration_ms", time.Since(start).Milliseconds(), "error", err)
 			continue
 		}
 
 		resp.DurationMs = time.Since(start).Milliseconds()
 		resp.Provider = p.Name()
-		log.Printf("[llm/router] Provider %s completed in %dms (tokens: %d+%d)",
-			p.Name(), resp.DurationMs, resp.PromptTokens, resp.CompTokens)
+		slog.Info("[llm/router] Provider completed",
+			"provider", p.Name(),
+			"duration_ms", resp.DurationMs,
+			"prompt_tokens", resp.PromptTokens,
+			"completion_tokens", resp.CompTokens,
+		)
 		return resp, nil
 	}
 

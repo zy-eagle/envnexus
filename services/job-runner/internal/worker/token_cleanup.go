@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
@@ -21,13 +21,13 @@ func (w *TokenCleanupWorker) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	log.Println("[token_cleanup] Worker started")
+	slog.Info("Worker started", "worker", "token_cleanup")
 	w.cleanup(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[token_cleanup] Worker stopped")
+			slog.Info("Worker stopped", "worker", "token_cleanup")
 			return
 		case <-ticker.C:
 			w.cleanup(ctx)
@@ -41,10 +41,10 @@ func (w *TokenCleanupWorker) cleanup(ctx context.Context) {
 		time.Now(),
 	)
 	if result.Error != nil {
-		log.Printf("[token_cleanup] Error: %v\n", result.Error)
+		slog.Error("Token cleanup failed", "worker", "token_cleanup", "error", result.Error)
 		return
 	}
 	if result.RowsAffected > 0 {
-		log.Printf("[token_cleanup] Expired %d tokens\n", result.RowsAffected)
+		slog.Info("Expired tokens", "worker", "token_cleanup", "count", result.RowsAffected)
 	}
 }

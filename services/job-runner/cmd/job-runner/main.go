@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +23,8 @@ func envOrDefault(key, fallback string) string {
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	dsn := os.Getenv("ENX_DATABASE_DSN")
 	healthPort := envOrDefault("ENX_HEALTH_PORT", "8082")
 
@@ -31,11 +33,12 @@ func main() {
 		var err error
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 		if err != nil {
-			log.Fatalf("Failed to connect to database: %v", err)
+			slog.Error("Failed to connect to database", "error", err)
+			os.Exit(1)
 		}
-		log.Println("Connected to MySQL database")
+		slog.Info("Connected to MySQL database")
 	} else {
-		log.Println("Warning: ENX_DATABASE_DSN not set, workers requiring DB will be disabled")
+		slog.Info("Warning: ENX_DATABASE_DSN not set, workers requiring DB will be disabled")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -66,23 +69,25 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Starting job-runner health server on :%s", healthPort)
+		slog.Info("Starting job-runner health server", "addr", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			slog.Error("Server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down job-runner...")
+	slog.Info("Shutting down job-runner")
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		slog.Error("Server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
-	log.Println("job-runner exited")
+	slog.Info("job-runner exited")
 }
