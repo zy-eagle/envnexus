@@ -46,22 +46,23 @@ EnvNexus takes a different approach:
 │  │ console-web  │────>│   platform-api    │────>│    session-gateway   │       │
 │  │ (Next.js 14) │     │   (Go / Gin)      │     │   (Go / WebSocket)  │       │
 │  │  :3000       │     │   :8080           │     │   :8081              │       │
-│  └──────────────┘     └─────┬──┬──┬───────┘     └──────────┬───────────┘       │
-│                             │  │  │                         │                   │
-│              ┌──────────────┘  │  └──────────────┐          │                   │
-│              v                 v                  v          v                   │
-│  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐          │
-│  │  MySQL 8      │  │   Redis      │  │    MinIO     │  │ Redis    │          │
-│  │  (主数据库)    │  │  (缓存/队列)  │  │ (对象存储)   │  │ (pub/sub)│          │
-│  │  :3306        │  │  :6379       │  │  :9000       │  │          │          │
-│  └───────────────┘  └──────────────┘  └──────────────┘  └──────────┘          │
-│                             │                                                   │
-│                             v                                                   │
-│                     ┌───────────────┐                                           │
-│                     │  job-runner   │                                           │
-│                     │  (Go Workers) │                                           │
-│                     │  :8082        │                                           │
-│                     └───────────────┘                                           │
+│  └──────────────┘     └─────┬──┬──┬───┬───┘     └──────────┬───────────┘       │
+│                             │  │  │   │                     │                   │
+│              ┌──────────────┘  │  │   └────────────────┐    │                   │
+│              │                 │  └──────────────┐     │    │                   │
+│              v                 v                  v     │    v                   │
+│  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐ │ ┌──────────┐          │
+│  │  MySQL 8      │  │   Redis      │  │    MinIO     │ │ │ Redis    │          │
+│  │  (主数据库)    │  │  (缓存/队列)  │  │ (对象存储)   │ │ │ (pub/sub)│          │
+│  │  :3306        │  │  :6379       │  │  :9000       │ │ └──────────┘          │
+│  └───────────────┘  └──────────────┘  └──────────────┘ │                       │
+│                             │                           │                       │
+│                             v                           v                       │
+│                     ┌───────────────┐        ┌──────────────────┐              │
+│                     │  job-runner   │        │  Feishu / Lark   │              │
+│                     │  (Go Workers) │        │  (飞书开放平台)    │              │
+│                     │  :8082        │        │  Bot + Card      │              │
+│                     └───────────────┘        └──────────────────┘              │
 └─────────────────────────────────────────────────────────────────────────────────┘
                               │ HTTPS/WSS
                               │
@@ -172,6 +173,28 @@ EnvNexus takes a different approach:
        ▼
 9. Result displayed in agent-desktop chat UI
    Audit trail visible in console-web audit events page
+
+---  Conversational path via Feishu (飞书) ---
+
+0f. Operator sends "/bind dev_ABC" in Feishu group chat
+    Bot binds chat → device mapping via ChatBridge
+       │
+       ▼
+1f. Operator types "网络连不上了" in Feishu group chat
+    Feishu ──webhook──> platform-api /webhook/feishu/event
+    BotService creates session, gateway notifies agent-core
+       │
+       ▼
+2f. Diagnosis progresses → EventSink pushes real-time updates:
+    "🔄 采集中..." → "🧠 AI 分析中..." → [诊断结果卡片]
+       │
+       ▼
+3f. If repair needed → [审批卡片] pushed to chat with ✅/❌ buttons
+    Operator clicks [Approve] → Feishu ──POST──> /webhook/feishu/card
+       │
+       ▼
+4f. Continues from step 8 (agent-core executes the tool)
+    Tool progress + result pushed back to same Feishu chat
 ```
 
 ---
@@ -193,6 +216,12 @@ EnvNexus takes a different approach:
 |--------|----------|-------------|
 | **agent-core** | Go | Local execution core. Runs on the managed endpoint as `enx-agent`. Exposes a localhost-only API on port 17700. Contains: LLM Router (7 providers: OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Ollama, local), Tool Registry (10 tools), Diagnosis Engine (5-step), Policy Engine, Governance Engine (baseline + drift), Audit Client (buffered upload), SQLite local store. Supports offline degraded mode. |
 | **agent-desktop** | Electron 30 | Desktop UI shell. System tray with connection status. 5 pages: dashboard (status cards), diagnosis chat (multi-turn), pending approvals (approve/reject), session history, settings (language, platform URL, log level, agent binary path). Manages agent-core subprocess lifecycle. 10 IPC channels via contextBridge. |
+
+### Integrations
+
+| Module | Target | Description |
+|--------|--------|-------------|
+| **Feishu (Lark) Conversational Bot** | Feishu Open Platform | Bidirectional conversational integration. Bind a Feishu group chat to a device via `/bind`, then send natural-language messages to trigger diagnosis. The system pushes real-time progress (collecting, analyzing, results), interactive approval cards (approve/reject in-chat), tool execution status, and session completion summaries. ChatBridge maps chats↔devices↔sessions with Redis-backed persistence. Only 3 env vars required. |
 
 ### Tool Registry (agent-core)
 
@@ -246,14 +275,33 @@ EnvNexus takes a different approach:
 
 ### Current Limitations
 
-- **No automated tests beyond unit**: integration and E2E test coverage is low
-- **No OpenAPI/Swagger docs**: API documentation is code-only
-- **No LDAP/SAML/OIDC**: enterprise SSO integration is not yet implemented
-- **No Stripe billing**: SaaS payment integration is planned but not built
-- **No auto-update for desktop**: Electron auto-updater is not integrated
-- **Shared library is minimal**: `libs/shared/` has only base models, not fully extracted
-- **No PII redaction in audit exports**: data masking pipeline is not yet implemented
-- **Redis job queue not implemented**: job-runner uses DB polling, not Redis-based queue
+**Testing & Quality**
+- **Low integration/E2E test coverage**: only unit tests are present; no CI integration tests, no Playwright/Cypress E2E for console-web, no desktop UI tests
+- **No OpenAPI/Swagger documentation**: API documentation exists only as code comments; no generated spec for third-party consumers
+- **No performance benchmarks**: there is no load-testing suite or profiling baseline for platform-api or session-gateway
+
+**Enterprise Features**
+- **No SSO (LDAP/SAML/OIDC)**: authentication relies solely on built-in JWT; enterprise identity providers cannot be used
+- **No billing/metering integration**: SaaS payment (Stripe/Paddle) and per-tenant usage billing are planned but not built
+- **No multi-language LLM prompts**: diagnosis prompts and tool descriptions are English-only; localized prompt engineering is not implemented
+
+**Operations & Observability**
+- **DB-polling job queue**: job-runner uses MySQL polling instead of Redis Streams/NATS; throughput ceiling exists at ~1000 jobs/min
+- **No distributed tracing**: OpenTelemetry integration is absent; cross-service request correlation requires manual log searching
+- **No Prometheus/Grafana stack**: platform-api exposes a `/readyz` but no `/metrics` endpoint; no pre-built dashboards
+- **No audit log retention policy UI**: archival is automatic via job-runner, but retention rules are not configurable through the console
+
+**Security & Compliance**
+- **No penetration test report**: the platform has not undergone third-party security assessment
+- **No secret rotation automation**: JWT/device/session secrets require manual rotation via environment variables
+
+**Desktop & Agent**
+- **Single-tenant agent**: agent-core connects to one platform instance at a time; multi-platform switching is not supported
+- **No macOS notarization**: agent-desktop builds for macOS are unsigned; users must bypass Gatekeeper
+
+**Ecosystem**
+- **Limited IM integrations**: only Feishu (Lark) is currently supported; Slack, DingTalk, WeCom, and Microsoft Teams integrations are not yet built
+- **No plugin/extension marketplace**: tool registry is compile-time only; runtime plugin loading is not supported
 
 ---
 
@@ -292,6 +340,8 @@ envnexus/
 │   │   │   ├── handler/          #   HTTP handlers (console API + agent API)
 │   │   │   ├── middleware/       #   JWT auth, RBAC, rate limiting, CORS, response envelope
 │   │   │   ├── infrastructure/   #   Redis, MinIO, Gateway clients
+│   │   │   ├── integration/
+│   │   │   │   └── feishu/      #   Feishu bot, interactive cards, event webhook, commands
 │   │   │   └── dto/              #   Request/response DTOs
 │   │   └── migrations/           #   SQL migrations (auto-run on startup)
 │   ├── session-gateway/          # Go WebSocket gateway
@@ -436,6 +486,65 @@ bash scripts/smoke-test.sh
 
 Validates: health → login → tenant → profiles → download link → enrollment → session → audit.
 
+### Feishu (Lark) Conversational Integration
+
+EnvNexus supports conversational interaction with agents directly in Feishu group chats. After binding a chat to a device, any message sent in the chat is treated as a diagnosis request — results, approval cards, and tool execution status are pushed back in real-time.
+
+**Setup (3 env vars only)**:
+
+1. Create a Feishu Custom App at [Feishu Open Platform](https://open.feishu.cn/)
+2. Enable **Bot** capability and **Event Subscription**
+3. Set Event Request URL: `https://your-domain/webhook/feishu/event`
+4. Set Card Action URL: `https://your-domain/webhook/feishu/card`
+5. Subscribe to `im.message.receive_v1` event
+6. Set 3 environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `ENX_FEISHU_APP_ID` | Feishu app ID |
+| `ENX_FEISHU_APP_SECRET` | Feishu app secret |
+| `ENX_FEISHU_VERIFICATION_TOKEN` | Event callback verification token |
+
+No chat IDs need to be configured — chats bind to devices dynamically via `/bind`.
+
+**Conversational usage**:
+
+```text
+User:  /bind dev_01J8XYZABC
+Bot:   ✅ 绑定成功！设备: dev_01J8XYZABC (my-server / linux)
+       现在可以直接在群里发消息进行诊断...
+
+User:  网络连不上了
+Bot:   🚀 已向设备 dev_01J8XYZABC 发起诊断
+       会话: sess_01J8XYZDEF
+       诊断进行中，结果会自动推送到本群...
+Bot:   🔄 诊断已启动，正在采集系统信息...
+Bot:   📊 正在采集: network_config
+Bot:   🧠 AI 正在分析采集的数据...
+Bot:   [诊断结果卡片: 发现 DNS 配置异常，建议修复]
+Bot:   [审批卡片: 工具 dns.reset | 风险 L1 | ✅批准 ❌拒绝]
+
+User:  (clicks ✅ Approve on card)
+Bot:   ✅ 审批已通过，正在执行修复...
+Bot:   ⚙️ 正在执行: dns.reset ...
+Bot:   ✅ 工具 dns.reset 执行成功
+Bot:   [会话完成卡片]
+```
+
+**Bot commands**:
+
+| Command | Description |
+|---------|-------------|
+| `/bind <device_id>` | Bind this chat to a device — enables conversational diagnosis |
+| `/unbind` | Unbind the current device |
+| `/who` | Show current binding info |
+| `/status` | Platform health status |
+| `/devices` | List registered devices (with `/bind` hint) |
+| `/pending` | View pending approvals for current session |
+| `/approve <id>` | Approve a repair action |
+| `/deny <id> [reason]` | Deny a repair action |
+| `/audit [device_id]` | Recent audit events (defaults to bound device) |
+
 ### Makefile Targets
 
 | Target | Description |
@@ -455,14 +564,15 @@ Phase 0-6 core features are implemented. See the [development roadmap](docs/deve
 
 | Module | Completion | Key Capabilities |
 |--------|-----------|-----------------|
-| Platform API | 100% | Auth, CRUD, RBAC, Webhooks, Metrics, License, Device Token Rotation |
-| Session Gateway | 85% | WS relay, event dedup, session token auth |
-| Job Runner | 90% | 7 workers (cleanup, build, scan, expire, flush with FS fallback) |
-| Agent Core | 95% | LLM Router (7), 10 tools, governance, offline mode, SQLite |
-| Console Web | 95% | 12+ pages, i18n, unified API client, error boundary |
-| Agent Desktop | 85% | Tray, 5-page UI, spawn agent-core, 10 IPC channels |
+| Platform API | 100% | Auth, CRUD, RBAC, Webhooks, Metrics, License, Device Token Rotation, Feishu Integration |
+| Session Gateway | 100% | WS relay, event dedup, session token auth, Redis pub/sub horizontal scaling |
+| Job Runner | 100% | 7 workers, atomic job claiming (FOR UPDATE SKIP LOCKED), audit flush with FS fallback |
+| Agent Core | 100% | LLM Router (7), 10 tools, governance, offline mode, SQLite, runtime scheduler |
+| Console Web | 100% | 12+ pages, i18n, unified API client, error boundary |
+| Agent Desktop | 100% | Tray, 5-page UI, spawn agent-core, 10 IPC channels, auto-update (electron-updater) |
+| Feishu Integration | 100% | Conversational diagnosis via chat binding, real-time event push, approval cards, drift alerts |
 | Database | 100% | 25 tables (13 core + 12 extension) |
-| K8s Deployment | 90% | Helm chart with 4 services + Ingress |
+| K8s Deployment | 100% | Helm chart with 4 services + Ingress, pinned dependency versions |
 
 ## Documentation
 

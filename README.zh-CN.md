@@ -46,22 +46,23 @@ EnvNexus 采用完全不同的方式：
 │  │ console-web  │────>│   platform-api    │────>│    session-gateway   │       │
 │  │ (Next.js 14) │     │   (Go / Gin)      │     │   (Go / WebSocket)  │       │
 │  │  :3000       │     │   :8080           │     │   :8081              │       │
-│  └──────────────┘     └─────┬──┬──┬───────┘     └──────────┬───────────┘       │
-│                             │  │  │                         │                   │
-│              ┌──────────────┘  │  └──────────────┐          │                   │
-│              v                 v                  v          v                   │
-│  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐          │
-│  │  MySQL 8      │  │   Redis      │  │    MinIO     │  │ Redis    │          │
-│  │  (主数据库)    │  │  (缓存/队列)  │  │ (对象存储)   │  │ (pub/sub)│          │
-│  │  :3306        │  │  :6379       │  │  :9000       │  │          │          │
-│  └───────────────┘  └──────────────┘  └──────────────┘  └──────────┘          │
-│                             │                                                   │
-│                             v                                                   │
-│                     ┌───────────────┐                                           │
-│                     │  job-runner   │                                           │
-│                     │  (Go Workers) │                                           │
-│                     │  :8082        │                                           │
-│                     └───────────────┘                                           │
+│  └──────────────┘     └─────┬──┬──┬───┬───┘     └──────────┬───────────┘       │
+│                             │  │  │   │                     │                   │
+│              ┌──────────────┘  │  │   └────────────────┐    │                   │
+│              │                 │  └──────────────┐     │    │                   │
+│              v                 v                  v     │    v                   │
+│  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐ │ ┌──────────┐          │
+│  │  MySQL 8      │  │   Redis      │  │    MinIO     │ │ │ Redis    │          │
+│  │  (主数据库)    │  │  (缓存/队列)  │  │ (对象存储)   │ │ │ (pub/sub)│          │
+│  │  :3306        │  │  :6379       │  │  :9000       │ │ └──────────┘          │
+│  └───────────────┘  └──────────────┘  └──────────────┘ │                       │
+│                             │                           │                       │
+│                             v                           v                       │
+│                     ┌───────────────┐        ┌──────────────────┐              │
+│                     │  job-runner   │        │  飞书 / Lark     │              │
+│                     │  (Go Workers) │        │  (飞书开放平台)    │              │
+│                     │  :8082        │        │  Bot + 卡片交互   │              │
+│                     └───────────────┘        └──────────────────┘              │
 └─────────────────────────────────────────────────────────────────────────────────┘
                               │ HTTPS/WSS
                               │
@@ -172,6 +173,28 @@ EnvNexus 采用完全不同的方式：
        ▼
 9. 结果显示在 agent-desktop 对话界面
    审计记录可在 console-web 审计事件页面查询
+
+---  飞书对话式路径 ---
+
+0f. 运维人员在飞书群发送 "/bind dev_ABC"
+    Bot 通过 ChatBridge 建立群聊 → 设备映射
+       │
+       ▼
+1f. 运维人员在群里输入 "网络连不上了"
+    飞书 ──webhook──> platform-api /webhook/feishu/event
+    BotService 创建会话，网关通知 agent-core
+       │
+       ▼
+2f. 诊断过程中 → EventSink 实时推送进度：
+    "🔄 采集中..." → "🧠 AI 分析中..." → [诊断结果卡片]
+       │
+       ▼
+3f. 如需修复 → [审批卡片] 推送到群，内嵌 ✅/❌ 按钮
+    运维人员点击 [批准] → 飞书 ──POST──> /webhook/feishu/card
+       │
+       ▼
+4f. 接续步骤 8（agent-core 执行工具操作）
+    工具执行进度和结果同步推送回飞书群
 ```
 
 ---
@@ -193,6 +216,12 @@ EnvNexus 采用完全不同的方式：
 |------|------|------|
 | **agent-core** | Go | 本地执行内核。以 `enx-agent` 进程运行在受管终端上，通过 localhost:17700 暴露 API。核心组件：LLM Router（7 个 Provider：OpenAI、Anthropic、DeepSeek、Gemini、OpenRouter、Ollama、本地模型）、工具注册表（10 个结构化工具）、诊断引擎（5 步流水线）、策略引擎、治理引擎（基线采集+漂移检测）、审计客户端（缓冲上传）、SQLite 本地存储。支持离线降级模式。 |
 | **agent-desktop** | Electron 30 | 桌面 UI 外壳。系统托盘显示连接状态（在线/离线/连接中）。5 个页面：仪表盘（状态卡片）、诊断对话（多轮聊天）、待审批操作（批准/拒绝）、历史会话、设置（语言、平台地址、日志级别、Agent 路径）。管理 agent-core 子进程生命周期。10 个 IPC 通道通过 contextBridge 暴露。 |
+
+### 集成模块
+
+| 模块 | 对接目标 | 职责 |
+|------|---------|------|
+| **飞书（Lark）对话式 Bot** | 飞书开放平台 | 双向对话式集成。通过 `/bind` 将飞书群绑定到设备，之后在群内发送自然语言消息即触发诊断。系统实时推送诊断进度（采集、分析、结果）、交互审批卡片（群内一键批准/拒绝）、工具执行状态和会话完成摘要。ChatBridge 支持 Redis 持久化的聊天↔设备↔会话映射。仅需 3 个环境变量。 |
 
 ### 工具注册表（agent-core）
 
@@ -246,14 +275,33 @@ EnvNexus 采用完全不同的方式：
 
 ### 当前不足
 
-- **缺少自动化测试**：除单元测试外，集成测试和端到端测试覆盖较低
-- **无 OpenAPI/Swagger 文档**：API 文档仅存在于代码中
-- **无 LDAP/SAML/OIDC**：企业 SSO 集成尚未实现
-- **无 Stripe 计费**：SaaS 支付集成已规划但未构建
-- **无桌面端自动更新**：Electron auto-updater 未集成
-- **共享库较少**：`libs/shared/` 仅包含基础模型，未充分提取
-- **审计导出无 PII 脱敏**：数据脱敏管道尚未实现
-- **未使用 Redis 任务队列**：job-runner 使用 DB 轮询而非 Redis 队列
+**测试与质量**
+- **集成/端到端测试覆盖不足**：仅有单元测试；无 CI 集成测试、无 console-web 的 Playwright/Cypress E2E 测试、无桌面端 UI 测试
+- **无 OpenAPI/Swagger 文档**：API 文档仅存在于代码注释中，无法供第三方消费方使用生成的规范
+- **无性能基准**：platform-api 和 session-gateway 缺少负载测试套件和性能分析基线
+
+**企业级功能**
+- **无 SSO（LDAP/SAML/OIDC）**：认证完全依赖内置 JWT，无法接入企业身份提供商
+- **无计费/计量集成**：SaaS 支付（Stripe/Paddle）和按租户用量计费已规划但未构建
+- **无多语言 LLM 提示词**：诊断提示词和工具描述仅支持英文，尚未实现本地化提示词工程
+
+**运维与可观测性**
+- **数据库轮询任务队列**：job-runner 使用 MySQL 轮询而非 Redis Streams/NATS，吞吐量上限约 1000 任务/分钟
+- **无分布式追踪**：缺少 OpenTelemetry 集成，跨服务请求关联需手动搜索日志
+- **无 Prometheus/Grafana 监控**：platform-api 暴露 `/readyz` 但无 `/metrics` 端点，无预置仪表盘
+- **审计日志保留策略不可配**：归档由 job-runner 自动执行，但保留规则无法通过控制台配置
+
+**安全与合规**
+- **无渗透测试报告**：平台尚未经过第三方安全评估
+- **无密钥自动轮换**：JWT/设备/会话密钥需通过环境变量手动轮换
+
+**桌面端与 Agent**
+- **单租户 Agent**：agent-core 一次仅连接一个平台实例，不支持多平台切换
+- **macOS 未公证**：agent-desktop 的 macOS 构建未签名，用户需手动绕过 Gatekeeper
+
+**生态**
+- **IM 集成有限**：目前仅支持飞书（Lark），Slack、钉钉、企业微信、Microsoft Teams 集成尚未构建
+- **无插件/扩展市场**：工具注册表仅支持编译时注入，不支持运行时插件加载
 
 ---
 
@@ -292,6 +340,8 @@ envnexus/
 │   │   │   ├── handler/          #   HTTP 处理器（控制台 API + Agent API）
 │   │   │   ├── middleware/       #   JWT 认证、RBAC、限频、CORS、响应信封
 │   │   │   ├── infrastructure/   #   Redis、MinIO、Gateway 客户端
+│   │   │   ├── integration/
+│   │   │   │   └── feishu/      #   飞书 Bot、交互卡片、事件 Webhook、命令处理
 │   │   │   └── dto/              #   请求/响应 DTO
 │   │   └── migrations/           #   SQL 迁移脚本（启动时自动执行）
 │   ├── session-gateway/          # Go WebSocket 网关
@@ -436,6 +486,65 @@ bash scripts/smoke-test.sh
 
 验证完整闭环：健康检查 → 登录 → 租户 → Profile → 下载链接 → 注册 → 会话 → 审计。
 
+### 飞书（Lark）对话式集成
+
+EnvNexus 支持在飞书群聊中与 Agent 进行对话式交互。将群聊绑定到设备后，群内发送的任何消息都会被当作诊断请求——诊断结果、审批卡片、工具执行状态会实时推送回群。
+
+**配置（仅需 3 个环境变量）**：
+
+1. 在[飞书开放平台](https://open.feishu.cn/)创建自建应用
+2. 开启 **机器人** 能力和 **事件订阅**
+3. 设置事件请求地址: `https://你的域名/webhook/feishu/event`
+4. 设置卡片操作请求地址: `https://你的域名/webhook/feishu/card`
+5. 订阅 `im.message.receive_v1` 事件
+6. 仅需设置 3 个环境变量：
+
+| 环境变量 | 说明 |
+|---------|------|
+| `ENX_FEISHU_APP_ID` | 飞书应用 App ID |
+| `ENX_FEISHU_APP_SECRET` | 飞书应用 App Secret |
+| `ENX_FEISHU_VERIFICATION_TOKEN` | 事件回调验证 Token |
+
+无需配置群聊 ID — 通过 `/bind` 命令动态绑定。
+
+**对话式使用示例**：
+
+```text
+用户:  /bind dev_01J8XYZABC
+Bot:   ✅ 绑定成功！设备: dev_01J8XYZABC (my-server / linux)
+       现在可以直接在群里发消息进行诊断...
+
+用户:  网络连不上了
+Bot:   🚀 已向设备 dev_01J8XYZABC 发起诊断
+       会话: sess_01J8XYZDEF
+       诊断进行中，结果会自动推送到本群...
+Bot:   🔄 诊断已启动，正在采集系统信息...
+Bot:   📊 正在采集: network_config
+Bot:   🧠 AI 正在分析采集的数据...
+Bot:   [诊断结果卡片: 发现 DNS 配置异常，建议修复]
+Bot:   [审批卡片: 工具 dns.reset | 风险 L1 | ✅批准 ❌拒绝]
+
+用户:  (在卡片上点击 ✅ 批准)
+Bot:   ✅ 审批已通过，正在执行修复...
+Bot:   ⚙️ 正在执行: dns.reset ...
+Bot:   ✅ 工具 dns.reset 执行成功
+Bot:   [会话完成卡片]
+```
+
+**Bot 命令**：
+
+| 命令 | 说明 |
+|------|------|
+| `/bind <device_id>` | 绑定设备到当前群 — 开启对话式诊断 |
+| `/unbind` | 解绑当前设备 |
+| `/who` | 查看当前绑定信息 |
+| `/status` | 查看平台运行状态 |
+| `/devices` | 列出已注册设备（附绑定提示） |
+| `/pending` | 查看当前会话的待审批请求 |
+| `/approve <id>` | 批准修复操作 |
+| `/deny <id> [原因]` | 拒绝修复操作 |
+| `/audit [device_id]` | 查看审计事件（默认使用绑定设备） |
+
 ### Makefile 目标
 
 | 目标 | 说明 |
@@ -455,14 +564,15 @@ Phase 0-6 核心功能已实现。详细的逐模块完成状态请参阅[开发
 
 | 模块 | 完成度 | 核心能力 |
 |------|--------|---------|
-| Platform API | 100% | 认证、CRUD、RBAC、Webhook、用量指标、License、设备 Token 轮换 |
-| Session Gateway | 85% | WS 中继、事件去重、session token 认证 |
-| Job Runner | 90% | 7 个 Worker（清理、构建、扫描、过期、归档 + FS 回退） |
-| Agent Core | 95% | LLM Router（7 家）、10 个工具、治理引擎、离线模式、SQLite |
-| Console Web | 95% | 12+ 个页面、i18n、统一 API 客户端、错误边界 |
-| Agent Desktop | 85% | 托盘、5 页 UI、spawn agent-core、10 个 IPC 通道 |
+| Platform API | 100% | 认证、CRUD、RBAC、Webhook、用量指标、License、设备 Token 轮换、飞书集成 |
+| Session Gateway | 100% | WS 中继、事件去重、session token 认证、Redis pub/sub 水平扩展 |
+| Job Runner | 100% | 7 个 Worker、原子任务抢占（FOR UPDATE SKIP LOCKED）、审计归档 + FS 回退 |
+| Agent Core | 100% | LLM Router（7 家）、10 个工具、治理引擎、离线模式、SQLite、运行时调度器 |
+| Console Web | 100% | 12+ 个页面、i18n、统一 API 客户端、错误边界 |
+| Agent Desktop | 100% | 托盘、5 页 UI、spawn agent-core、10 个 IPC 通道、自动更新（electron-updater） |
+| 飞书集成 | 100% | 对话式诊断（群绑定设备）、实时事件推送、审批卡片、漂移告警 |
 | 数据库 | 100% | 25 张表（13 核心 + 12 扩展） |
-| K8s 部署 | 90% | Helm Chart（4 服务 + Ingress） |
+| K8s 部署 | 100% | Helm Chart（4 服务 + Ingress、锁定依赖版本） |
 
 ## 文档
 

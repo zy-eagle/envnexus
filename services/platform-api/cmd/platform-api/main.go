@@ -18,6 +18,7 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/handler/agent"
 	httphandler "github.com/zy-eagle/envnexus/services/platform-api/internal/handler/http"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/infrastructure"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/integration/feishu"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/agent_profile"
@@ -68,6 +69,9 @@ func main() {
 	minioSecretKey := envOrDefault("MINIO_ROOT_PASSWORD", "minioadmin")
 	minioBucket := envOrDefault("ENX_OBJECT_STORAGE_BUCKET", "envnexus")
 	gatewayURL := envOrDefault("ENX_GATEWAY_URL", "http://localhost:8081")
+	feishuAppID := os.Getenv("ENX_FEISHU_APP_ID")
+	feishuAppSecret := os.Getenv("ENX_FEISHU_APP_SECRET")
+	feishuVerifyToken := os.Getenv("ENX_FEISHU_VERIFICATION_TOKEN")
 
 	// --- Repositories ---
 	var (
@@ -169,6 +173,22 @@ func main() {
 		licenseService = license.NewService(gormDB)
 		// Seed default roles for system tenant (fire and forget)
 		go rbacService.SeedDefaultRoles(context.Background(), "system")
+	}
+
+	// --- Feishu Integration ---
+	var feishuHandler *feishu.Handler
+	feishuClient := feishu.NewClient(feishuAppID, feishuAppSecret)
+	if feishuClient.Enabled() {
+		var bridgeStore feishu.RedisStore
+		if redisClient != nil {
+			bridgeStore = redisClient
+		}
+		feishuBridge := feishu.NewChatBridge(bridgeStore)
+		feishuBot := feishu.NewBotService(feishuClient, feishuBridge, sessionService)
+		feishuSink := feishu.NewEventSink(feishuClient, feishuBridge)
+		feishu.RegisterDefaultCommands(feishuBot, feishuBridge, deviceRepo, sessionService, auditRepo)
+		feishuHandler = feishu.NewHandler(feishuBot, feishuSink, feishuVerifyToken)
+		slog.Info("Feishu conversational integration enabled")
 	}
 
 	// --- Handlers ---
@@ -290,6 +310,12 @@ func main() {
 		if licenseHandler != nil {
 			licenseHandler.RegisterRoutes(protectedV1)
 		}
+	}
+
+	// Feishu webhook endpoints (no console auth, verified by Feishu token)
+	if feishuHandler != nil {
+		feishuGroup := router.Group("/webhook")
+		feishuHandler.RegisterRoutes(feishuGroup)
 	}
 
 	// Agent API (device token or open for enrollment)
