@@ -5,8 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/oklog/ulid/v2"
-	"gorm.io/gorm"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 )
 
 // MetricType enumerates the supported metric counters.
@@ -19,25 +18,12 @@ const (
 	MetricWebhookDeliveries   = "webhook_deliveries"
 )
 
-// UsageMetricRow mirrors the usage_metrics table.
-type UsageMetricRow struct {
-	ID          string    `gorm:"primaryKey;size:26"`
-	TenantID    string    `gorm:"size:26;not null"`
-	MetricType  string    `gorm:"size:64;not null"`
-	Value       int64     `gorm:"not null;default:0"`
-	PeriodStart time.Time `gorm:"not null"`
-	PeriodEnd   time.Time `gorm:"not null"`
-	CreatedAt   time.Time
-}
-
-func (UsageMetricRow) TableName() string { return "usage_metrics" }
-
 type Service struct {
-	db *gorm.DB
+	repo repository.MetricsRepository
 }
 
-func NewService(db *gorm.DB) *Service {
-	return &Service{db: db}
+func NewService(repo repository.MetricsRepository) *Service {
+	return &Service{repo: repo}
 }
 
 // Increment increments a metric counter for the current calendar month.
@@ -46,13 +32,7 @@ func (s *Service) Increment(ctx context.Context, tenantID, metricType string, de
 	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	periodEnd := periodStart.AddDate(0, 1, 0).Add(-time.Nanosecond)
 
-	err := s.db.WithContext(ctx).
-		Exec(`INSERT INTO usage_metrics (id, tenant_id, metric_type, value, period_start, period_end, created_at)
-			  VALUES (?, ?, ?, ?, ?, ?, ?)
-			  ON DUPLICATE KEY UPDATE value = value + ?`,
-			ulid.Make().String(), tenantID, metricType, delta, periodStart, periodEnd, now, delta,
-		).Error
-	if err != nil {
+	if err := s.repo.Upsert(ctx, tenantID, metricType, delta, periodStart, periodEnd); err != nil {
 		slog.Warn("Failed to increment metric", "tenant_id", tenantID, "metric_type", metricType, "error", err)
 	}
 }
@@ -62,17 +42,16 @@ func (s *Service) GetCurrentPeriod(ctx context.Context, tenantID string) (map[st
 	now := time.Now().UTC()
 	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-	var rows []UsageMetricRow
-	err := s.db.WithContext(ctx).
-		Where("tenant_id = ? AND period_start = ?", tenantID, periodStart).
-		Find(&rows).Error
+	rows, err := s.repo.ListByTenantAndPeriod(ctx, tenantID, periodStart)
 	if err != nil {
 		return nil, err
 	}
 
 	result := make(map[string]int64)
 	for _, r := range rows {
-		result[r.MetricType] = r.Value
+		if r.PeriodStart.Equal(periodStart) {
+			result[r.MetricType] = r.Value
+		}
 	}
 	return result, nil
 }
@@ -82,18 +61,13 @@ func (s *Service) GetHistory(ctx context.Context, tenantID string, months int) (
 	if months < 1 || months > 24 {
 		months = 6
 	}
-	start := time.Now().UTC().AddDate(0, -months, 0)
+	from := time.Now().UTC().AddDate(0, -months, 0)
 
-	var rows []UsageMetricRow
-	err := s.db.WithContext(ctx).
-		Where("tenant_id = ? AND period_start >= ?", tenantID, start).
-		Order("period_start ASC").
-		Find(&rows).Error
+	rows, err := s.repo.ListByTenantAndPeriod(ctx, tenantID, from)
 	if err != nil {
 		return nil, err
 	}
 
-	// Group by period
 	byPeriod := make(map[time.Time]map[string]int64)
 	for _, r := range rows {
 		if _, ok := byPeriod[r.PeriodStart]; !ok {
@@ -103,11 +77,11 @@ func (s *Service) GetHistory(ctx context.Context, tenantID string, months int) (
 	}
 
 	var result []map[string]interface{}
-	for period, metrics := range byPeriod {
+	for period, m := range byPeriod {
 		entry := map[string]interface{}{
 			"period": period.Format("2006-01"),
 		}
-		for k, v := range metrics {
+		for k, v := range m {
 			entry[k] = v
 		}
 		result = append(result, entry)

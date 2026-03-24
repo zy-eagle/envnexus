@@ -7,17 +7,15 @@ import (
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
 )
 
 type SessionHandler struct {
 	sessionService *session.Service
-	toolInvRepo    repository.ToolInvocationRepository
 }
 
-func NewSessionHandler(sessionService *session.Service, toolInvRepo repository.ToolInvocationRepository) *SessionHandler {
-	return &SessionHandler{sessionService: sessionService, toolInvRepo: toolInvRepo}
+func NewSessionHandler(sessionService *session.Service) *SessionHandler {
+	return &SessionHandler{sessionService: sessionService}
 }
 
 func (h *SessionHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -69,8 +67,7 @@ func (h *SessionHandler) Approve(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	approverID, _ := userID.(string)
 
-	err := h.sessionService.ApproveSession(c.Request.Context(), sessionID, req.ApprovalRequestID, approverID, req.Comment)
-	if err != nil {
+	if err := h.sessionService.ApproveSession(c.Request.Context(), sessionID, req.ApprovalRequestID, approverID, req.Comment); err != nil {
 		mw.RespondError(c, err)
 		return
 	}
@@ -85,8 +82,7 @@ func (h *SessionHandler) Deny(c *gin.Context) {
 		return
 	}
 
-	err := h.sessionService.DenySession(c.Request.Context(), sessionID, req.ApprovalRequestID, req.Reason)
-	if err != nil {
+	if err := h.sessionService.DenySession(c.Request.Context(), sessionID, req.ApprovalRequestID, req.Reason); err != nil {
 		mw.RespondError(c, err)
 		return
 	}
@@ -101,8 +97,7 @@ func (h *SessionHandler) Abort(c *gin.Context) {
 		return
 	}
 
-	err := h.sessionService.AbortSession(c.Request.Context(), sessionID, req.Reason)
-	if err != nil {
+	if err := h.sessionService.AbortSession(c.Request.Context(), sessionID, req.Reason); err != nil {
 		mw.RespondError(c, err)
 		return
 	}
@@ -111,11 +106,7 @@ func (h *SessionHandler) Abort(c *gin.Context) {
 
 func (h *SessionHandler) ListToolInvocations(c *gin.Context) {
 	sessionID := c.Param("sessionId")
-	if h.toolInvRepo == nil {
-		mw.RespondSuccess(c, http.StatusOK, gin.H{"items": []interface{}{}})
-		return
-	}
-	invocations, err := h.toolInvRepo.ListBySession(c.Request.Context(), sessionID)
+	invocations, err := h.sessionService.ListToolInvocations(c.Request.Context(), sessionID)
 	if err != nil {
 		mw.RespondError(c, err)
 		return

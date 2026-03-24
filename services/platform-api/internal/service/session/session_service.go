@@ -23,6 +23,7 @@ type Service struct {
 	approvalRepo    repository.ApprovalRequestRepository
 	deviceRepo      repository.DeviceRepository
 	auditRepo       repository.AuditRepository
+	toolInvRepo     repository.ToolInvocationRepository
 	authService     *auth.Service
 	gatewayNotifier GatewayNotifier
 }
@@ -43,6 +44,11 @@ func NewService(
 		authService:     authService,
 		gatewayNotifier: gatewayNotifier,
 	}
+}
+
+// SetToolInvocationRepository injects the tool invocation repository (optional dependency).
+func (s *Service) SetToolInvocationRepository(repo repository.ToolInvocationRepository) {
+	s.toolInvRepo = repo
 }
 
 func (s *Service) ListByTenant(ctx context.Context, tenantID string) ([]*domain.Session, error) {
@@ -309,6 +315,18 @@ func (s *Service) MarkApprovalRolledBack(ctx context.Context, approvalID string)
 	approval.Status = domain.ApprovalStatusRolledBack
 	approval.UpdatedAt = time.Now()
 	return s.approvalRepo.Update(ctx, approval)
+}
+
+// ListToolInvocations returns tool invocations for a session.
+func (s *Service) ListToolInvocations(ctx context.Context, sessionID string) ([]*domain.ToolInvocation, error) {
+	if s.toolInvRepo == nil {
+		return []*domain.ToolInvocation{}, nil
+	}
+	invocations, err := s.toolInvRepo.ListBySession(ctx, sessionID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+	return invocations, nil
 }
 
 func (s *Service) GetApprovalByID(ctx context.Context, approvalID string) (*domain.ApprovalRequest, error) {

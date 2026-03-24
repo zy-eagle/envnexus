@@ -11,15 +11,15 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/audit"
 )
 
 type AuditHandler struct {
-	auditRepo repository.AuditRepository
+	auditService *audit.Service
 }
 
-func NewAuditHandler(auditRepo repository.AuditRepository) *AuditHandler {
-	return &AuditHandler{auditRepo: auditRepo}
+func NewAuditHandler(auditService *audit.Service) *AuditHandler {
+	return &AuditHandler{auditService: auditService}
 }
 
 func (h *AuditHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -51,14 +51,15 @@ func (h *AuditHandler) ReportEvents(c *gin.Context) {
 	var events []*domain.AuditEvent
 	for _, item := range req.Events {
 		payloadBytes, _ := json.Marshal(item.EventPayload)
-		sessionID := item.SessionID
 		var sessionPtr *string
-		if sessionID != "" {
-			sessionPtr = &sessionID
+		if item.SessionID != "" {
+			s := item.SessionID
+			sessionPtr = &s
 		}
 		var devicePtr *string
 		if did != "" {
-			devicePtr = &did
+			d := did
+			devicePtr = &d
 		}
 		events = append(events, &domain.AuditEvent{
 			ID:               ulid.Make().String(),
@@ -71,7 +72,7 @@ func (h *AuditHandler) ReportEvents(c *gin.Context) {
 		})
 	}
 
-	if err := h.auditRepo.CreateBatch(c.Request.Context(), events); err != nil {
+	if err := h.auditService.BulkCreate(c.Request.Context(), events); err != nil {
 		mw.RespondError(c, domain.ErrInternalError)
 		return
 	}

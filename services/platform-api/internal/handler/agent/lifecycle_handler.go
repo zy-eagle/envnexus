@@ -2,6 +2,7 @@ package agent
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -9,23 +10,27 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
 )
 
+// LifecycleHandler handles agent heartbeat and config pull.
+// Device identity is resolved by device.Service; profile lookups go
+// through their respective repositories (no dedicated profile service exists yet).
 type LifecycleHandler struct {
-	deviceRepo       repository.DeviceRepository
-	agentProfileRepo repository.AgentProfileRepository
-	modelProfileRepo repository.ModelProfileRepository
+	deviceService     *device.Service
+	agentProfileRepo  repository.AgentProfileRepository
+	modelProfileRepo  repository.ModelProfileRepository
 	policyProfileRepo repository.PolicyProfileRepository
 }
 
 func NewLifecycleHandler(
-	deviceRepo repository.DeviceRepository,
+	deviceService *device.Service,
 	agentProfileRepo repository.AgentProfileRepository,
 	modelProfileRepo repository.ModelProfileRepository,
 	policyProfileRepo repository.PolicyProfileRepository,
 ) *LifecycleHandler {
 	return &LifecycleHandler{
-		deviceRepo:        deviceRepo,
+		deviceService:     deviceService,
 		agentProfileRepo:  agentProfileRepo,
 		modelProfileRepo:  modelProfileRepo,
 		policyProfileRepo: policyProfileRepo,
@@ -52,19 +57,9 @@ func (h *LifecycleHandler) Heartbeat(c *gin.Context) {
 		deviceID = ctxDeviceID.(string)
 	}
 
-	device, err := h.deviceRepo.GetByID(c.Request.Context(), deviceID)
-	if err != nil || device == nil {
-		mw.RespondError(c, domain.ErrDeviceNotFound)
-		return
-	}
-	if device.IsRevoked() {
-		mw.RespondError(c, domain.ErrDeviceRevoked)
-		return
-	}
-
-	device.RecordHeartbeat(req.AgentVersion, req.PolicyVersion)
-	if err := h.deviceRepo.Update(c.Request.Context(), device); err != nil {
-		mw.RespondError(c, domain.ErrInternalError)
+	device, err := h.deviceService.Heartbeat(c.Request.Context(), deviceID, req.AgentVersion, req.PolicyVersion)
+	if err != nil {
+		mw.RespondError(c, err)
 		return
 	}
 
@@ -84,9 +79,9 @@ func (h *LifecycleHandler) GetConfig(c *gin.Context) {
 		return
 	}
 
-	device, err := h.deviceRepo.GetByID(c.Request.Context(), deviceID)
-	if err != nil || device == nil {
-		mw.RespondError(c, domain.ErrDeviceNotFound)
+	dev, err := h.deviceService.GetConfig(c.Request.Context(), deviceID)
+	if err != nil {
+		mw.RespondError(c, err)
 		return
 	}
 
@@ -94,32 +89,41 @@ func (h *LifecycleHandler) GetConfig(c *gin.Context) {
 	var modelProfile interface{}
 	var policyProfile interface{}
 
-	if device.AgentProfileID != "" {
-		ap, _ := h.agentProfileRepo.GetByID(c.Request.Context(), device.AgentProfileID, device.TenantID)
+	if dev.AgentProfileID != "" {
+		ap, _ := h.agentProfileRepo.GetByID(c.Request.Context(), dev.AgentProfileID, dev.TenantID)
 		if ap != nil {
 			agentProfile = ap
-			mp, _ := h.modelProfileRepo.GetByID(c.Request.Context(), ap.ModelProfileID, device.TenantID)
+			mp, _ := h.modelProfileRepo.GetByID(c.Request.Context(), ap.ModelProfileID, dev.TenantID)
 			modelProfile = mp
-			pp, _ := h.policyProfileRepo.GetByID(c.Request.Context(), ap.PolicyProfileID, device.TenantID)
+			pp, _ := h.policyProfileRepo.GetByID(c.Request.Context(), ap.PolicyProfileID, dev.TenantID)
 			policyProfile = pp
 		}
 	}
 
 	currentVersion := 0
 	if v := c.Query("current_config_version"); v != "" {
-		// Simple parse; ignore errors for MVP
-		for _, ch := range v {
-			currentVersion = currentVersion*10 + int(ch-'0')
+		if parsed, err := strconv.Atoi(v); err == nil {
+			currentVersion = parsed
 		}
 	}
 
-	hasUpdate := device.PolicyVersion > currentVersion
-
 	mw.RespondSuccess(c, http.StatusOK, dto.AgentConfigResponse{
-		HasUpdate:     hasUpdate,
-		ConfigVersion: device.PolicyVersion,
+		HasUpdate:     dev.PolicyVersion > currentVersion,
+		ConfigVersion: dev.PolicyVersion,
 		AgentProfile:  agentProfile,
 		ModelProfile:  modelProfile,
 		PolicyProfile: policyProfile,
 	})
+}
+
+// deviceStatusFromRequest maps an agent-reported status string to a domain status.
+func deviceStatusFromRequest(s string) domain.DeviceStatus {
+	switch s {
+	case "active":
+		return domain.DeviceStatusActive
+	case "quarantined":
+		return domain.DeviceStatusQuarantined
+	default:
+		return domain.DeviceStatusActive
+	}
 }

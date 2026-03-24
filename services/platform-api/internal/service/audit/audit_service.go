@@ -16,6 +16,14 @@ func NewService(auditRepo repository.AuditRepository) *Service {
 	return &Service{auditRepo: auditRepo}
 }
 
+// BulkCreate stores a batch of audit events received from an agent.
+func (s *Service) BulkCreate(ctx context.Context, events []*domain.AuditEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	return s.auditRepo.CreateBatch(ctx, events)
+}
+
 func (s *Service) ListEvents(ctx context.Context, tenantID string, filters repository.AuditFilters) ([]*dto.AuditEventResponse, error) {
 	events, err := s.auditRepo.ListByTenant(ctx, tenantID, filters)
 	if err != nil {

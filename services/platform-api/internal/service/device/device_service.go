@@ -96,6 +96,38 @@ func (s *Service) DeleteDevice(ctx context.Context, tenantID, id string) error {
 	return s.deviceRepo.Delete(ctx, id, tenantID)
 }
 
+// Heartbeat records a device heartbeat and returns updated state.
+func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion string, policyVersion int) (*domain.Device, error) {
+	device, err := s.deviceRepo.GetByID(ctx, deviceID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+	if device == nil {
+		return nil, domain.ErrDeviceNotFound
+	}
+	if device.IsRevoked() {
+		return nil, domain.ErrDeviceRevoked
+	}
+
+	device.RecordHeartbeat(agentVersion, policyVersion)
+	if err := s.deviceRepo.Update(ctx, device); err != nil {
+		return nil, domain.ErrInternalError
+	}
+	return device, nil
+}
+
+// GetConfig returns the full config payload for a device (agent profile + model + policy).
+func (s *Service) GetConfig(ctx context.Context, deviceID string) (*domain.Device, error) {
+	device, err := s.deviceRepo.GetByID(ctx, deviceID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+	if device == nil {
+		return nil, domain.ErrDeviceNotFound
+	}
+	return device, nil
+}
+
 // RotateDeviceToken revokes the current device token and issues a new one.
 func (s *Service) RotateDeviceToken(ctx context.Context, tenantID, deviceID string) (string, error) {
 	dev, err := s.deviceRepo.GetByID(ctx, deviceID)

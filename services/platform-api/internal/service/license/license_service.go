@@ -10,25 +10,11 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"gorm.io/gorm"
+
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 )
 
-// LicenseRow mirrors the licenses table.
-type LicenseRow struct {
-	ID           string     `gorm:"primaryKey;size:26"`
-	TenantID     string     `gorm:"size:26;not null;index"`
-	LicenseKey   string     `gorm:"size:512;not null;uniqueIndex"`
-	PlanCode     string     `gorm:"size:32;not null;default:enterprise"`
-	MaxDevices   int        `gorm:"not null;default:100"`
-	FeaturesJSON *string    `gorm:"type:json"`
-	IssuedAt     time.Time
-	ExpiresAt    time.Time
-	Status       string     `gorm:"size:32;not null;default:active"`
-	CreatedAt    time.Time
-}
-
-func (LicenseRow) TableName() string { return "licenses" }
-
+// ValidateLicenseResult is the decoded, validated state of a license.
 type ValidateLicenseResult struct {
 	Valid      bool
 	TenantID   string
@@ -39,26 +25,25 @@ type ValidateLicenseResult struct {
 }
 
 type Service struct {
-	db *gorm.DB
+	repo repository.LicenseRepository
 }
 
-func NewService(db *gorm.DB) *Service {
-	return &Service{db: db}
+func NewService(repo repository.LicenseRepository) *Service {
+	return &Service{repo: repo}
 }
 
 // Activate activates a license key for a tenant.
-func (s *Service) Activate(ctx context.Context, tenantID, licenseKey string) (*LicenseRow, error) {
-	// Parse key format: ENX-{plan}-{maxDevices}-{expiry(YYYYMM)}-{checksum}
+func (s *Service) Activate(ctx context.Context, tenantID, licenseKey string) (*repository.LicenseRow, error) {
 	if err := s.verifyKeyFormat(licenseKey); err != nil {
 		return nil, fmt.Errorf("invalid license key format: %w", err)
 	}
 
-	plan, maxDevices, expiresAt, err := s.parseKey(licenseKey)
+	plan, maxDevices, expiresAt, err := parseKey(licenseKey)
 	if err != nil {
 		return nil, fmt.Errorf("parse license key: %w", err)
 	}
 
-	row := &LicenseRow{
+	row := &repository.LicenseRow{
 		ID:         ulid.Make().String(),
 		TenantID:   tenantID,
 		LicenseKey: licenseKey,
@@ -68,23 +53,20 @@ func (s *Service) Activate(ctx context.Context, tenantID, licenseKey string) (*L
 		ExpiresAt:  expiresAt,
 		Status:     "active",
 	}
-	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
+	if err := s.repo.Create(ctx, row); err != nil {
 		return nil, err
 	}
 	slog.Info("License activated", "tenant_id", tenantID, "plan", plan, "max_devices", maxDevices, "expires_at", expiresAt)
 	return row, nil
 }
 
-// Validate checks if a tenant has a valid active license.
+// Validate checks if a tenant has a valid active license, returning a trial fallback if none.
 func (s *Service) Validate(ctx context.Context, tenantID string) (*ValidateLicenseResult, error) {
-	var row LicenseRow
-	err := s.db.WithContext(ctx).
-		Where("tenant_id = ? AND status = ? AND expires_at > ?", tenantID, "active", time.Now()).
-		Order("expires_at DESC").
-		First(&row).Error
-
-	if err == gorm.ErrRecordNotFound {
-		// No license — return a default trial license
+	row, err := s.repo.GetActiveByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
 		return &ValidateLicenseResult{
 			Valid:      true,
 			TenantID:   tenantID,
@@ -92,9 +74,6 @@ func (s *Service) Validate(ctx context.Context, tenantID string) (*ValidateLicen
 			MaxDevices: 5,
 			ExpiresAt:  time.Now().AddDate(0, 1, 0),
 		}, nil
-	}
-	if err != nil {
-		return nil, err
 	}
 
 	return &ValidateLicenseResult{
@@ -106,28 +85,16 @@ func (s *Service) Validate(ctx context.Context, tenantID string) (*ValidateLicen
 	}, nil
 }
 
-// GetForTenant returns the license for a tenant.
-func (s *Service) GetForTenant(ctx context.Context, tenantID string) (*LicenseRow, error) {
-	var row LicenseRow
-	err := s.db.WithContext(ctx).
-		Where("tenant_id = ?", tenantID).
-		Order("expires_at DESC").
-		First(&row).Error
-	if err == gorm.ErrRecordNotFound {
-		return nil, nil
-	}
-	return &row, err
+// GetForTenant returns the most recent license for a tenant (any status).
+func (s *Service) GetForTenant(ctx context.Context, tenantID string) (*repository.LicenseRow, error) {
+	return s.repo.GetLatestByTenant(ctx, tenantID)
 }
 
-// Revoke sets a license to revoked status.
+// Revoke marks a license as revoked.
 func (s *Service) Revoke(ctx context.Context, licenseID string) error {
-	return s.db.WithContext(ctx).
-		Table("licenses").
-		Where("id = ?", licenseID).
-		Updates(map[string]interface{}{"status": "revoked", "updated_at": time.Now()}).Error
+	return s.repo.Revoke(ctx, licenseID)
 }
 
-// verifyKeyFormat validates basic key structure.
 func (s *Service) verifyKeyFormat(key string) error {
 	parts := strings.Split(key, "-")
 	if len(parts) < 5 || parts[0] != "ENX" {
@@ -136,9 +103,9 @@ func (s *Service) verifyKeyFormat(key string) error {
 	return nil
 }
 
-// parseKey extracts plan, max devices, and expiry from key.
+// parseKey extracts plan, max devices, and expiry from the key.
 // Format: ENX-{PLAN}-{MaxDevices}-{YYYYMM}-{checksum}
-func (s *Service) parseKey(key string) (plan string, maxDevices int, expiresAt time.Time, err error) {
+func parseKey(key string) (plan string, maxDevices int, expiresAt time.Time, err error) {
 	parts := strings.Split(key, "-")
 	if len(parts) < 5 {
 		return "", 0, time.Time{}, fmt.Errorf("invalid key format")
@@ -146,8 +113,7 @@ func (s *Service) parseKey(key string) (plan string, maxDevices int, expiresAt t
 
 	plan = strings.ToLower(parts[1])
 
-	_, err = fmt.Sscanf(parts[2], "%d", &maxDevices)
-	if err != nil {
+	if _, err = fmt.Sscanf(parts[2], "%d", &maxDevices); err != nil {
 		return "", 0, time.Time{}, fmt.Errorf("invalid max_devices in key")
 	}
 
@@ -155,10 +121,8 @@ func (s *Service) parseKey(key string) (plan string, maxDevices int, expiresAt t
 	if err != nil {
 		return "", 0, time.Time{}, fmt.Errorf("invalid expiry date in key (expected YYYYMM)")
 	}
-	// Expire at end of month
 	expiresAt = expiresAt.AddDate(0, 1, 0).Add(-time.Second)
 
-	// Verify checksum: SHA256 of ENX-{plan}-{max_devices}-{YYYYMM}
 	base := strings.Join(parts[:4], "-")
 	expectedChecksum := computeChecksum(base)
 	if !strings.HasPrefix(expectedChecksum, parts[4]) {
@@ -173,11 +137,10 @@ func computeChecksum(s string) string {
 	return strings.ToUpper(hex.EncodeToString(h[:4]))
 }
 
-// GenerateKey generates a valid license key for a given plan, max_devices, and expiry (YYYYMM).
-// This would normally be done by a key signing service; exposed here for operator tooling.
+// GenerateKey generates a valid license key for operator tooling.
+// Format: ENX-{PLAN}-{MaxDevices}-{YYYYMM}-{checksum}
 func GenerateKey(plan string, maxDevices int, expiryYYYYMM string) string {
 	plan = strings.ToUpper(plan)
 	base := fmt.Sprintf("ENX-%s-%d-%s", plan, maxDevices, expiryYYYYMM)
-	checksum := computeChecksum(base)
-	return base + "-" + checksum
+	return base + "-" + computeChecksum(base)
 }

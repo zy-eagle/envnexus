@@ -164,13 +164,16 @@ func main() {
 		gatewayClient.SetRedisClient(redisClient)
 	}
 	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo, authService, gatewayClient)
+	if toolInvRepo != nil {
+		sessionService.SetToolInvocationRepository(toolInvRepo)
+	}
 	rbacService := rbac.NewService(roleRepo, rbindingRepo)
 	webhookService := webhook.NewService(webhookSubRepo, webhookDelRepo)
 	var metricsService *metrics.Service
 	var licenseService *license.Service
 	if gormDB != nil {
-		metricsService = metrics.NewService(gormDB)
-		licenseService = license.NewService(gormDB)
+		metricsService = metrics.NewService(repository.NewMySQLMetricsRepository(gormDB))
+		licenseService = license.NewService(repository.NewMySQLLicenseRepository(gormDB))
 		// Seed default roles for system tenant (fire and forget)
 		go rbacService.SeedDefaultRoles(context.Background(), "system")
 	}
@@ -200,7 +203,7 @@ func main() {
 	policyProfileHandler := httphandler.NewPolicyProfileHandler(policyProfileService)
 	agentProfileHandler := httphandler.NewAgentProfileHandler(agentProfileService)
 	deviceHandler := httphandler.NewDeviceHandler(deviceService)
-	sessionHandler := httphandler.NewSessionHandler(sessionService, toolInvRepo)
+	sessionHandler := httphandler.NewSessionHandler(sessionService)
 	auditHandler := httphandler.NewAuditHandler(auditService)
 	rbacHandler := httphandler.NewRBACHandler(rbacService)
 	webhookHandler := httphandler.NewWebhookHandler(webhookService)
@@ -214,8 +217,8 @@ func main() {
 	}
 
 	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
-	agentAuditHandler := agent.NewAuditHandler(auditRepo)
-	agentLifecycleHandler := agent.NewLifecycleHandler(deviceRepo, agentProfileRepo, modelProfileRepo, policyProfileRepo)
+	agentAuditHandler := agent.NewAuditHandler(auditService)
+	agentLifecycleHandler := agent.NewLifecycleHandler(deviceService, agentProfileRepo, modelProfileRepo, policyProfileRepo)
 	agentApprovalHandler := agent.NewApprovalHandler(sessionService)
 
 	// --- Router ---

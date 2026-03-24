@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 )
 
 // Handler handles Feishu event callbacks, interactive card actions,
@@ -37,17 +39,17 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *Handler) HandleEvent(c *gin.Context) {
 	var raw map[string]interface{}
 	if err := c.ShouldBindJSON(&raw); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		mw.RespondValidationError(c, "invalid json")
 		return
 	}
 
-	// URL verification challenge
+	// URL verification challenge — Feishu requires the exact {"challenge":"..."} format.
 	if challenge, ok := raw["challenge"].(string); ok {
 		if token, ok := raw["token"].(string); ok && token == h.verificationToken {
 			c.JSON(http.StatusOK, gin.H{"challenge": challenge})
 			return
 		}
-		c.JSON(http.StatusForbidden, gin.H{"error": "token mismatch"})
+		mw.RespondErrorCode(c, http.StatusForbidden, "token_mismatch", "verification token mismatch")
 		return
 	}
 
@@ -65,7 +67,7 @@ func (h *Handler) handleV2Event(c *gin.Context, raw map[string]interface{}) {
 	eventType, _ := headerRaw["event_type"].(string)
 
 	if token, _ := headerRaw["token"].(string); token != h.verificationToken {
-		c.JSON(http.StatusForbidden, gin.H{"error": "token mismatch"})
+		mw.RespondErrorCode(c, http.StatusForbidden, "token_mismatch", "verification token mismatch")
 		return
 	}
 
@@ -160,12 +162,12 @@ func (h *Handler) HandleCardAction(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		mw.RespondValidationError(c, "invalid json")
 		return
 	}
 
 	if payload.Token != h.verificationToken {
-		c.JSON(http.StatusForbidden, gin.H{"error": "token mismatch"})
+		mw.RespondErrorCode(c, http.StatusForbidden, "token_mismatch", "verification token mismatch")
 		return
 	}
 
@@ -236,12 +238,11 @@ func (h *Handler) HandleCardAction(c *gin.Context) {
 }
 
 // HandleEventPush is an internal endpoint for platform-api services to push
-// session events to Feishu chats. This is called by audit/session handlers.
-// POST /webhook/feishu/push
+// session events to Feishu chats.
 func (h *Handler) HandleEventPush(c *gin.Context) {
 	var evt SessionEventPayload
 	if err := c.ShouldBindJSON(&evt); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		mw.RespondValidationError(c, "invalid json")
 		return
 	}
 
@@ -249,7 +250,7 @@ func (h *Handler) HandleEventPush(c *gin.Context) {
 		go h.eventSink.HandleEvent(c.Request.Context(), evt)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "accepted"})
+	mw.RespondSuccess(c, http.StatusAccepted, gin.H{"status": "accepted"})
 }
 
 // VerifySignature checks the Feishu event callback signature.

@@ -1,23 +1,11 @@
 "use client";
 
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-
-const dict = {
-  en: {
-    title: "Governance",
-    desc: "Environment governance and configuration drift detection will be displayed here.",
-    comingSoon: "Coming Soon"
-  },
-  zh: {
-    title: "环境治理",
-    desc: "环境治理基线与配置漂移检测结果将在此处展示。",
-    comingSoon: "敬请期待"
-  }
-};
+import { useDict } from '@/lib/i18n/dictionary';
 
 export default function GovernancePage({ params }: { params: { tenantId: string } }) {
   const { lang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('governance', lang);
 
   return (
     <div className="space-y-6">

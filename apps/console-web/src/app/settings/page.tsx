@@ -1,23 +1,11 @@
 "use client";
 
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-
-const dict = {
-  en: {
-    title: "Platform Settings",
-    desc: "Global platform configuration, identity providers, and system preferences.",
-    comingSoon: "Settings module is under development."
-  },
-  zh: {
-    title: "平台设置",
-    desc: "全局平台配置、身份提供商接入和系统偏好设置。",
-    comingSoon: "设置模块正在开发中。"
-  }
-};
+import { useDict } from '@/lib/i18n/dictionary';
 
 export default function SettingsPage() {
   const { lang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('settings', lang);
 
   return (
     <div className="space-y-6">
