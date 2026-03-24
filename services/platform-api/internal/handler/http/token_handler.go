@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
 )
 
@@ -28,21 +29,21 @@ func (h *TokenHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *TokenHandler) CreateToken(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	if tenantID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tenantId is required"})
+		mw.RespondValidationError(c, "tenantId is required")
 		return
 	}
 
 	var req dto.CreateTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		mw.RespondValidationError(c, err.Error())
 		return
 	}
 
 	resp, err := h.enrollService.CreateToken(c.Request.Context(), tenantID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, resp)
+	mw.RespondSuccess(c, http.StatusCreated, resp)
 }

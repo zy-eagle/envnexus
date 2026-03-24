@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
+	"github.com/zy-eagle/envnexus/services/job-runner/internal/infrastructure"
 	"github.com/zy-eagle/envnexus/services/job-runner/internal/worker"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -41,13 +43,33 @@ func main() {
 		slog.Info("Warning: ENX_DATABASE_DSN not set, workers requiring DB will be disabled")
 	}
 
+	// --- MinIO ---
+	var minioClient *infrastructure.MinIOClient
+	minioEndpoint := os.Getenv("ENX_OBJECT_STORAGE_ENDPOINT")
+	if minioEndpoint != "" {
+		minioAccessKey := envOrDefault("MINIO_ROOT_USER", "minioadmin")
+		minioSecretKey := envOrDefault("MINIO_ROOT_PASSWORD", "minioadmin")
+		minioBucket := envOrDefault("ENX_OBJECT_STORAGE_BUCKET", "envnexus")
+		var err error
+		minioClient, err = infrastructure.NewMinIOClient(minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, false)
+		if err != nil {
+			slog.Warn("MinIO connection failed, audit archival will skip upload", "error", err)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	if db != nil {
+		var mc *minio.Client
+		var bucket string
+		if minioClient != nil {
+			mc = minioClient.Client()
+			bucket = minioClient.BucketName()
+		}
 		go worker.NewTokenCleanupWorker(db).Start(ctx)
 		go worker.NewLinkCleanupWorker(db).Start(ctx)
-		go worker.NewAuditFlushWorker(db).Start(ctx)
+		go worker.NewAuditFlushWorker(db, mc, bucket).Start(ctx)
 		go worker.NewSessionCleanupWorker(db).Start(ctx)
 	}
 

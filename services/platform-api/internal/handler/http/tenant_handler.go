@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/tenant"
 )
 
@@ -32,67 +33,67 @@ func (h *TenantHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *TenantHandler) CreateTenant(c *gin.Context) {
 	var req dto.CreateTenantRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		mw.RespondValidationError(c, err.Error())
 		return
 	}
 
 	resp, err := h.tenantService.CreateTenant(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, resp)
+	mw.RespondSuccess(c, http.StatusCreated, resp)
 }
 
 func (h *TenantHandler) GetTenant(c *gin.Context) {
 	id := c.Param("tenantId")
-	
+
 	resp, err := h.tenantService.GetTenant(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	mw.RespondSuccess(c, http.StatusOK, resp)
 }
 
 func (h *TenantHandler) ListTenants(c *gin.Context) {
 	resp, err := h.tenantService.ListTenants(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": resp})
+	mw.RespondSuccess(c, http.StatusOK, resp)
 }
 
 func (h *TenantHandler) UpdateTenant(c *gin.Context) {
 	id := c.Param("tenantId")
-	
+
 	var req dto.UpdateTenantRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		mw.RespondValidationError(c, err.Error())
 		return
 	}
 
 	resp, err := h.tenantService.UpdateTenant(c.Request.Context(), id, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	mw.RespondSuccess(c, http.StatusOK, resp)
 }
 
 func (h *TenantHandler) DeleteTenant(c *gin.Context) {
 	id := c.Param("tenantId")
-	
+
 	err := h.tenantService.DeleteTenant(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "deleted"})
 }

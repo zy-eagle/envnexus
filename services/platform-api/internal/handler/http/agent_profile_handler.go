@@ -1,11 +1,11 @@
 package http
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/agent_profile"
 )
 
@@ -33,28 +33,28 @@ func (h *AgentProfileHandler) ListProfiles(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	resp, err := h.profileService.ListProfiles(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": resp})
+	mw.RespondSuccess(c, http.StatusOK, resp)
 }
 
 func (h *AgentProfileHandler) CreateProfile(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	var req dto.CreateAgentProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		mw.RespondValidationError(c, err.Error())
 		return
 	}
 
 	resp, err := h.profileService.CreateProfile(c.Request.Context(), tenantID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": resp})
+	mw.RespondSuccess(c, http.StatusCreated, resp)
 }
 
 func (h *AgentProfileHandler) UpdateProfile(c *gin.Context) {
@@ -63,21 +63,17 @@ func (h *AgentProfileHandler) UpdateProfile(c *gin.Context) {
 
 	var req dto.UpdateAgentProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		mw.RespondValidationError(c, err.Error())
 		return
 	}
 
 	resp, err := h.profileService.UpdateProfile(c.Request.Context(), tenantID, id, req)
 	if err != nil {
-		if err == context.Canceled {
-			c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": resp})
+	mw.RespondSuccess(c, http.StatusOK, resp)
 }
 
 func (h *AgentProfileHandler) DeleteProfile(c *gin.Context) {
@@ -86,9 +82,9 @@ func (h *AgentProfileHandler) DeleteProfile(c *gin.Context) {
 
 	err := h.profileService.DeleteProfile(c.Request.Context(), tenantID, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		mw.RespondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "deleted"})
 }

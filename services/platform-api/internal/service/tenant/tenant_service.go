@@ -2,7 +2,6 @@ package tenant
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
@@ -27,7 +26,7 @@ func (s *Service) CreateTenant(ctx context.Context, req dto.CreateTenantRequest)
 		return nil, err
 	}
 	if existing != nil {
-		return nil, errors.New("tenant with this slug already exists")
+		return nil, domain.ErrDuplicateSlug
 	}
 
 	id := uuid.New().String()
@@ -53,7 +52,7 @@ func (s *Service) GetTenant(ctx context.Context, id string) (*dto.TenantResponse
 		return nil, err
 	}
 	if tenant == nil {
-		return nil, errors.New("tenant not found")
+		return nil, domain.ErrTenantNotFound
 	}
 
 	return &dto.TenantResponse{
@@ -92,7 +91,7 @@ func (s *Service) UpdateTenant(ctx context.Context, id string, req dto.UpdateTen
 		return nil, err
 	}
 	if tenant == nil {
-		return nil, errors.New("tenant not found")
+		return nil, domain.ErrTenantNotFound
 	}
 
 	if req.Name != "" {

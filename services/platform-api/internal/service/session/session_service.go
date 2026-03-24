@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -12,12 +14,17 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
 )
 
+type GatewayNotifier interface {
+	NotifySessionCreated(ctx context.Context, tenantID, deviceID, sessionID string) error
+}
+
 type Service struct {
-	sessionRepo  repository.SessionRepository
-	approvalRepo repository.ApprovalRequestRepository
-	deviceRepo   repository.DeviceRepository
-	auditRepo    repository.AuditRepository
-	authService  *auth.Service
+	sessionRepo     repository.SessionRepository
+	approvalRepo    repository.ApprovalRequestRepository
+	deviceRepo      repository.DeviceRepository
+	auditRepo       repository.AuditRepository
+	authService     *auth.Service
+	gatewayNotifier GatewayNotifier
 }
 
 func NewService(
@@ -26,13 +33,15 @@ func NewService(
 	deviceRepo repository.DeviceRepository,
 	auditRepo repository.AuditRepository,
 	authService *auth.Service,
+	gatewayNotifier GatewayNotifier,
 ) *Service {
 	return &Service{
-		sessionRepo:  sessionRepo,
-		approvalRepo: approvalRepo,
-		deviceRepo:   deviceRepo,
-		auditRepo:    auditRepo,
-		authService:  authService,
+		sessionRepo:     sessionRepo,
+		approvalRepo:    approvalRepo,
+		deviceRepo:      deviceRepo,
+		auditRepo:       auditRepo,
+		authService:     authService,
+		gatewayNotifier: gatewayNotifier,
 	}
 }
 
@@ -72,6 +81,17 @@ func (s *Service) CreateSession(ctx context.Context, req dto.CreateSessionReques
 
 	if err := s.sessionRepo.Create(ctx, sess); err != nil {
 		return nil, domain.ErrInternalError
+	}
+
+	s.recordAudit(ctx, sess.TenantID, sess.DeviceID, sess.ID, "session.created", map[string]interface{}{
+		"transport":      req.Transport,
+		"initiator_type": req.InitiatorType,
+	})
+
+	if s.gatewayNotifier != nil {
+		if err := s.gatewayNotifier.NotifySessionCreated(ctx, sess.TenantID, sess.DeviceID, sess.ID); err != nil {
+			slog.Warn("failed to notify gateway of session creation", "session_id", sess.ID, "error", err)
+		}
 	}
 
 	wsToken, err := s.authService.IssueSessionToken(sess.DeviceID, sess.TenantID, sess.ID)
@@ -153,6 +173,14 @@ func (s *Service) DenySession(ctx context.Context, sessionID string, approvalReq
 
 	if err := s.approvalRepo.Update(ctx, approval); err != nil {
 		return domain.ErrInternalError
+	}
+
+	session, _ := s.sessionRepo.GetByID(ctx, sessionID)
+	if session != nil {
+		s.recordAudit(ctx, session.TenantID, session.DeviceID, sessionID, "approval.denied", map[string]interface{}{
+			"approval_id": approvalRequestID,
+			"reason":      reason,
+		})
 	}
 
 	return nil
@@ -299,12 +327,26 @@ func (s *Service) recordAudit(ctx context.Context, tenantID, deviceID, sessionID
 	if s.auditRepo == nil {
 		return
 	}
-	_ = s.auditRepo.Create(ctx, &domain.AuditEvent{
-		ID:        ulid.Make().String(),
-		TenantID:  tenantID,
-		DeviceID:  &deviceID,
-		SessionID: &sessionID,
-		EventType: eventType,
-		CreatedAt: time.Now(),
-	})
+
+	var payloadJSON string
+	if details != nil {
+		data, err := json.Marshal(details)
+		if err != nil {
+			slog.Warn("failed to marshal audit payload", "event_type", eventType, "error", err)
+		} else {
+			payloadJSON = string(data)
+		}
+	}
+
+	if err := s.auditRepo.Create(ctx, &domain.AuditEvent{
+		ID:               ulid.Make().String(),
+		TenantID:         tenantID,
+		DeviceID:         &deviceID,
+		SessionID:        &sessionID,
+		EventType:        eventType,
+		EventPayloadJSON: payloadJSON,
+		CreatedAt:        time.Now(),
+	}); err != nil {
+		slog.Error("failed to write audit event", "event_type", eventType, "session_id", sessionID, "error", err)
+	}
 }

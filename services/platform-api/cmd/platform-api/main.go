@@ -17,9 +17,9 @@ import (
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/handler/agent"
 	httphandler "github.com/zy-eagle/envnexus/services/platform-api/internal/handler/http"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/infrastructure"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
-	"github.com/zy-eagle/envnexus/services/platform-api/migrations"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/agent_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/audit"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
@@ -30,6 +30,7 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/policy_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/tenant"
+	"github.com/zy-eagle/envnexus/services/platform-api/migrations"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -56,6 +57,13 @@ func main() {
 	sessionSecret := envRequired("ENX_SESSION_TOKEN_SECRET")
 	httpPort := envOrDefault("ENX_HTTP_PORT", "8080")
 	corsOrigins := strings.Split(envOrDefault("ENX_CORS_ALLOWED_ORIGINS", "http://localhost:3000"), ",")
+	redisAddr := envOrDefault("ENX_REDIS_ADDR", "localhost:6379")
+	redisPassword := os.Getenv("ENX_REDIS_PASSWORD")
+	minioEndpoint := os.Getenv("ENX_OBJECT_STORAGE_ENDPOINT")
+	minioAccessKey := envOrDefault("MINIO_ROOT_USER", "minioadmin")
+	minioSecretKey := envOrDefault("MINIO_ROOT_PASSWORD", "minioadmin")
+	minioBucket := envOrDefault("ENX_OBJECT_STORAGE_BUCKET", "envnexus")
+	gatewayURL := envOrDefault("ENX_GATEWAY_URL", "http://localhost:8081")
 
 	// --- Repositories ---
 	var (
@@ -107,6 +115,26 @@ func main() {
 		tenantRepo = repository.NewMemoryTenantRepository()
 	}
 
+	// --- Redis ---
+	var redisClient *infrastructure.RedisClient
+	if redisAddr != "" {
+		var err error
+		redisClient, err = infrastructure.NewRedisClient(redisAddr, redisPassword, 0)
+		if err != nil {
+			slog.Warn("Redis connection failed, running without cache", "error", err)
+		}
+	}
+
+	// --- MinIO ---
+	var minioClient *infrastructure.MinIOClient
+	if minioEndpoint != "" {
+		var err error
+		minioClient, err = infrastructure.NewMinIOClient(minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, false)
+		if err != nil {
+			slog.Warn("MinIO connection failed, running without object storage", "error", err)
+		}
+	}
+
 	// Suppress unused variable warnings for repos that are only used with DB
 	_ = roleRepo
 	_ = toolInvRepo
@@ -121,7 +149,8 @@ func main() {
 	policyProfileService := policy_profile.NewService(policyProfileRepo)
 	agentProfileService := agent_profile.NewService(agentProfileRepo)
 	deviceService := device.NewService(deviceRepo)
-	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo, authService)
+	gatewayClient := infrastructure.NewGatewayClient(gatewayURL)
+	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo, authService, gatewayClient)
 
 	// --- Handlers ---
 	tenantHandler := httphandler.NewTenantHandler(tenantService)
@@ -173,6 +202,26 @@ func main() {
 		} else {
 			checks["database"] = false
 			allOK = false
+		}
+
+		if redisClient != nil {
+			err := redisClient.Ping(c.Request.Context())
+			checks["redis"] = err == nil
+			if err != nil {
+				allOK = false
+			}
+		} else {
+			checks["redis"] = false
+		}
+
+		if minioClient != nil {
+			err := minioClient.Ping(c.Request.Context())
+			checks["minio"] = err == nil
+			if err != nil {
+				allOK = false
+			}
+		} else {
+			checks["minio"] = false
 		}
 
 		if allOK {

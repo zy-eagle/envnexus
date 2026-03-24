@@ -74,7 +74,7 @@ func (s *Service) UpdateProfile(ctx context.Context, tenantID, id string, req dt
 		return nil, err
 	}
 	if profile == nil {
-		return nil, context.Canceled // Or a proper not found error
+		return nil, domain.ErrProfileNotFound
 	}
 
 	if req.Name != "" {
