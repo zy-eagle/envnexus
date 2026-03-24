@@ -2,186 +2,429 @@
 
 [中文版本](README.zh-CN.md)
 
-EnvNexus is an AI-native platform for environment governance, secure local diagnosis, and guided repair. It combines a multi-tenant platform, a desktop client, and a local execution core to deliver tenant-specific distribution, policy-driven diagnosis, approval-based repair, and end-to-end auditability.
+**EnvNexus** is an AI-native platform for environment governance, secure local diagnosis, and guided repair. It combines a multi-tenant control plane, an Electron desktop client, and a local Go execution core to deliver tenant-specific distribution, policy-driven diagnosis, approval-based repair, and end-to-end auditability.
 
-## Project Status
+---
 
-EnvNexus is in active development (Phase 1 — MVP).
+## What Problem Does EnvNexus Solve?
 
-- Proposal: [`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
-- Roadmap: [`docs/development-roadmap.md`](docs/development-roadmap.md)
-- Commercialization: [`docs/commercialization-plan.md`](docs/commercialization-plan.md)
+Traditional remote support tools grant unrestricted shell access to endpoints. This creates security, compliance, and audit risks — especially in enterprise environments where hundreds of devices are managed by distributed teams.
 
-## What EnvNexus Solves
+EnvNexus takes a different approach:
 
-EnvNexus is designed for scenarios where users or operators need to diagnose and repair environment issues without exposing unrestricted remote control.
+- **Default read-only**: the agent only runs read-only diagnostic tools unless a write action is explicitly approved.
+- **Approval gate**: every repair action (proxy toggle, config change, container reload) must pass through a multi-step approval state machine before execution.
+- **Policy-driven**: each tenant defines which models, tools, and risk levels are allowed on their managed devices.
+- **Full audit trail**: every session, tool invocation, approval decision, and rollback is recorded and queryable.
+- **Local-first execution**: the AI diagnosis engine runs on the endpoint. The platform orchestrates, but never executes commands on the device directly.
 
-Typical use cases:
+### Typical Use Cases
 
-- Self-service diagnosis and guided repair for end users
-- Remote support with approval-based local actions
-- Enterprise endpoint governance with tenant-specific policies
-- Hybrid or private deployments that require local model or key control
+- End-user self-service diagnosis: "my network is broken" → AI diagnoses → suggests repair → user approves → agent executes
+- Remote support with audit: support engineer initiates a session → agent collects data → repair requires operator approval
+- Enterprise endpoint governance: 500 devices across 10 tenants, each with distinct model/policy/tool configurations
+- Private deployment: customer manages everything on-premise, including LLM keys and audit storage
 
-Core principles:
+### What EnvNexus Is NOT
 
-- Default read-only, diagnose before repair
-- All write actions require explicit approval
-- Local policy overrides cloud-side suggestions
-- Full audit trail with rollback and accountability
-- Platform orchestrates, local agent executes safely
+- It is **not** a remote desktop or arbitrary shell tool
+- It is **not** an RMM (Remote Monitoring and Management) agent that can run any command
+- It does **not** bypass local policy — the local agent always has the final say
 
-## Product Overview
+---
 
-EnvNexus is composed of three major layers:
+## Architecture Overview
 
-- Platform layer: tenant management, model profiles, policy profiles, download links, device registration, audit query, and package metadata
-- Endpoint layer: local diagnosis, approval-based repair, audit collection, and secure execution
-- Integration layer: `WebSocket`, `Webhook`, and private-network integration entry points
-
-The MVP target is to close the full loop between one platform host and one managed device:
-
-`login -> tenant configuration -> signed download link -> activation -> device registration -> read-only diagnosis -> approval-based low-risk repair -> audit reporting`
-
-## Target Architecture
-
-The proposal fixes the following technology choices for the first deliverable:
-
-- Web console: `Next.js + TypeScript`
-- Backend services: `Go`
-- Service boundary: `platform-api`, `session-gateway`, `job-runner`
-- Desktop shell: `Electron + React + TypeScript`
-- Local execution core: `Go agent-core`
-- Main database: `MySQL 8`
-- Cache and short-lived state: `Redis`
-- Object storage: `MinIO` (S3-compatible)
-- Local agent state: `SQLite + Files`
-- First deployment model: `Docker Compose`
-
-High-level runtime topology:
+### System Architecture Diagram
 
 ```text
-Admin Browser
-    |
-    v
-console-web
-    |
-    v
-platform-api
-    +--> MySQL
-    +--> Redis
-    +--> MinIO
-    +--> session-gateway
-    \--> job-runner
-
-agent-desktop
-    |
-    v
-agent-core (localhost API)
-    +--> platform-api
-    +--> session-gateway
-    \--> SQLite + Files
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              PLATFORM SIDE                                      │
+│                         (Docker Compose / K8s)                                  │
+│                                                                                 │
+│  ┌──────────────┐     ┌───────────────────┐     ┌──────────────────────┐       │
+│  │ console-web  │────>│   platform-api    │────>│    session-gateway   │       │
+│  │ (Next.js 14) │     │   (Go / Gin)      │     │   (Go / WebSocket)  │       │
+│  │  :3000       │     │   :8080           │     │   :8081              │       │
+│  └──────────────┘     └─────┬──┬──┬───────┘     └──────────┬───────────┘       │
+│                             │  │  │                         │                   │
+│              ┌──────────────┘  │  └──────────────┐          │                   │
+│              v                 v                  v          v                   │
+│  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐          │
+│  │  MySQL 8      │  │   Redis      │  │    MinIO     │  │ Redis    │          │
+│  │  (主数据库)    │  │  (缓存/队列)  │  │ (对象存储)   │  │ (pub/sub)│          │
+│  │  :3306        │  │  :6379       │  │  :9000       │  │          │          │
+│  └───────────────┘  └──────────────┘  └──────────────┘  └──────────┘          │
+│                             │                                                   │
+│                             v                                                   │
+│                     ┌───────────────┐                                           │
+│                     │  job-runner   │                                           │
+│                     │  (Go Workers) │                                           │
+│                     │  :8082        │                                           │
+│                     └───────────────┘                                           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                              │ HTTPS/WSS
+                              │
+┌─────────────────────────────┼───────────────────────────────────────────────────┐
+│                    ENDPOINT SIDE                                                │
+│                                                                                 │
+│  ┌──────────────────┐     ┌───────────────────────────────────────────┐         │
+│  │  agent-desktop   │────>│              agent-core                   │         │
+│  │  (Electron 30)   │ IPC │          (Go / localhost:17700)           │         │
+│  │                  │     │                                           │         │
+│  │  - System Tray   │     │  ┌─────────┐ ┌──────────┐ ┌──────────┐  │         │
+│  │  - Dashboard     │     │  │ LLM     │ │ Tool     │ │Governance│  │         │
+│  │  - Chat UI       │     │  │ Router  │ │ Registry │ │ Engine   │  │         │
+│  │  - Approvals     │     │  │(7 provs)│ │(10 tools)│ │(baseline)│  │         │
+│  │  - Settings      │     │  └─────────┘ └──────────┘ └──────────┘  │         │
+│  └──────────────────┘     │  ┌─────────┐ ┌──────────┐ ┌──────────┐  │         │
+│                           │  │ Policy  │ │ Audit    │ │ Diagnosis│  │         │
+│                           │  │ Engine  │ │ Client   │ │ Engine   │  │         │
+│                           │  └─────────┘ └──────────┘ └──────────┘  │         │
+│                           │  ┌──────────────────────────────────┐    │         │
+│                           │  │        SQLite + Local Files       │    │         │
+│                           │  └──────────────────────────────────┘    │         │
+│                           └───────────────────────────────────────────┘         │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Data Flow
+
+```text
+                    ┌─────────────────── CONTROL PLANE ───────────────────┐
+                    │                                                      │
+  Admin Browser ──> │ console-web ──HTTP──> platform-api ──SQL──> MySQL   │
+                    │                           │                          │
+                    │                      ┌────┴────┐                    │
+                    │                      │         │                    │
+                    │                    Redis     MinIO                  │
+                    │                   (cache)   (packages              │
+                    │                             & archives)            │
+                    │                                                      │
+                    │ job-runner <──poll DB──> MySQL                      │
+                    │   (7 workers: cleanup, build, scan, expire, flush)  │
+                    └──────────────────────────┬──────────────────────────┘
+                                               │
+                           ┌───────────────────┼───────────────────┐
+                           │  HTTP (REST)       │  WebSocket        │
+                           │  - enroll          │  - session events │
+                           │  - heartbeat       │  - tool results   │
+                           │  - config pull     │  - approvals      │
+                           │  - audit upload    │                   │
+                           v                    v                   │
+                    ┌──────────────────────────────────────────────┐│
+                    │              agent-core                       ││
+                    │                                               ││
+                    │  1. Boot → enroll/load identity               ││
+                    │  2. Pull remote config + policy               ││
+                    │  3. Connect WebSocket to session-gateway      ││
+                    │  4. Heartbeat loop (every 60s)                ││
+                    │  5. Receive diagnosis request                 ││
+                    │  6. LLM router → provider → structured output││
+                    │  7. Tool execution (read-only or approved)    ││
+                    │  8. Audit events → platform + local SQLite    ││
+                    │  9. Governance: baseline capture + drift scan ││
+                    └──────────────────────────────────────────────┘│
+                           ^                                        │
+                           │ IPC (Electron contextBridge)           │
+                    ┌──────┴──────┐                                 │
+                    │agent-desktop│    User approves/rejects ───────┘
+                    │  (Electron) │    repair actions here
+                    └─────────────┘
+```
+
+### Service Call Chain (End-to-End Diagnosis Flow)
+
+```text
+1. User types "my network is broken" in agent-desktop chat UI
+       │
+       ▼
+2. agent-desktop ──IPC──> agent-core local API (POST /local/v1/diagnose)
+       │
+       ▼
+3. agent-core Diagnosis Engine:
+   a. Collects system context (network config, DNS, processes, disk)
+   b. Sends context + user query to LLM Router
+   c. LLM Router picks provider (OpenAI / DeepSeek / Anthropic / Ollama / ...)
+   d. LLM returns structured diagnosis with recommended tools
+       │
+       ▼
+4. Read-only tools execute immediately (read_network_config, read_system_info, ...)
+   Write tools → create ApprovalRequest
+       │
+       ▼
+5. agent-core ──HTTP POST──> platform-api (create approval request)
+   platform-api stores in MySQL, emits audit event
+       │
+       ▼
+6. agent-desktop polls pending approvals, shows to user:
+   "Tool: proxy.toggle | Risk: L1 | Action: enable proxy http://proxy:8080"
+   [Approve] [Reject]
+       │
+       ▼
+7. User clicks [Approve]
+   agent-desktop ──IPC──> agent-core ──HTTP POST──> platform-api (approve)
+       │
+       ▼
+8. agent-core executes the tool, records result
+   agent-core ──HTTP POST──> platform-api (audit event: tool.executed, succeeded)
+       │
+       ▼
+9. Result displayed in agent-desktop chat UI
+   Audit trail visible in console-web audit events page
+```
+
+---
+
+## Module Reference
+
+### Platform Services
+
+| Module | Language | Port | Description |
+|--------|----------|------|-------------|
+| **platform-api** | Go (Gin) | 8080 | Central REST API. Handles authentication (JWT access/refresh/device/session tokens), tenant CRUD, profile management (model/policy/agent), device registration, session management, approval state machine, audit events, RBAC (5 roles, 17 permissions), webhook dispatch, usage metrics, license validation. 25+ API resource groups. |
+| **session-gateway** | Go (Gorilla WS) | 8081 | WebSocket relay between platform and agents. Authenticates via session tokens. Routes session events (diagnosis requests, tool results, approvals) with event_id deduplication. Uses Redis pub/sub for horizontal scaling. |
+| **job-runner** | Go | 8082 | Background worker service. Runs 7 workers: `token_cleanup`, `link_cleanup`, `audit_flush` (MinIO + local FS fallback), `session_cleanup`, `approval_expiry`, `package_build`, `governance_scan`. Polls MySQL for jobs. |
+| **console-web** | Next.js 14 | 3000 | Admin web console. 12+ pages: login, tenant management, device list (online/offline status), session list + detail, audit events (filterable), model/policy/agent profiles, download packages. Centralized i18n (zh/en). Unified API client. |
+
+### Endpoint Applications
+
+| Module | Language | Description |
+|--------|----------|-------------|
+| **agent-core** | Go | Local execution core. Runs on the managed endpoint as `enx-agent`. Exposes a localhost-only API on port 17700. Contains: LLM Router (7 providers: OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Ollama, local), Tool Registry (10 tools), Diagnosis Engine (5-step), Policy Engine, Governance Engine (baseline + drift), Audit Client (buffered upload), SQLite local store. Supports offline degraded mode. |
+| **agent-desktop** | Electron 30 | Desktop UI shell. System tray with connection status. 5 pages: dashboard (status cards), diagnosis chat (multi-turn), pending approvals (approve/reject), session history, settings (language, platform URL, log level, agent binary path). Manages agent-core subprocess lifecycle. 10 IPC channels via contextBridge. |
+
+### Tool Registry (agent-core)
+
+| Tool | Risk | R/W | Description |
+|------|------|-----|-------------|
+| `read_network_config` | L0 | Read | Collect IP addresses, DNS servers, routes |
+| `read_system_info` | L0 | Read | OS, hostname, CPU, memory |
+| `read_disk_usage` | L0 | Read | Disk partitions and usage |
+| `read_process_list` | L0 | Read | Running processes (PID, name) |
+| `flush_dns` | L1 | Write | Flush system DNS cache |
+| `service.restart` | L2 | Write | Restart a system service |
+| `cache.rebuild` | L1 | Write | Rebuild application cache |
+| `proxy.toggle` | L1 | Write | Enable/disable system proxy (Linux/macOS/Windows) |
+| `config.modify` | L1 | Write | Modify whitelisted config keys in env file |
+| `container.reload` | L2 | Write | Reload container or process (docker/systemd/SIGHUP) |
+
+### Infrastructure
+
+| Component | Purpose |
+|-----------|---------|
+| **MySQL 8** | Primary data store. 25 tables (13 core + 12 extension). Stores tenants, users, roles, devices, sessions, audit events, approval requests, profiles, webhooks, jobs, metrics, licenses. |
+| **Redis** | Cache (token blacklist, rate limiting), session-gateway pub/sub for WebSocket fan-out. |
+| **MinIO** | S3-compatible object storage. Stores agent distribution packages and audit archives. Falls back to local filesystem when unavailable. |
+| **SQLite** | Agent-side local persistence. Stores sessions, audit events, config cache, governance baselines and drifts. Enables offline operation. |
+
+### Security & Auth
+
+| Mechanism | Description |
+|-----------|-------------|
+| **JWT Access Token** | 1-hour expiry. Used by console-web. Contains user_id, tenant_id. |
+| **JWT Refresh Token** | 7-day expiry. `POST /api/v1/auth/refresh` to get new access token. |
+| **JWT Device Token** | 1-year expiry. Issued at enrollment. Used by agent-core for API calls. Supports rotation via `POST /devices/:id/rotate-token`. |
+| **JWT Session Token** | 30-minute expiry. Scoped to a specific WebSocket session. |
+| **RBAC** | 5 preset roles: `platform_super_admin`, `tenant_admin`, `security_auditor`, `ops_operator`, `read_only_observer`. 17 permission constants. `RequirePermission` middleware. |
+| **Rate Limiting** | Login: 10 req/min/IP. General API: 50 req/s/IP. |
+| **CORS** | Configurable via `ENX_CORS_ALLOWED_ORIGINS`. |
+
+---
+
+## Strengths & Limitations
+
+### Strengths
+
+- **Security-first design**: no arbitrary shell, structured tool execution only, approval gate for all writes
+- **Multi-tenant isolation**: database, cache, object storage, and audit are all tenant-scoped
+- **AI-native diagnosis**: LLM router with 7 provider backends, structured output, tool-calling pattern
+- **Offline-capable**: agent-core degrades gracefully when platform is unreachable (read-only tools, local SQLite)
+- **Full audit trail**: every action is recorded, queryable, archivable (MinIO or local FS fallback)
+- **Extensible tool system**: add new tools by implementing a single Go interface
+- **Private deployment ready**: Helm chart, offline license key, local LLM (Ollama), no cloud dependency required
+
+### Current Limitations
+
+- **No automated tests beyond unit**: integration and E2E test coverage is low
+- **No OpenAPI/Swagger docs**: API documentation is code-only
+- **No LDAP/SAML/OIDC**: enterprise SSO integration is not yet implemented
+- **No Stripe billing**: SaaS payment integration is planned but not built
+- **No auto-update for desktop**: Electron auto-updater is not integrated
+- **Shared library is minimal**: `libs/shared/` has only base models, not fully extracted
+- **No PII redaction in audit exports**: data masking pipeline is not yet implemented
+- **Redis job queue not implemented**: job-runner uses DB polling, not Redis-based queue
+
+---
 
 ## Repository Layout
 
 ```text
 envnexus/
-  apps/
-    console-web/         # Next.js 14 admin console
-    agent-desktop/       # Electron desktop shell
-    agent-core/          # Go local execution core
-  services/
-    platform-api/        # Go REST API (Gin + GORM)
-    session-gateway/     # Go WebSocket gateway
-    job-runner/          # Go background workers
-  libs/
-    shared/              # Shared Go library
-  deploy/
-    docker/              # Docker Compose deployment
-  scripts/
-    smoke-test.sh        # MVP 12-step smoke test
-    seed.sh              # Seed default tenant + admin
-  docs/
+├── apps/
+│   ├── console-web/              # Next.js 14 admin console (TypeScript)
+│   │   ├── src/app/              #   Pages: login, tenants, devices, sessions, audit, profiles
+│   │   ├── src/components/       #   Sidebar, Header
+│   │   └── src/lib/              #   API client, i18n dictionary
+│   ├── agent-desktop/            # Electron 30 desktop shell (TypeScript)
+│   │   └── src/
+│   │       ├── main/main.ts      #   Main process: tray, window, IPC, subprocess mgmt
+│   │       ├── preload/          #   Context bridge (10 IPC channels)
+│   │       └── renderer/         #   Multi-page HTML UI
+│   └── agent-core/               # Go local execution core
+│       ├── cmd/enx-agent/        #   Entry point
+│       └── internal/
+│           ├── bootstrap/        #   10-step boot sequence
+│           ├── llm/              #   Router + 7 providers
+│           ├── tools/            #   10 structured tools (system/network/service/cache)
+│           ├── governance/       #   Baseline capture + drift detection
+│           ├── diagnosis/        #   5-step diagnosis engine
+│           ├── store/            #   SQLite local persistence
+│           ├── session/          #   WebSocket client
+│           └── api/              #   Local HTTP server (:17700)
+├── services/
+│   ├── platform-api/             # Go central API (Gin + GORM)
+│   │   ├── cmd/platform-api/     #   Entry point + DI wiring
+│   │   ├── internal/
+│   │   │   ├── domain/           #   Entities (DDD): Session, ApprovalRequest, Role, Webhook, ...
+│   │   │   ├── repository/       #   MySQL repositories (GORM)
+│   │   │   ├── service/          #   Business logic: auth, rbac, webhook, metrics, license, ...
+│   │   │   ├── handler/          #   HTTP handlers (console API + agent API)
+│   │   │   ├── middleware/       #   JWT auth, RBAC, rate limiting, CORS, response envelope
+│   │   │   ├── infrastructure/   #   Redis, MinIO, Gateway clients
+│   │   │   └── dto/              #   Request/response DTOs
+│   │   └── migrations/           #   SQL migrations (auto-run on startup)
+│   ├── session-gateway/          # Go WebSocket gateway
+│   │   └── internal/handler/ws/  #   WS handler with event dedup
+│   └── job-runner/               # Go background workers
+│       └── internal/worker/      #   7 workers
+├── libs/shared/                  # Shared Go library (errors, base models)
+├── deploy/
+│   ├── docker/                   # Docker Compose deployment
+│   │   ├── docker-compose.yml
+│   │   ├── Dockerfile.*          #   Per-service Dockerfiles
+│   │   └── .env.example
+│   └── k8s/helm/envnexus/       # Kubernetes Helm chart
+│       ├── Chart.yaml
+│       ├── values.yaml
+│       └── templates/            #   4 Deployments + Services, Ingress, Secrets
+├── scripts/
+│   ├── smoke-test.sh             # MVP 12-step smoke test
+│   └── seed.sh                   # Seed default tenant + admin
+├── docs/
+│   ├── envnexus-proposal.md      # Full product proposal
+│   ├── development-roadmap.md    # Phase 0-6 roadmap with completion status
+│   └── commercialization-plan.md # Business plan
+├── Makefile
+└── README.md
 ```
 
-## Core MVP Capabilities
+---
 
-The first implementation is expected to include:
+## Deployment
 
-- Console login and tenant configuration
-- `ModelProfile`, `PolicyProfile`, and `AgentProfile` management
-- Tenant-specific signed download links
-- Device activation, configuration pull, and heartbeat
-- Local UI plus `WebSocket` session flow
-- Read-only diagnostic tools
-- A small set of approval-based low-risk repair actions
-- Audit event reporting and querying
-- Single-host deployment with `Docker Compose`
+### Option 1: Docker Compose (Recommended for Development & Single-Host)
 
-## Local Development
-
-### Prerequisites
-
-- Go 1.25+
-- Node.js 20+ and pnpm
-- Docker and Docker Compose
-
-### Quick Start with Docker Compose
+**Prerequisites**: Docker 24+, Docker Compose v2, Git
 
 ```bash
-# 1. Clone and enter the repo
+# 1. Clone
 git clone https://github.com/zy-eagle/envnexus.git
 cd envnexus
 
-# 2. Set up environment
+# 2. Configure secrets
 cp deploy/docker/.env.example deploy/docker/.env
-# Edit .env — set ENX_JWT_SECRET, ENX_DEVICE_TOKEN_SECRET, ENX_SESSION_TOKEN_SECRET to secure random values
+# IMPORTANT: edit .env and set these to secure random values:
+#   ENX_JWT_SECRET
+#   ENX_DEVICE_TOKEN_SECRET
+#   ENX_SESSION_TOKEN_SECRET
 
-# 3. Start all services
+# 3. Start everything
 cd deploy/docker
 docker compose up -d
 
-# 4. Wait for health checks, then seed default data
+# 4. Verify health
+curl http://localhost:8080/healthz    # platform-api
+curl http://localhost:8081/healthz    # session-gateway
+curl http://localhost:8082/healthz    # job-runner
+
+# 5. Seed initial data
 cd ../..
 bash scripts/seed.sh
 
-# 5. Open the console
+# 6. Open console
 # http://localhost:3000
 # Login: admin@envnexus.io / admin123
 ```
 
-### Running Services Locally (without Docker)
+**Service startup order** (Docker Compose handles this via `depends_on`):
+
+```text
+mysql → redis → minio → migration → platform-api → session-gateway → job-runner → console-web
+```
+
+**Default ports**:
+
+| Service | Port | Notes |
+|---------|------|-------|
+| console-web | 3000 | Admin UI |
+| platform-api | 8080 | REST API |
+| session-gateway | 8081 | WebSocket |
+| job-runner | 8082 | Health only |
+| MySQL | 3306 | |
+| Redis | 6379 | |
+| MinIO API | 9000 | |
+| MinIO Console | 9001 | |
+| agent-core | 17700 | localhost only |
+
+### Option 2: Kubernetes (Helm Chart)
 
 ```bash
-# Start infrastructure (MySQL, Redis, MinIO)
+# Add bitnami repo for MySQL/Redis dependencies
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+# Install
+helm install envnexus deploy/k8s/helm/envnexus \
+  --namespace envnexus --create-namespace \
+  --set env.ENX_JWT_SECRET="$(openssl rand -hex 32)" \
+  --set env.ENX_DEVICE_SECRET="$(openssl rand -hex 32)" \
+  --set env.ENX_SESSION_SECRET="$(openssl rand -hex 32)"
+```
+
+The Helm chart deploys: platform-api (2 replicas), session-gateway (2 replicas), job-runner (1 replica), console-web (2 replicas), plus Ingress and Secrets.
+
+### Option 3: Local Development (No Docker for Go Services)
+
+```bash
+# Start only infrastructure
 cd deploy/docker && docker compose up -d mysql redis minio && cd ../..
 
-# Build all Go services
+# Build all Go binaries
 make build
 
-# Run platform-api
+# Terminal 1: platform-api
 export ENX_DATABASE_DSN="root:root@tcp(localhost:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
 export ENX_REDIS_ADDR="localhost:6379"
 export ENX_OBJECT_STORAGE_ENDPOINT="localhost:9000"
-export ENX_JWT_SECRET="dev-secret-change-in-prod"
+export ENX_JWT_SECRET="dev-secret"
 export ENX_DEVICE_TOKEN_SECRET="dev-device-secret"
 export ENX_SESSION_TOKEN_SECRET="dev-session-secret"
 ./bin/platform-api
 
-# Run session-gateway (in another terminal)
+# Terminal 2: session-gateway
 export ENX_SESSION_TOKEN_SECRET="dev-session-secret"
 export ENX_REDIS_ADDR="localhost:6379"
 ./bin/session-gateway
 
-# Run job-runner (in another terminal)
+# Terminal 3: job-runner
 export ENX_DATABASE_DSN="root:root@tcp(localhost:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
 ./bin/job-runner
 
-# Run console-web (in another terminal)
+# Terminal 4: console-web
 cd apps/console-web && pnpm install && pnpm dev
 
-# Run agent-core (in another terminal)
+# Terminal 5: agent-core
 ./bin/enx-agent
 ```
 
@@ -191,7 +434,7 @@ cd apps/console-web && pnpm install && pnpm dev
 bash scripts/smoke-test.sh
 ```
 
-The smoke test validates the full MVP loop: health checks, login, tenant setup, profile creation, download link generation, agent enrollment, session creation, and audit trail.
+Validates: health → login → tenant → profiles → download link → enrollment → session → audit.
 
 ### Makefile Targets
 
@@ -204,112 +447,28 @@ The smoke test validates the full MVP loop: health checks, login, tenant setup, 
 | `make run-web` | Run console-web dev server |
 | `make run-desktop` | Run agent-desktop in dev mode |
 
-## Deployment Modes
+---
 
-The proposal defines three operating modes:
+## Project Status
 
-- `Hosted`: platform-managed control plane and storage
-- `Hybrid`: shared platform control plane with enterprise-side key/model boundaries
-- `Private`: customer-managed full deployment using the same protocol and object model
+Phase 0-6 core features are implemented. See the [development roadmap](docs/development-roadmap.md) for detailed completion status per module.
 
-The first delivery target is a single-host MVP deployment:
-
-- One Linux host runs the platform stack
-- One managed endpoint runs `agent-core` and `agent-desktop`
-- Platform services are started with `Docker Compose`
-
-## Deployment Guide
-
-### Platform Services
-
-Required platform components:
-
-- `console-web`
-- `platform-api`
-- `session-gateway`
-- `job-runner`
-- `mysql`
-- `redis`
-- `minio`
-
-Expected startup order:
-
-1. `mysql`
-2. `redis`
-3. `minio`
-4. migration job
-5. `platform-api`
-6. `session-gateway`
-7. `job-runner`
-8. `console-web`
-
-Expected public/default ports:
-
-- `console-web`: `3000`
-- `platform-api`: `8080`
-- `session-gateway`: `8081`
-- `mysql`: `3306`
-- `redis`: `6379`
-- `minio-api`: `9000`
-- `minio-console`: `9001`
-- `agent-core local api`: `127.0.0.1:17700`
-
-Platform deployment requirements:
-
-- All service configuration must come from environment variables or `env_file`
-- All container logs must go to stdout
-- Persistent data must be mounted to host volumes
-- Readiness must depend on migration and upstream dependencies
-
-## Runtime Flow
-
-1. Start platform services with `Docker Compose`
-2. Complete initial console login and tenant setup
-3. Configure model, policy, and agent profiles
-4. Generate a tenant-specific signed download link
-5. Download and start the desktop agent on the managed device
-6. Activate the device and pull remote configuration
-7. Start a diagnosis session from local UI or remote session entry
-8. Require explicit approval before any write action
-9. Report audit events and store the full execution trail
-
-## Observability And Operations
-
-The proposal requires first-class observability for both platform and endpoint flows:
-
-- Structured logs with request, tenant, device, session, trace, approval, and job identifiers
-- Metrics for API traffic, device activation success, approval flow, tool execution, and audit delivery
-- Trace or equivalent correlation for key end-to-end flows
-- Audit records for approvals, execution, rollback, distribution, and exports
-- Diagnostic bundle export from the desktop side with sensitive data redacted
-
-Initial non-functional targets defined by the proposal:
-
-- `1000` registered devices per single-instance platform
-- `200` concurrently online devices
-- `50` active sessions
-- Audit online query retention: `180` days
-- Audit archive retention: `1` year
-- Standard package build target: within `5` minutes
-- `RTO <= 4h`
-- `RPO <= 15m`
-
-## Security Model
-
-EnvNexus is not designed as unrestricted remote control software.
-
-Mandatory guardrails include:
-
-- No arbitrary shell exposure in the default product shape
-- Structured tool execution only
-- Policy evaluation before execution
-- Approval gate before high-risk actions
-- Append-only audit semantics
-- Tenant isolation across database, cache, tasks, and object storage
+| Module | Completion | Key Capabilities |
+|--------|-----------|-----------------|
+| Platform API | 100% | Auth, CRUD, RBAC, Webhooks, Metrics, License, Device Token Rotation |
+| Session Gateway | 85% | WS relay, event dedup, session token auth |
+| Job Runner | 90% | 7 workers (cleanup, build, scan, expire, flush with FS fallback) |
+| Agent Core | 95% | LLM Router (7), 10 tools, governance, offline mode, SQLite |
+| Console Web | 95% | 12+ pages, i18n, unified API client, error boundary |
+| Agent Desktop | 85% | Tray, 5-page UI, spawn agent-core, 10 IPC channels |
+| Database | 100% | 25 tables (13 core + 12 extension) |
+| K8s Deployment | 90% | Helm chart with 4 services + Ingress |
 
 ## Documentation
 
-- Main proposal: [`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
+- Product proposal: [`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
+- Development roadmap: [`docs/development-roadmap.md`](docs/development-roadmap.md)
+- Commercialization plan: [`docs/commercialization-plan.md`](docs/commercialization-plan.md)
 
 ## License
 

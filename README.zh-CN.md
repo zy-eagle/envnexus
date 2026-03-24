@@ -2,209 +2,429 @@
 
 [English Version](README.md)
 
-EnvNexus 是一个面向环境治理、安全本地诊断与引导式修复的 AI 原生平台。它将多租户平台、桌面客户端和本地执行内核组合在一起，提供租户专属分发、策略驱动诊断、审批式修复以及端到端审计能力。
+**EnvNexus** 是一个面向环境治理、安全本地诊断与引导式修复的 AI 原生平台。它将多租户控制面、Electron 桌面客户端和本地 Go 执行内核组合在一起，提供租户专属分发、策略驱动诊断、审批式修复以及端到端审计能力。
 
-## 项目状态
+---
 
-EnvNexus 正在积极开发中（Phase 1 MVP 已完成，Phase 2 进行中）。
+## EnvNexus 解决什么问题？
 
-- 产品方案：[`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
-- 开发路线图：[`docs/development-roadmap.md`](docs/development-roadmap.md)
-- 商业化计划：[`docs/commercialization-plan.md`](docs/commercialization-plan.md)
+传统远程支持工具向终端授予无限制的 Shell 访问权限，在企业环境中带来安全、合规和审计风险——尤其当数百台设备由分布式团队管理时。
 
-## 项目要解决什么问题
+EnvNexus 采用完全不同的方式：
 
-EnvNexus 面向这样一类场景：用户或运维人员需要定位并修复环境问题，但又不能把产品做成"无限制远控工具"。
+- **默认只读**：Agent 仅执行只读诊断工具，除非写操作被显式审批
+- **审批门禁**：每个修复动作（代理切换、配置修改、容器重载）都必须经过多步审批状态机
+- **策略驱动**：每个租户定义允许在其受管设备上使用的模型、工具和风险等级
+- **全量审计**：每个会话、工具调用、审批决策和回滚都被记录并可查询
+- **本地优先执行**：AI 诊断引擎在终端本地运行，平台负责编排但不直接在设备上执行命令
 
-典型场景包括：
+### 典型使用场景
 
-- 终端用户自助诊断与引导式修复
-- 技术支持远程协助排障，但本地修改必须经过审批
-- 企业终端环境治理，按租户下发模型与策略
-- 混合部署或私有化部署中，对本地模型和密钥有强边界要求的场景
+- 终端用户自助诊断："我的网络断了"→ AI 诊断 → 建议修复 → 用户审批 → Agent 执行
+- 有审计的远程支持：支持工程师发起会话 → Agent 采集数据 → 修复需要运维审批
+- 企业终端治理：10 个租户的 500 台设备，各有不同的模型/策略/工具配置
+- 私有化部署：客户在本地管理一切，包括 LLM 密钥和审计存储
 
-核心原则：
+### EnvNexus 不是什么
 
-- 默认只读，先诊断后修复
-- 所有写操作必须显式审批
-- 本地策略优先于云端建议
-- 全量审计，可回滚、可追责
-- 平台负责编排，终端负责安全执行
+- **不是**远程桌面或任意 Shell 工具
+- **不是**可以执行任意命令的 RMM Agent
+- **不会**绕过本地策略——本地 Agent 始终拥有最终决定权
 
-## 产品概览
+---
 
-EnvNexus 由三个核心层次组成：
+## 架构概览
 
-- 平台层：负责租户管理、模型配置、策略配置、下载链接、设备注册、审计查询和包管理元数据
-- 终端层：负责本地诊断、审批式修复、审计采集和安全执行
-- 集成层：负责 `WebSocket`、`Webhook` 和私有网络接入
-
-MVP 目标是在一台平台主机和一台受管终端之间跑通完整闭环：
-
-`登录 -> 租户配置 -> 签名下载链接 -> 首次激活 -> 设备注册 -> 只读诊断 -> 审批式低风险修复 -> 审计上报`
-
-## 目标架构
-
-已固定的技术选型：
-
-- Web 控制台：`Next.js 14 + TypeScript`
-- 后端服务：`Go`
-- 后端边界：`platform-api`、`session-gateway`、`job-runner`
-- 桌面端界面层：`Electron 30 + React + TypeScript`
-- 本地执行内核：`Go agent-core`
-- 主数据库：`MySQL 8`
-- 缓存与短状态：`Redis`
-- 对象存储：`MinIO`（S3 兼容）
-- Agent 本地状态：`SQLite + Files`
-- 首版部署方式：`Docker Compose`
-
-高层运行拓扑如下：
+### 系统架构图
 
 ```text
-管理端浏览器
-    |
-    v
-console-web
-    |
-    v
-platform-api
-    +--> MySQL
-    +--> Redis
-    +--> MinIO
-    +--> session-gateway
-    \--> job-runner
-
-agent-desktop
-    |
-    v
-agent-core（本地 API）
-    +--> platform-api
-    +--> session-gateway
-    \--> SQLite + Files
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              平台侧（服务端）                                    │
+│                        (Docker Compose / K8s 部署)                               │
+│                                                                                 │
+│  ┌──────────────┐     ┌───────────────────┐     ┌──────────────────────┐       │
+│  │ console-web  │────>│   platform-api    │────>│    session-gateway   │       │
+│  │ (Next.js 14) │     │   (Go / Gin)      │     │   (Go / WebSocket)  │       │
+│  │  :3000       │     │   :8080           │     │   :8081              │       │
+│  └──────────────┘     └─────┬──┬──┬───────┘     └──────────┬───────────┘       │
+│                             │  │  │                         │                   │
+│              ┌──────────────┘  │  └──────────────┐          │                   │
+│              v                 v                  v          v                   │
+│  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐          │
+│  │  MySQL 8      │  │   Redis      │  │    MinIO     │  │ Redis    │          │
+│  │  (主数据库)    │  │  (缓存/队列)  │  │ (对象存储)   │  │ (pub/sub)│          │
+│  │  :3306        │  │  :6379       │  │  :9000       │  │          │          │
+│  └───────────────┘  └──────────────┘  └──────────────┘  └──────────┘          │
+│                             │                                                   │
+│                             v                                                   │
+│                     ┌───────────────┐                                           │
+│                     │  job-runner   │                                           │
+│                     │  (Go Workers) │                                           │
+│                     │  :8082        │                                           │
+│                     └───────────────┘                                           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                              │ HTTPS/WSS
+                              │
+┌─────────────────────────────┼───────────────────────────────────────────────────┐
+│                    终端侧（客户端）                                               │
+│                                                                                 │
+│  ┌──────────────────┐     ┌───────────────────────────────────────────┐         │
+│  │  agent-desktop   │────>│              agent-core                   │         │
+│  │  (Electron 30)   │ IPC │          (Go / localhost:17700)           │         │
+│  │                  │     │                                           │         │
+│  │  - 系统托盘      │     │  ┌─────────┐ ┌──────────┐ ┌──────────┐  │         │
+│  │  - 仪表盘        │     │  │ LLM     │ │ 工具     │ │ 治理     │  │         │
+│  │  - 诊断对话      │     │  │ Router  │ │ Registry │ │ 引擎     │  │         │
+│  │  - 审批管理      │     │  │(7 家)   │ │(10 工具) │ │(基线+漂移)│  │         │
+│  │  - 设置          │     │  └─────────┘ └──────────┘ └──────────┘  │         │
+│  └──────────────────┘     │  ┌─────────┐ ┌──────────┐ ┌──────────┐  │         │
+│                           │  │ 策略    │ │ 审计     │ │ 诊断     │  │         │
+│                           │  │ 引擎    │ │ 客户端   │ │ 引擎     │  │         │
+│                           │  └─────────┘ └──────────┘ └──────────┘  │         │
+│                           │  ┌──────────────────────────────────┐    │         │
+│                           │  │        SQLite + 本地文件           │    │         │
+│                           │  └──────────────────────────────────┘    │         │
+│                           └───────────────────────────────────────────┘         │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 数据流向
+
+```text
+                    ┌─────────────────── 控制面 ────────────────────┐
+                    │                                                │
+  管理员浏览器 ──>  │ console-web ──HTTP──> platform-api ──SQL──> MySQL │
+                    │                           │                    │
+                    │                      ┌────┴────┐              │
+                    │                      │         │              │
+                    │                    Redis     MinIO            │
+                    │                   (缓存)   (安装包            │
+                    │                           & 审计归档)          │
+                    │                                                │
+                    │ job-runner <──轮询 DB──> MySQL                 │
+                    │  (7 个 Worker: 清理、构建、扫描、过期、归档)      │
+                    └──────────────────────────┬────────────────────┘
+                                               │
+                           ┌───────────────────┼───────────────────┐
+                           │  HTTP (REST)       │  WebSocket        │
+                           │  - 设备注册         │  - 会话事件       │
+                           │  - 心跳上报         │  - 工具执行结果    │
+                           │  - 配置拉取         │  - 审批流转       │
+                           │  - 审计上传         │                   │
+                           v                    v                   │
+                    ┌──────────────────────────────────────────────┐│
+                    │              agent-core                       ││
+                    │                                               ││
+                    │  1. 启动 → 注册/加载身份                       ││
+                    │  2. 拉取远程配置 + 策略                        ││
+                    │  3. WebSocket 连接到 session-gateway           ││
+                    │  4. 心跳循环（每 60 秒）                       ││
+                    │  5. 接收诊断请求                               ││
+                    │  6. LLM Router → 选择 Provider → 结构化输出    ││
+                    │  7. 工具执行（只读直接执行，写入需审批）          ││
+                    │  8. 审计事件 → 平台 + 本地 SQLite               ││
+                    │  9. 治理：基线采集 + 漂移检测                    ││
+                    └──────────────────────────────────────────────┘│
+                           ^                                        │
+                           │ IPC (Electron contextBridge)           │
+                    ┌──────┴──────┐                                 │
+                    │agent-desktop│    用户在此审批/拒绝 ────────────┘
+                    │  (Electron) │    修复操作
+                    └─────────────┘
+```
+
+### 服务调用链（端到端诊断流程）
+
+```text
+1. 用户在 agent-desktop 对话框输入"我的网络连不上了"
+       │
+       ▼
+2. agent-desktop ──IPC──> agent-core 本地 API (POST /local/v1/diagnose)
+       │
+       ▼
+3. agent-core 诊断引擎：
+   a. 采集系统上下文（网络配置、DNS、进程列表、磁盘使用）
+   b. 将上下文 + 用户问题发送给 LLM Router
+   c. LLM Router 选择 Provider（OpenAI / DeepSeek / Anthropic / Ollama / ...）
+   d. LLM 返回结构化诊断结果和推荐工具
+       │
+       ▼
+4. 只读工具立即执行（read_network_config、read_system_info 等）
+   写入工具 → 创建 ApprovalRequest（审批请求）
+       │
+       ▼
+5. agent-core ──HTTP POST──> platform-api（创建审批请求）
+   platform-api 存入 MySQL，生成审计事件
+       │
+       ▼
+6. agent-desktop 轮询待审批列表，展示给用户：
+   "工具: proxy.toggle | 风险: L1 | 操作: 启用代理 http://proxy:8080"
+   [批准] [拒绝]
+       │
+       ▼
+7. 用户点击 [批准]
+   agent-desktop ──IPC──> agent-core ──HTTP POST──> platform-api（审批通过）
+       │
+       ▼
+8. agent-core 执行工具，记录结果
+   agent-core ──HTTP POST──> platform-api（审计事件: tool.executed, succeeded）
+       │
+       ▼
+9. 结果显示在 agent-desktop 对话界面
+   审计记录可在 console-web 审计事件页面查询
+```
+
+---
+
+## 各模块详解
+
+### 平台服务
+
+| 模块 | 语言 | 端口 | 职责 |
+|------|------|------|------|
+| **platform-api** | Go (Gin) | 8080 | 核心 REST API。负责认证（JWT access/refresh/device/session 四种令牌）、租户 CRUD、Profile 管理（模型/策略/Agent）、设备注册与心跳、会话管理、审批状态机（drafted→pending→approved→executing→succeeded/failed/rolled_back）、审计事件、RBAC（5 角色 17 权限）、Webhook 分发、用量指标、License 验证。25+ 个 API 资源组。 |
+| **session-gateway** | Go (Gorilla WS) | 8081 | WebSocket 网关。在平台和 Agent 之间中继会话事件（诊断请求、工具结果、审批流转）。使用 session token 认证。基于 event_id 去重。通过 Redis pub/sub 支持水平扩展。 |
+| **job-runner** | Go | 8082 | 后台任务服务。运行 7 个 Worker：`token_cleanup`（过期令牌清理）、`link_cleanup`（过期下载链接清理）、`audit_flush`（审计归档到 MinIO，MinIO 不可用时回退到本地文件系统）、`session_cleanup`（过期会话清理）、`approval_expiry`（审批超时自动过期）、`package_build`（安装包构建）、`governance_scan`（治理扫描）。轮询 MySQL 中的 jobs 表。 |
+| **console-web** | Next.js 14 | 3000 | 管理控制台。12+ 个页面：登录、租户管理、设备列表（在线/离线状态实时显示）、会话列表+详情、审计事件（多字段筛选）、模型/策略/Agent Profile、下载包管理。集中式 i18n（中/英双语）。统一 API 客户端。 |
+
+### 终端应用
+
+| 模块 | 语言 | 职责 |
+|------|------|------|
+| **agent-core** | Go | 本地执行内核。以 `enx-agent` 进程运行在受管终端上，通过 localhost:17700 暴露 API。核心组件：LLM Router（7 个 Provider：OpenAI、Anthropic、DeepSeek、Gemini、OpenRouter、Ollama、本地模型）、工具注册表（10 个结构化工具）、诊断引擎（5 步流水线）、策略引擎、治理引擎（基线采集+漂移检测）、审计客户端（缓冲上传）、SQLite 本地存储。支持离线降级模式。 |
+| **agent-desktop** | Electron 30 | 桌面 UI 外壳。系统托盘显示连接状态（在线/离线/连接中）。5 个页面：仪表盘（状态卡片）、诊断对话（多轮聊天）、待审批操作（批准/拒绝）、历史会话、设置（语言、平台地址、日志级别、Agent 路径）。管理 agent-core 子进程生命周期。10 个 IPC 通道通过 contextBridge 暴露。 |
+
+### 工具注册表（agent-core）
+
+| 工具 | 风险等级 | 读/写 | 说明 |
+|------|---------|------|------|
+| `read_network_config` | L0 | 只读 | 采集 IP 地址、DNS 服务器、路由表 |
+| `read_system_info` | L0 | 只读 | 操作系统、主机名、CPU、内存 |
+| `read_disk_usage` | L0 | 只读 | 磁盘分区和使用率 |
+| `read_process_list` | L0 | 只读 | 运行中的进程（PID、进程名） |
+| `flush_dns` | L1 | 写入 | 刷新系统 DNS 缓存 |
+| `service.restart` | L2 | 写入 | 重启系统服务 |
+| `cache.rebuild` | L1 | 写入 | 重建应用缓存 |
+| `proxy.toggle` | L1 | 写入 | 启用/禁用系统代理（支持 Linux/macOS/Windows） |
+| `config.modify` | L1 | 写入 | 修改白名单内的配置键 |
+| `container.reload` | L2 | 写入 | 重载容器或进程（docker/systemd/SIGHUP） |
+
+### 基础设施
+
+| 组件 | 用途 |
+|------|------|
+| **MySQL 8** | 主数据库。25 张表（13 核心 + 12 扩展）。存储租户、用户、角色、设备、会话、审计事件、审批请求、Profile、Webhook、任务、用量指标、License。 |
+| **Redis** | 缓存（令牌黑名单、频率限制）、session-gateway 的 pub/sub（WebSocket 消息扇出）。 |
+| **MinIO** | S3 兼容对象存储。存储 Agent 安装包和审计归档文件。不可用时自动回退到本地文件系统。 |
+| **SQLite** | Agent 侧本地持久化。存储会话、审计事件、配置缓存、治理基线和漂移记录。确保离线场景下数据不丢失。 |
+
+### 安全与认证
+
+| 机制 | 说明 |
+|------|------|
+| **JWT Access Token** | 1 小时过期。console-web 使用。携带 user_id、tenant_id。 |
+| **JWT Refresh Token** | 7 天过期。通过 `POST /api/v1/auth/refresh` 换取新 access token。 |
+| **JWT Device Token** | 1 年过期。设备注册时签发。agent-core 调用平台 API 时使用。支持通过 `POST /devices/:id/rotate-token` 轮换。 |
+| **JWT Session Token** | 30 分钟过期。绑定到特定 WebSocket 会话。 |
+| **RBAC** | 5 种预置角色：`platform_super_admin`（平台超管）、`tenant_admin`（租户管理员）、`security_auditor`（安全审计员）、`ops_operator`（运维操作员）、`read_only_observer`（只读观察者）。17 条权限常量。`RequirePermission` 中间件。 |
+| **Rate Limiting** | 登录接口：10 次/分钟/IP。通用 API：50 次/秒/IP。 |
+| **CORS** | 通过 `ENX_CORS_ALLOWED_ORIGINS` 环境变量配置。 |
+
+---
+
+## 优势与不足
+
+### 优势
+
+- **安全优先设计**：无任意 Shell 暴露，仅结构化工具执行，所有写操作必须审批
+- **多租户隔离**：数据库、缓存、对象存储、审计都按租户隔离
+- **AI 原生诊断**：LLM Router 支持 7 个 Provider 后端，结构化输出，tool-calling 模式
+- **离线可用**：平台不可达时 agent-core 优雅降级（只读工具可用，本地 SQLite 持久化）
+- **全量审计链**：每个动作都被记录、可查询、可归档（MinIO 或本地文件系统回退）
+- **可扩展工具系统**：实现一个 Go 接口即可添加新工具
+- **私有化就绪**：Helm Chart、离线 License Key、本地 LLM（Ollama）、无云依赖
+
+### 当前不足
+
+- **缺少自动化测试**：除单元测试外，集成测试和端到端测试覆盖较低
+- **无 OpenAPI/Swagger 文档**：API 文档仅存在于代码中
+- **无 LDAP/SAML/OIDC**：企业 SSO 集成尚未实现
+- **无 Stripe 计费**：SaaS 支付集成已规划但未构建
+- **无桌面端自动更新**：Electron auto-updater 未集成
+- **共享库较少**：`libs/shared/` 仅包含基础模型，未充分提取
+- **审计导出无 PII 脱敏**：数据脱敏管道尚未实现
+- **未使用 Redis 任务队列**：job-runner 使用 DB 轮询而非 Redis 队列
+
+---
 
 ## 仓库结构
 
 ```text
 envnexus/
-  apps/
-    console-web/         # Next.js 14 管理控制台
-    agent-desktop/       # Electron 桌面端
-    agent-core/          # Go 本地执行内核
-  services/
-    platform-api/        # Go REST API（Gin + GORM）
-    session-gateway/     # Go WebSocket 网关
-    job-runner/          # Go 后台任务服务
-  libs/
-    shared/              # Go 共享库
-  deploy/
-    docker/              # Docker Compose 部署配置
-  scripts/
-    smoke-test.sh        # MVP 12 步冒烟测试
-    seed.sh              # 初始化默认租户和管理员
-  docs/
+├── apps/
+│   ├── console-web/              # Next.js 14 管理控制台（TypeScript）
+│   │   ├── src/app/              #   页面：登录、租户、设备、会话、审计、Profile
+│   │   ├── src/components/       #   侧边栏、头部
+│   │   └── src/lib/              #   API 客户端、i18n 字典
+│   ├── agent-desktop/            # Electron 30 桌面端（TypeScript）
+│   │   └── src/
+│   │       ├── main/main.ts      #   主进程：托盘、窗口、IPC、子进程管理
+│   │       ├── preload/          #   contextBridge（10 个 IPC 通道）
+│   │       └── renderer/         #   多页面 HTML UI
+│   └── agent-core/               # Go 本地执行内核
+│       ├── cmd/enx-agent/        #   入口
+│       └── internal/
+│           ├── bootstrap/        #   10 步启动序列
+│           ├── llm/              #   Router + 7 个 Provider
+│           ├── tools/            #   10 个结构化工具（system/network/service/cache）
+│           ├── governance/       #   基线采集 + 漂移检测
+│           ├── diagnosis/        #   5 步诊断引擎
+│           ├── store/            #   SQLite 本地持久化
+│           ├── session/          #   WebSocket 客户端
+│           └── api/              #   本地 HTTP 服务 (:17700)
+├── services/
+│   ├── platform-api/             # Go 核心 API（Gin + GORM）
+│   │   ├── cmd/platform-api/     #   入口 + DI 组装
+│   │   ├── internal/
+│   │   │   ├── domain/           #   领域实体（DDD）：Session、ApprovalRequest、Role、Webhook...
+│   │   │   ├── repository/       #   MySQL 仓储（GORM）
+│   │   │   ├── service/          #   业务逻辑：auth、rbac、webhook、metrics、license...
+│   │   │   ├── handler/          #   HTTP 处理器（控制台 API + Agent API）
+│   │   │   ├── middleware/       #   JWT 认证、RBAC、限频、CORS、响应信封
+│   │   │   ├── infrastructure/   #   Redis、MinIO、Gateway 客户端
+│   │   │   └── dto/              #   请求/响应 DTO
+│   │   └── migrations/           #   SQL 迁移脚本（启动时自动执行）
+│   ├── session-gateway/          # Go WebSocket 网关
+│   │   └── internal/handler/ws/  #   WS 处理器 + event_id 去重
+│   └── job-runner/               # Go 后台任务服务
+│       └── internal/worker/      #   7 个 Worker
+├── libs/shared/                  # Go 共享库（errors、基础模型）
+├── deploy/
+│   ├── docker/                   # Docker Compose 部署
+│   │   ├── docker-compose.yml
+│   │   ├── Dockerfile.*          #   各服务 Dockerfile
+│   │   └── .env.example
+│   └── k8s/helm/envnexus/       # Kubernetes Helm Chart
+│       ├── Chart.yaml
+│       ├── values.yaml
+│       └── templates/            #   4 个 Deployment + Service、Ingress、Secrets
+├── scripts/
+│   ├── smoke-test.sh             # MVP 12 步冒烟测试
+│   └── seed.sh                   # 初始化默认租户和管理员
+├── docs/
+│   ├── envnexus-proposal.md      # 完整产品方案
+│   ├── development-roadmap.md    # Phase 0-6 路线图及完成状态
+│   └── commercialization-plan.md # 商业化计划
+├── Makefile
+└── README.md
 ```
 
-## 当前已实现能力
+---
 
-**Phase 0 — 安全加固与工程基础（已完成）**
+## 部署指南
 
-- 移除硬编码默认密钥，未设置时启动报错
-- 修复 WebSocket 鉴权旁路和 CheckOrigin 全放行
-- 添加 CORS 中间件和 Rate Limiting
-- 全服务迁移至结构化日志（`log/slog`）
-- 数据库迁移自动执行，readyz 覆盖 DB / Redis / MinIO 检查
-- 建立 CI/CD 流水线（GitHub Actions）
-- 审批状态机和会话状态机单元测试
+### 方式一：Docker Compose（推荐用于开发和单机部署）
 
-**Phase 1 — MVP 闭环（已完成）**
-
-- 控制台登录与租户配置，`ModelProfile`、`PolicyProfile`、`AgentProfile` CRUD
-- Refresh Token（Access 1h + Refresh 7d），`POST /auth/refresh`
-- 租户专属签名下载链接，`POST /tenants/:id/download-links`
-- Agent WebSocket 鉴权修复（使用 session token 接入 Gateway）
-- 审批式工具执行上报（succeeded / failed）
-- `audit_flush` 真实归档至 MinIO，审计支持 `include_archived` 查询
-- WebSocket 事件幂等去重（event_id + 10 分钟 TTL）
-- Console Web 集中式 i18n（`dictionary.ts`），全页面中英双语
-
-**Phase 2 — 诊断产品化（Agent Core + Console Web 已完成，Desktop 待开发）**
-
-- SQLite 本地存储（`internal/store/`），覆盖会话、审计、配置缓存、治理基线和漂移
-- 治理引擎 v1：`CaptureBaseline` / `DetectDrift`，采集主机名、网络接口、环境变量
-- 扩展只读工具，共 7 个（新增 `read_disk_usage`、`read_process_list`）
-- `POST /local/v1/diagnostics/export` 诊断包导出
-- 离线降级模式：平台不可达时仅开放只读能力
-- 优雅退出：`Shutdown()` 正确关闭 LocalServer 和 SQLite
-- Console Web 全局错误边界（`error.tsx` / `loading.tsx`）
-- 所有页面统一通过 `api` client 调用，消除散落的直接 `fetch`
-- 会话详情页：展示会话元数据 + 审计事件时间线（可展开 payload）
-- 设备在线/离线实时状态：绿色脉冲指示灯 + 30 秒轮询
-- 审计事件多字段筛选：session_id / device_id / event_type / include_archived
-
-## 本地开发
-
-### 前置条件
-
-- Go 1.21+
-- Node.js 20+ 和 pnpm
-- Docker 和 Docker Compose
-
-### Docker Compose 快速启动
+**前置条件**：Docker 24+、Docker Compose v2、Git
 
 ```bash
 # 1. 克隆仓库
 git clone https://github.com/zy-eagle/envnexus.git
 cd envnexus
 
-# 2. 配置环境变量
+# 2. 配置密钥
 cp deploy/docker/.env.example deploy/docker/.env
-# 编辑 .env，将 ENX_JWT_SECRET、ENX_DEVICE_TOKEN_SECRET、ENX_SESSION_TOKEN_SECRET 设置为安全随机值
+# 重要：编辑 .env，将以下三项设置为安全随机值：
+#   ENX_JWT_SECRET
+#   ENX_DEVICE_TOKEN_SECRET
+#   ENX_SESSION_TOKEN_SECRET
 
 # 3. 启动所有服务
 cd deploy/docker
 docker compose up -d
 
-# 4. 等待健康检查通过后，初始化默认数据
+# 4. 验证健康状态
+curl http://localhost:8080/healthz    # platform-api
+curl http://localhost:8081/healthz    # session-gateway
+curl http://localhost:8082/healthz    # job-runner
+
+# 5. 初始化默认数据
 cd ../..
 bash scripts/seed.sh
 
-# 5. 打开控制台
+# 6. 打开控制台
 # http://localhost:3000
 # 登录账号：admin@envnexus.io / admin123
 ```
 
-### 本地运行（不使用 Docker）
+**服务启动顺序**（Docker Compose 通过 `depends_on` 自动处理）：
+
+```text
+mysql → redis → minio → migration → platform-api → session-gateway → job-runner → console-web
+```
+
+**默认端口**：
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| console-web | 3000 | 管理控制台 |
+| platform-api | 8080 | REST API |
+| session-gateway | 8081 | WebSocket |
+| job-runner | 8082 | 仅健康检查 |
+| MySQL | 3306 | |
+| Redis | 6379 | |
+| MinIO API | 9000 | |
+| MinIO Console | 9001 | |
+| agent-core | 17700 | 仅本地访问 |
+
+### 方式二：Kubernetes（Helm Chart）
 
 ```bash
-# 仅启动基础设施（MySQL、Redis、MinIO）
+# 添加 Bitnami 仓库（MySQL/Redis 依赖）
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+# 安装
+helm install envnexus deploy/k8s/helm/envnexus \
+  --namespace envnexus --create-namespace \
+  --set env.ENX_JWT_SECRET="$(openssl rand -hex 32)" \
+  --set env.ENX_DEVICE_SECRET="$(openssl rand -hex 32)" \
+  --set env.ENX_SESSION_SECRET="$(openssl rand -hex 32)"
+```
+
+Helm Chart 部署：platform-api（2 副本）、session-gateway（2 副本）、job-runner（1 副本）、console-web（2 副本），以及 Ingress 和 Secrets。
+
+### 方式三：本地开发（Go 服务不使用 Docker）
+
+```bash
+# 仅启动基础设施
 cd deploy/docker && docker compose up -d mysql redis minio && cd ../..
 
 # 编译所有 Go 服务
 make build
 
-# 运行 platform-api
+# 终端 1：platform-api
 export ENX_DATABASE_DSN="root:root@tcp(localhost:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
 export ENX_REDIS_ADDR="localhost:6379"
 export ENX_OBJECT_STORAGE_ENDPOINT="localhost:9000"
-export ENX_JWT_SECRET="dev-secret-change-in-prod"
+export ENX_JWT_SECRET="dev-secret"
 export ENX_DEVICE_TOKEN_SECRET="dev-device-secret"
 export ENX_SESSION_TOKEN_SECRET="dev-session-secret"
 ./bin/platform-api
 
-# 运行 session-gateway（另开终端）
+# 终端 2：session-gateway
 export ENX_SESSION_TOKEN_SECRET="dev-session-secret"
 export ENX_REDIS_ADDR="localhost:6379"
 ./bin/session-gateway
 
-# 运行 job-runner（另开终端）
+# 终端 3：job-runner
 export ENX_DATABASE_DSN="root:root@tcp(localhost:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
 ./bin/job-runner
 
-# 运行 console-web（另开终端）
+# 终端 4：console-web
 cd apps/console-web && pnpm install && pnpm dev
 
-# 运行 agent-core（另开终端）
+# 终端 5：agent-core
 ./bin/enx-agent
 ```
 
@@ -214,7 +434,7 @@ cd apps/console-web && pnpm install && pnpm dev
 bash scripts/smoke-test.sh
 ```
 
-冒烟测试验证完整 MVP 闭环：健康检查、登录、租户配置、Profile 创建、下载链接生成、Agent 注册、会话创建、审计追踪。
+验证完整闭环：健康检查 → 登录 → 租户 → Profile → 下载链接 → 注册 → 会话 → 审计。
 
 ### Makefile 目标
 
@@ -227,112 +447,28 @@ bash scripts/smoke-test.sh
 | `make run-web` | 启动 console-web 开发服务器 |
 | `make run-desktop` | 以开发模式运行 agent-desktop |
 
-## 部署形态
+---
 
-方案定义了三种部署模式：
+## 项目状态
 
-- `Hosted`：平台侧统一托管控制面和存储
-- `Hybrid`：平台共享控制面，企业侧保留密钥或模型边界
-- `Private`：客户自管完整部署，沿用相同协议和对象模型
+Phase 0-6 核心功能已实现。详细的逐模块完成状态请参阅[开发路线图](docs/development-roadmap.md)。
 
-首个交付目标是单机 MVP 部署：
-
-- 一台 Linux 主机运行平台侧组件
-- 一台受管终端运行 `agent-core` 和 `agent-desktop`
-- 平台侧通过 `Docker Compose` 启动
-
-## 部署指南
-
-### 平台服务组件
-
-平台侧最小组件集合：
-
-- `console-web`
-- `platform-api`
-- `session-gateway`
-- `job-runner`
-- `mysql`
-- `redis`
-- `minio`
-
-预期启动顺序：
-
-1. `mysql`
-2. `redis`
-3. `minio`
-4. migration job
-5. `platform-api`
-6. `session-gateway`
-7. `job-runner`
-8. `console-web`
-
-预期默认端口：
-
-- `console-web`: `3000`
-- `platform-api`: `8080`
-- `session-gateway`: `8081`
-- `mysql`: `3306`
-- `redis`: `6379`
-- `minio-api`: `9000`
-- `minio-console`: `9001`
-- `agent-core local api`: `127.0.0.1:17700`
-
-平台部署约束：
-
-- 所有业务服务必须通过环境变量或 `env_file` 注入配置
-- 所有容器日志必须输出到标准输出
-- 所有持久化数据必须映射到宿主机卷
-- 服务的 ready 状态必须受 migration 和上游依赖约束
-
-## 运行流程
-
-1. 通过 `Docker Compose` 启动平台服务
-2. 完成控制台初始化登录与租户配置
-3. 配置模型、策略和 AgentProfile
-4. 生成租户专属签名下载链接
-5. 在受管终端下载并启动桌面 Agent
-6. 完成设备首次激活并拉取远程配置
-7. 通过本地 UI 或远程会话入口发起诊断
-8. 所有写操作都必须先经过显式审批
-9. 执行结果和审计事件回传到平台侧
-
-## 可观测性与运维
-
-方案要求平台侧和终端侧都具备一等公民级别的可观测性：
-
-- 结构化日志，统一携带请求、租户、设备、会话、Trace、审批、任务等标识
-- 指标覆盖 API 流量、设备激活成功率、审批链路、工具执行、审计上报等核心路径
-- 关键链路具备 Trace 或等价关联能力
-- 审批、执行、回滚、分发、导出等关键动作都必须进入审计链
-- 桌面端支持脱敏后的诊断包导出
-
-方案定义的首版非功能目标：
-
-- 单实例平台支持 `1000` 台已注册设备
-- 支持 `200` 台同时在线设备
-- 支持 `50` 个同时活跃会话
-- 审计在线查询保留 `180` 天
-- 审计归档保留 `1` 年
-- 常规引导包构建目标不超过 `5` 分钟
-- `RTO <= 4h`
-- `RPO <= 15m`
-
-## 安全模型
-
-EnvNexus 不是传统意义上的"任意远控软件"。
-
-方案中固定的核心安全约束：
-
-- 默认产品形态下不暴露任意 Shell
-- 只允许结构化工具执行
-- 所有动作都必须先经过策略评估
-- 高风险动作必须经过审批
-- 审计采用 append-only 语义
-- 数据库、缓存、任务、对象存储都必须执行租户隔离
+| 模块 | 完成度 | 核心能力 |
+|------|--------|---------|
+| Platform API | 100% | 认证、CRUD、RBAC、Webhook、用量指标、License、设备 Token 轮换 |
+| Session Gateway | 85% | WS 中继、事件去重、session token 认证 |
+| Job Runner | 90% | 7 个 Worker（清理、构建、扫描、过期、归档 + FS 回退） |
+| Agent Core | 95% | LLM Router（7 家）、10 个工具、治理引擎、离线模式、SQLite |
+| Console Web | 95% | 12+ 个页面、i18n、统一 API 客户端、错误边界 |
+| Agent Desktop | 85% | 托盘、5 页 UI、spawn agent-core、10 个 IPC 通道 |
+| 数据库 | 100% | 25 张表（13 核心 + 12 扩展） |
+| K8s 部署 | 90% | Helm Chart（4 服务 + Ingress） |
 
 ## 文档
 
-- 主方案文档：[`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
+- 产品方案：[`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
+- 开发路线图：[`docs/development-roadmap.md`](docs/development-roadmap.md)
+- 商业化计划：[`docs/commercialization-plan.md`](docs/commercialization-plan.md)
 
 ## 许可证
 
