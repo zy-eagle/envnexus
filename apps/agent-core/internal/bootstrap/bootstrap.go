@@ -131,7 +131,10 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	registry.Register(system.NewReadSystemInfoTool())
 	registry.Register(system.NewReadDiskUsageTool())
 	registry.Register(system.NewReadProcessListTool())
+	registry.Register(system.NewProxyToggleTool())
+	registry.Register(system.NewConfigModifyTool())
 	registry.Register(service.NewRestartTool())
+	registry.Register(service.NewContainerReloadTool())
 	registry.Register(cache.NewRebuildTool())
 
 	if !platformReachable {

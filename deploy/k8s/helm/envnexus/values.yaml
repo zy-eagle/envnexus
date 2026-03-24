@@ -1,0 +1,173 @@
+## Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+## ── Image ────────────────────────────────────────────────────────────────────
+image:
+  registry: ghcr.io
+  repository: zy-eagle/envnexus
+  tag: "0.2.0"
+  pullPolicy: IfNotPresent
+
+## ── Replica counts ────────────────────────────────────────────────────────────
+replicaCount:
+  platformApi: 2
+  sessionGateway: 2
+  jobRunner: 1
+  consoleWeb: 2
+
+## ── Service ports ─────────────────────────────────────────────────────────────
+service:
+  platformApi:
+    port: 8080
+    type: ClusterIP
+  sessionGateway:
+    port: 8081
+    type: ClusterIP
+  jobRunner:
+    port: 8082
+    type: ClusterIP
+  consoleWeb:
+    port: 3000
+    type: ClusterIP
+
+## ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: envnexus.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          backend: platform-api
+        - path: /ws
+          pathType: Prefix
+          backend: session-gateway
+        - path: /
+          pathType: Prefix
+          backend: console-web
+  tls:
+    - secretName: envnexus-tls
+      hosts:
+        - envnexus.example.com
+
+## ── Environment variables ─────────────────────────────────────────────────────
+env:
+  ENX_JWT_SECRET: "CHANGE_ME_IN_PRODUCTION"
+  ENX_DEVICE_SECRET: "CHANGE_ME_IN_PRODUCTION"
+  ENX_SESSION_SECRET: "CHANGE_ME_IN_PRODUCTION"
+  ENX_LOG_LEVEL: "info"
+
+## ── Existing secrets ──────────────────────────────────────────────────────────
+existingSecret: ""  # Name of existing Kubernetes secret with credentials
+
+## ── MySQL ─────────────────────────────────────────────────────────────────────
+mysql:
+  enabled: true
+  auth:
+    rootPassword: "changeme"
+    database: envnexus
+    username: envnexus
+    password: "changeme"
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+
+## ── Redis ─────────────────────────────────────────────────────────────────────
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "changeme"
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+## ── MinIO ─────────────────────────────────────────────────────────────────────
+minio:
+  enabled: true
+  endpoint: "minio:9000"
+  accessKey: "minioadmin"
+  secretKey: "minioadmin"
+  bucket: "envnexus"
+  useSSL: false
+
+## ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  platformApi:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  sessionGateway:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  jobRunner:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  consoleWeb:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+## ── Autoscaling ───────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+## ── Persistence ───────────────────────────────────────────────────────────────
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+
+## ── Health checks ─────────────────────────────────────────────────────────────
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 3
+
+## ── Pod disruption budget ─────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+## ── Service account ───────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+## ── Network policy ────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: false

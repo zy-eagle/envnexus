@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-console-web
+  labels:
+    app.kubernetes.io/name: console-web
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount.consoleWeb }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: console-web
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: console-web
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: console-web
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/console-web:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.consoleWeb.port }}
+          env:
+            - name: NEXT_PUBLIC_API_BASE_URL
+              value: "http://{{ .Release.Name }}-platform-api:{{ .Values.service.platformApi.port }}"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.consoleWeb | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-console-web
+spec:
+  type: {{ .Values.service.consoleWeb.type }}
+  ports:
+    - port: {{ .Values.service.consoleWeb.port }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: console-web
+    app.kubernetes.io/instance: {{ .Release.Name }}

@@ -6,14 +6,16 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
 )
 
 type Service struct {
-	deviceRepo repository.DeviceRepository
+	deviceRepo  repository.DeviceRepository
+	authService *auth.Service
 }
 
-func NewService(deviceRepo repository.DeviceRepository) *Service {
-	return &Service{deviceRepo: deviceRepo}
+func NewService(deviceRepo repository.DeviceRepository, authService *auth.Service) *Service {
+	return &Service{deviceRepo: deviceRepo, authService: authService}
 }
 
 func (s *Service) ListDevices(ctx context.Context, tenantID string) ([]*dto.DeviceResponse, error) {
@@ -92,4 +94,29 @@ func (s *Service) UpdateDevice(ctx context.Context, tenantID, id string, req dto
 
 func (s *Service) DeleteDevice(ctx context.Context, tenantID, id string) error {
 	return s.deviceRepo.Delete(ctx, id, tenantID)
+}
+
+// RotateDeviceToken revokes the current device token and issues a new one.
+func (s *Service) RotateDeviceToken(ctx context.Context, tenantID, deviceID string) (string, error) {
+	dev, err := s.deviceRepo.GetByID(ctx, deviceID)
+	if err != nil {
+		return "", domain.ErrInternalError
+	}
+	if dev == nil || dev.TenantID != tenantID {
+		return "", domain.ErrDeviceNotFound
+	}
+	if dev.IsRevoked() {
+		return "", domain.ErrDeviceRevoked
+	}
+
+	if s.authService == nil {
+		return "", domain.ErrInternalError
+	}
+
+	newToken, err := s.authService.IssueDeviceToken(deviceID, tenantID)
+	if err != nil {
+		return "", domain.ErrInternalError
+	}
+
+	return newToken, nil
 }

@@ -9,6 +9,18 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
 )
 
+func (h *DeviceHandler) RotateToken(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	id := c.Param("id")
+
+	newToken, err := h.deviceService.RotateDeviceToken(c.Request.Context(), tenantID, id)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"device_token": newToken})
+}
+
 type DeviceHandler struct {
 	deviceService *device.Service
 }
@@ -25,6 +37,7 @@ func (h *DeviceHandler) RegisterRoutes(router *gin.RouterGroup) {
 		tenants.GET("", h.ListDevices)
 		tenants.PUT("/:id", h.UpdateDevice)
 		tenants.DELETE("/:id", h.DeleteDevice)
+		tenants.POST("/:id/rotate-token", h.RotateToken)
 	}
 }
 

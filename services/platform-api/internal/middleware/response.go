@@ -67,3 +67,12 @@ func RespondValidationError(c *gin.Context, message string) {
 func ErrUnauthorizedFromContext() *domain.AppError {
 	return domain.ErrUnauthorized
 }
+
+// RespondErrorCode responds with a manual error code and message (no AppError wrapping).
+func RespondErrorCode(c *gin.Context, status int, code, message string) {
+	c.JSON(status, APIResponse{
+		RequestID: NewRequestID(),
+		Data:      nil,
+		Error:     &APIError{Code: code, Message: message},
+	})
+}

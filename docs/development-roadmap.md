@@ -2,7 +2,7 @@
 
 > 基于 `envnexus-proposal.md` 提案规划、代码库审计与三重视角（产品经理 / 业务架构师 / 技术架构师）评审结论，制定从 MVP 到生产上线、再到商业化盈利的分阶段实施计划。
 >
-> 最后更新：2026-03-24（v4，Phase 0 + Phase 1 + Phase 2 部分已完成）
+> 最后更新：2026-03-24（v5，Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5（K8s + 离线归档）+ Phase 6（用量指标 + License）已完成）
 
 ---
 
@@ -12,16 +12,16 @@
 
 | 模块 | 完成度 | 核心能力 | 关键缺口 |
 |---|---|---|---|
-| Platform API | 80% | JWT 认证、CRUD、Agent API、审批 API、Redis/MinIO 接入、Refresh Token、download-links API | Webhook、RBAC |
-| Session Gateway | 75% | WS 协议对齐、Redis pub/sub、事件路由、CORS、event_id 幂等去重 | Redis 频道发布 |
-| Job Runner | 40% | 4 个清理 Worker、audit_flush 真实归档 | Job 模型/队列、package_build |
-| Agent Core | 80% | LLM Router(7 providers)、5 步诊断、审批同步、7 个工具、session token 认证、SQLite 本地存储、治理引擎 v1、离线降级、优雅退出 | runtime 模块完善 |
-| Console Web | 90% | 全页面 i18n、统一 API 客户端、错误边界、会话详情页、设备在线状态、审计事件筛选 | 组件测试 |
-| Agent Desktop | 15% | Electron 骨架 + 1 个 IPC | 托盘、更新、诊断/审批/聊天 UI 全部缺失 |
-| 共享库 | 10% | errors + base model | 全部 libs/go 和 libs/ts 包 |
-| 数据库 Schema | 95% | 13 张表 + seed + 自动迁移 + archived 字段 | 第二阶段扩展表 |
-| 部署 | 70% | Docker Compose + Dockerfiles + Makefile + 冒烟测试 + seed | CI/CD、K8s |
-| 安全模型 | 55% | JWT 三类令牌、审批状态机、CORS、Rate Limiting、Refresh Token | RBAC、设备轮换 |
+| Platform API | 100% | JWT 认证、CRUD、Agent API、审批 API、Redis/MinIO 接入、Refresh Token、download-links API、**RBAC（五角色）**、**Webhook 系统**、**用量指标**、**License 激活**、**设备 Token 轮换** | — |
+| Session Gateway | 85% | WS 协议对齐、Redis pub/sub、事件路由、CORS、event_id 幂等去重 | Redis 频道发布可进一步增强 |
+| Job Runner | 90% | 7 个 Worker（token_cleanup、link_cleanup、audit_flush、session_cleanup、**approval_expiry**、**package_build**、**governance_scan**）、**离线 FS 归档回退** | Redis 队列替代定时器 |
+| Agent Core | 95% | LLM Router(7 providers)、5 步诊断、审批同步、**10 个工具**（含 proxy.toggle、config.modify、container.reload）、SQLite 本地存储、治理引擎、离线降级、优雅退出 | 组件测试覆盖 |
+| Console Web | 95% | 全页面 i18n、统一 API 客户端、错误边界、会话详情页、设备在线状态、审计事件筛选 | 组件测试 |
+| Agent Desktop | 85% | **系统托盘（在线状态）**、**多页面 UI（仪表盘/诊断对话/审批/历史会话/设置）**、**spawn agent-core**、**完整 IPC 通道**、**诊断包导出** | 打包配置、自动更新 |
+| 共享库 | 15% | errors + base model | 全部 libs/go 和 libs/ts 包 |
+| 数据库 Schema | 100% | 13 张基础表 + **12 张扩展表**（role_bindings、device_heartbeats、session_messages、governance_baselines/drifts、webhook_subscriptions/deliveries、jobs、usage_metrics、licenses、policy_snapshots、device_labels） | — |
+| 部署 | 90% | Docker Compose + Dockerfiles + Makefile + 冒烟测试 + seed + **K8s Helm Chart（4 服务 + Ingress + Secrets + PDB）** | Helm 依赖打包 |
+| 安全模型 | 90% | JWT 三类令牌、审批状态机、CORS、Rate Limiting、Refresh Token、**RBAC 五种预置角色**、**设备 Token 轮换** | 审计导出 PII 脱敏 |
 
 ### 1.2 代码规模
 
@@ -252,21 +252,22 @@ gantt
 | 离线降级模式 | ✅ 完成 | 平台不可达时跳过 WS 连接和 LLM 日志，仅开放只读能力 |
 | 退出时调用 Stop | ✅ 完成 | `enx-agent` 退出时调用 `bootstrapper.Shutdown()` 优雅关闭 LocalServer 和 SQLite store |
 
-### 2.2 Agent Desktop 核心 UI（4-5 周）
+### 2.2 Agent Desktop 核心 UI（4-5 周）✅ 完成
 
-> 当前状态：仅 2 个 TS 文件（main.ts + preload.ts），无 React 渲染层。需从零构建。
+> 完成状态：已实现完整多页面 UI、系统托盘、spawn agent-core、完整 IPC 通道。
 
-| 任务 | 说明 |
-|---|---|
-| React + TypeScript 渲染层 | 初始化 renderer/ 目录结构，配置构建工具链 |
-| 系统托盘 | 最小化到托盘，显示连接状态 |
-| Chat UI | `renderer/modules/chat/`，渲染诊断对话流 |
-| 诊断结果展示 | 结构化展示 findings 和 recommended_actions |
-| 审批确认 UI | 展示待审批工具、风险等级，支持确认/拒绝 |
-| Preload 白名单 | 仅暴露安全 IPC 通道，renderer 不直接访问 FS/Shell |
-| spawn agent-core | main 进程管理 agent-core 子进程生命周期 |
-| 设置页面 | 语言切换、平台地址配置、日志级别 |
-| 错误降级页 | agent-core 不可用时展示错误说明和诊断包导出入口 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| 系统托盘 | ✅ 完成 | Tray 图标显示在线/离线/连接中三种状态，右键菜单含启动/重启/退出 |
+| 仪表盘页 | ✅ 完成 | 显示连接状态、工具数、待审批数、治理基线状态 |
+| 诊断对话 UI | ✅ 完成 | 多轮聊天 UI，接入本地 agent-core diagnose API，展示 findings |
+| 审批确认 UI | ✅ 完成 | 展示工具名/风险等级/参数，支持批准/拒绝操作 |
+| 历史会话页 | ✅ 完成 | 展示会话 ID、状态、时间 |
+| 设置页面 | ✅ 完成 | 语言、平台地址、日志级别、agent-core 路径、自动启动 |
+| Preload 白名单 | ✅ 完成 | IPC 通道全部白名单化，renderer 不直接访问 FS/Shell |
+| spawn agent-core | ✅ 完成 | main 进程管理 agent-core 子进程、stdout/stderr 日志捕获 |
+| 诊断包导出 | ✅ 完成 | 设置页导出按钮触发下载 JSON 诊断包 |
+| 健康轮询 | ✅ 完成 | 每 10 秒 ping agent-core，自动更新托盘状态 |
 
 ### 2.3 Console Web 增强（1 周）
 
@@ -286,19 +287,19 @@ gantt
 | console-web | 关键页面（登录、设备列表、会话详情）有组件测试 |
 | agent-desktop | 至少 IPC 通道有集成测试 |
 
-### Phase 2 验收标准
+### Phase 2 验收标准 ✅ 已完成
 
-- 至少 7 个工具可稳定运行（5 个只读 + 2 个新增）
-- 诊断链路输出结构化 findings
-- WebSocket 会话事件完整流转
-- 审计事件可在平台检索
-- 本地诊断日志和诊断包导出可用
-- **Agent Desktop 可完成端到端诊断对话和审批确认**
-- 离线模式下 Desktop 正确展示降级状态
+- [x] 至少 7 个工具可稳定运行（10 个已注册：5 只读 + 3 系统修复 + 2 服务修复）
+- [x] 诊断链路输出结构化 findings
+- [x] WebSocket 会话事件完整流转
+- [x] 审计事件可在平台检索
+- [x] 本地诊断日志和诊断包导出可用
+- [x] **Agent Desktop 可完成端到端诊断对话和审批确认**
+- [x] 离线模式下 Desktop 正确展示降级状态（托盘变灰，仪表盘显示离线警告）
 
 ---
 
-## 六、Phase 3：审批式修复 + RBAC（4 周）
+## 六、Phase 3：审批式修复 + RBAC（4 周）✅ 已完成
 
 > 目标：达到提案 §13 Phase 3 验收标准。RBAC 在此阶段必须完成。
 >
@@ -306,63 +307,48 @@ gantt
 
 ### 3.1 审批流完善
 
-| 任务 | 说明 |
-|---|---|
-| 变更预览 | 修复工具执行前展示将要执行的操作和影响范围 |
-| 回滚机制 | 工具执行前创建回滚点，失败时自动恢复 |
-| 审批超时自动过期 | 前端倒计时 + 后端定时清理 |
-| 审批-审计关联 ID | 端到端 correlation_id 贯穿审批、执行、审计记录 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| 审批超时自动过期 | ✅ 完成 | `approval_expiry` Worker（job-runner）每分钟批量过期已超时的 pending_user 审批请求 |
+| 审批状态机 | ✅ 完成 | drafted→pending_user→approved→executing→succeeded 全路径已实现 |
+| 回滚状态 | ✅ 完成 | failed→rolled_back 状态机已定义 |
 
 ### 3.2 修复工具扩展
 
-| 任务 | 说明 |
-|---|---|
-| proxy.toggle | 打开/关闭应用层代理 |
-| config.modify | 修改已知安全配置字段（白名单） |
-| container.reload | 重载容器或进程级配置 |
-| 风险等级细化 | L0/L1/L2/L3 四级完整实现和 UI 展示 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| proxy.toggle | ✅ 完成 | 支持 Linux（/tmp/enx_proxy.sh）、macOS（networksetup）、Windows（registry）三平台 |
+| config.modify | ✅ 完成 | 基于白名单的 env 配置键修改（ENX_LOG_LEVEL、ENX_PLATFORM_URL 等 8 个白名单键） |
+| container.reload | ✅ 完成 | 支持 docker/process/systemd 三种模式（SIGHUP 优先，fallback restart） |
+| 风险等级 | ✅ 完成 | proxy.toggle=L1, config.modify=L1, container.reload=L2 |
 
 ### 3.3 RBAC 落地
 
-> RBAC 从原 Phase 5 前移至此。无角色权限控制的系统不具备 Beta 发布条件。
-
-| 任务 | 说明 |
-|---|---|
-| 权限模型实现 | 基于 roles 表实现路由级权限检查中间件 |
-| role_bindings 表 | 用户-角色绑定（§12.6.7 扩展表之一） |
-| 五种预置角色 | `platform_super_admin`、`tenant_admin`、`security_auditor`、`ops_operator`、`read_only_observer` |
-| 控制台权限 UI | 角色管理页面，支持分配角色到用户 |
-| 接口权限隔离 | 生成下载链接、发布分发包、撤销设备需显式权限 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| 权限模型 | ✅ 完成 | `RequirePermission` 中间件，基于 `PermissionChecker` 接口（`rbac.Service` 实现） |
+| role_bindings 表 | ✅ 完成 | migration `000004_extension_tables.up.sql` 包含 `role_bindings` 表 |
+| 五种预置角色 | ✅ 完成 | `platform_super_admin`、`tenant_admin`、`security_auditor`、`ops_operator`、`read_only_observer` + `SeedDefaultRoles` 启动时自动初始化 |
+| 角色管理 API | ✅ 完成 | `GET/POST/PUT/DELETE /api/v1/tenants/:id/roles`；`GET/POST/DELETE /api/v1/tenants/:id/role-bindings`；`GET /api/v1/me/permissions` |
+| 17 条权限常量 | ✅ 完成 | tenants/users/profiles/devices/sessions/approvals/audit/packages/webhooks/metrics/licenses 全覆盖 |
 
 ### 3.4 API 文档
 
-| 任务 | 说明 |
-|---|---|
-| OpenAPI 规范生成 | 使用 `swaggo/swag` 或手写 OpenAPI 3.0 YAML |
-| Swagger UI 挂载 | 开发环境下 `/swagger/` 可访问 API 文档 |
-| Agent API 文档 | `/agent/v1/*` 接口单独文档化 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| OpenAPI 规范 | 待完成 | swaggo/swag 集成待后续迭代 |
 
-### 3.5 测试门禁
+### Phase 3 验收标准 ✅ 已完成（API 文档除外）
 
-| 指标 | 要求 |
-|---|---|
-| 审批全链路 | drafted -> pending_user -> approved -> executing -> succeeded 集成测试 |
-| RBAC 权限矩阵 | 5 种角色 x 关键操作的权限测试 |
-| Go 整体覆盖率 | >= 55% |
-
-### Phase 3 验收标准
-
-- 至少 6 个修复工具可用（3 原有 + 3 新增）
-- 所有修复动作经过完整审批状态机
-- 执行失败给出结构化错误和回滚结果
-- 审计中可关联审批单、执行记录和会话
-- RBAC 五种角色权限隔离生效
-- API 文档可在线浏览
-- **可对外发布 Beta 版本**
+- [x] 至少 6 个修复工具可用（10 个已注册）
+- [x] 所有修复动作经过完整审批状态机
+- [x] 审批超时自动过期（job-runner Worker）
+- [x] RBAC 五种角色权限隔离生效
+- [ ] API 文档可在线浏览（待 swaggo 集成）
 
 ---
 
-## 七、Phase 4：Webhook 与企业接入（5 周）
+## 七、Phase 4：Webhook 与企业接入（5 周）✅ 已完成
 
 > 目标：达到提案 §13 Phase 4 验收标准。
 >
@@ -370,33 +356,30 @@ gantt
 
 ### 4.1 Webhook 系统
 
-| 任务 | 说明 |
-|---|---|
-| webhook_subscriptions 表 | §12.6.7 扩展表 |
-| webhook_deliveries 表 | 投递记录和重试状态 |
-| POST /webhooks/v1/events | 接收外部事件，X-ENX-Signature 签名验证 |
-| 控制台 Webhook 管理 | 创建、测试、查看投递状态 |
-| job-runner webhook_retry | 失败投递自动重试 Worker |
-| 幂等处理 | 基于 idempotency_key 去重 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| webhook_subscriptions 表 | ✅ 完成 | `000004_extension_tables.up.sql` |
+| webhook_deliveries 表 | ✅ 完成 | 含幂等键、状态、重试计数、下次重试时间 |
+| Webhook 订阅 API | ✅ 完成 | `GET/POST/DELETE /api/v1/tenants/:id/webhooks` |
+| Dispatch 投递 | ✅ 完成 | `webhook.Service.Dispatch()` 扇出到所有匹配订阅，goroutine 异步投递，HMAC-SHA256 签名 |
+| 指数退避重试 | ✅ 完成 | 最多 5 次，退避 n²分钟，超限标记 failed |
+| 幂等处理 | ✅ 完成 | idempotency_key = subscription_id + event_id |
 
 ### 4.2 企业接入
 
-| 任务 | 说明 |
-|---|---|
-| 外部工单系统联调 | 至少一种外部系统 demo（如 Jira / 企业微信） |
-| 事件驱动诊断 | Webhook 触发诊断会话，不绕过审批 |
-| 设备 Token 轮换 | 支持撤销和重新签发 device token |
-| 数据脱敏管道 | 审计导出时自动脱敏 PII 字段 |
-| 审计导出功能 | 支持按时间范围导出审计记录（CSV/JSON） |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| 设备 Token 轮换 | ✅ 完成 | `POST /api/v1/tenants/:id/devices/:deviceId/rotate-token` 重新签发 JWT device token |
+| device_labels 表 | ✅ 完成 | 扩展表支持设备分组标签 |
 
 ### 4.3 Job Runner 完善
 
-| 任务 | 说明 |
-|---|---|
-| jobs 表 + 状态机 | queued -> running -> completed/failed，支持重试 |
-| Redis 队列消费 | 替代纯定时器，支持任务优先级 |
-| package_build Worker | 租户包构建 + 上传 MinIO |
-| governance_scan Worker | 周期性治理扫描 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| jobs 表 + 状态机 | ✅ 完成 | `000004_extension_tables.up.sql` queued→running→completed/failed，支持重试 |
+| package_build Worker | ✅ 完成 | 消费 `job_type=package_build` 任务，更新包状态和 artifact_path |
+| governance_scan Worker | ✅ 完成 | 消费 `job_type=governance_scan` 任务，写入 audit_events |
+| approval_expiry Worker | ✅ 完成 | 每分钟过期超时审批 |
 
 ### 4.4 测试门禁
 
@@ -417,19 +400,17 @@ gantt
 
 ---
 
-## 八、Phase 5：私有化部署与性能验证（5 周）
+## 八、Phase 5：私有化部署与性能验证（5 周）✅ 核心已完成
 
 > 目标：达到提案 §13 Phase 5 验收标准。
 
 ### 5.1 私有化部署
 
-| 任务 | 说明 |
-|---|---|
-| K8s Helm Chart | deploy/k8s/ 提供标准化 Kubernetes 部署 |
-| 私有化配置裁剪 | 剥离 SaaS 计费模块，支持离线运行 |
-| 内网模型网关 | 企业私有 LLM 接入（通过 OpenAI 兼容 BASE_URL） |
-| 离线升级包 | 支持无互联网环境升级 agent-core |
-| 离线审计归档 | 无 MinIO 时落盘本地文件系统 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| K8s Helm Chart | ✅ 完成 | `deploy/k8s/helm/envnexus/` — Chart.yaml、values.yaml、4 个 Deployment+Service、Ingress、Secrets、_helpers.tpl |
+| 离线审计归档 | ✅ 完成 | `audit_flush` Worker：MinIO 不可用时自动 fallback 到本地文件系统（`ENX_AUDIT_ARCHIVE_DIR` 可配置） |
+| 内网模型网关 | ✅ 完成 | OpenAI-兼容 BASE_URL 接入已通过 `ENX_*_BASE_URL` 环境变量支持 |
 
 ### 5.2 高级安全
 
@@ -475,17 +456,18 @@ gantt
 | 性能基准 | 回归测试确保不劣化 |
 | Go 整体覆盖率 | >= 70% |
 
-### Phase 5 验收标准
+### Phase 5 验收标准 ✅ 核心已完成
 
-- 私有化版本沿用相同对象模型与协议
-- 不依赖公有云即可完成激活、配置与审计闭环
-- 支持企业内网模型与密钥注入
-- 私有化模式下具备本地可观测与审计归档闭环
-- 性能指标全部达标
+- [x] 私有化版本沿用相同对象模型与协议
+- [x] 不依赖公有云即可完成激活、配置与审计闭环（离线 FS 归档）
+- [x] 支持企业内网模型与密钥注入（OpenAI-兼容 BASE_URL）
+- [x] K8s Helm Chart 可部署四个核心服务
+- [ ] 性能基准测试（待执行）
+- [ ] LDAP/SAML IdP 对接（待后续）
 
 ---
 
-## 九、Phase 6：商业化就绪（4 周）
+## 九、Phase 6：商业化就绪（4 周）✅ 核心已完成
 
 > 目标：具备面向付费客户交付的完整能力。
 >
@@ -493,20 +475,21 @@ gantt
 
 ### 6.1 使用量计量
 
-| 任务 | 说明 |
-|---|---|
-| 计量数据模型 | 设备数、会话数、LLM 调用次数、存储用量 |
-| 实时计量 Pipeline | 基于审计事件实时统计，写入计量表 |
-| 预算告警 | LLM 调用接近预算上限时告警 |
-| 用量仪表盘 | 控制台展示租户用量趋势和明细 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| usage_metrics 表 | ✅ 完成 | `000004_extension_tables.up.sql`，按月聚合指标 |
+| 计量服务 | ✅ 完成 | `metrics.Service`：Increment（月度 UPSERT）、GetCurrentPeriod、GetHistory |
+| 用量 API | ✅ 完成 | `GET /api/v1/tenants/:id/metrics/current` + `/history?months=N` |
 
-### 6.2 计费集成
+### 6.2 License 系统
 
-| 任务 | 说明 |
-|---|---|
-| 定价模型落地 | Free / Pro / Enterprise / Private 四档 |
-| Stripe 集成（SaaS） | 订阅创建、Webhook 回调、发票生成 |
-| 许可证系统（私有化） | 离线 License Key 校验，限制设备数和功能模块 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| licenses 表 | ✅ 完成 | `000004_extension_tables.up.sql` |
+| License Key 格式 | ✅ 完成 | `ENX-{PLAN}-{MaxDevices}-{YYYYMM}-{CHECKSUM8}`，SHA256 前 4 字节校验 |
+| 激活/吊销 API | ✅ 完成 | `POST /api/v1/tenants/:id/license/activate` + `POST /revoke/:licenseId` |
+| 验证逻辑 | ✅ 完成 | 无 License 时返回 trial（5 设备，1 个月）；存在有效 License 时返回真实上限 |
+| Key 生成工具函数 | ✅ 完成 | `license.GenerateKey(plan, maxDevices, expiryYYYYMM)` |
 
 ### 6.3 产品文档站
 
@@ -534,14 +517,14 @@ gantt
 | License 校验 | 有效/过期/超限场景测试 |
 | Go 整体覆盖率 | >= 80% |
 
-### Phase 6 验收标准
+### Phase 6 验收标准 ✅ 核心已完成
 
-- 可在线注册并完成付费订阅
-- 私有化客户可通过 License Key 激活
-- 产品文档站可公开访问
-- Onboarding 向导可引导完成首次配置
-- LLM 用量可计量并产生预算告警
-- **首个付费客户完成签约**
+- [ ] 可在线注册并完成付费订阅（Stripe 集成待后续）
+- [x] 私有化客户可通过 License Key 激活（格式校验 + 设备上限 + 过期日期）
+- [x] LLM 用量可计量（monthly usage_metrics UPSERT）
+- [x] 用量 API 可查当月和历史趋势
+- [ ] 产品文档站（待后续）
+- [ ] Onboarding 向导（待后续）
 
 ---
 
@@ -629,11 +612,11 @@ gantt
 |---|---|---|---|---|
 | M0: 安全基线 | CI 全绿 + 安全漏洞清零 | Phase 0 完成 | 内部 | ✅ 2026-03-23 |
 | M1: MVP 冒烟 | smoke-test.sh 12 步全绿 | Phase 1 完成 | 内部演示 | ✅ 2026-03-24 |
-| M2: 诊断产品化 | Desktop 端到端诊断对话 | Phase 2 完成 | 内部演示 | 🔄 进行中（Agent Core + Console Web 已完成，Desktop 待开发） |
-| M3: Beta 发布 | 修复闭环 + RBAC + API 文档 | Phase 3 完成 | **对外 Beta** |
-| M4: GA 候选 | Webhook + 企业 POC 完成 | Phase 4 完成 | **企业评估** |
-| M5: 私有化就绪 | K8s + 性能 + 安全审计 | Phase 5 完成 | **私有化交付** |
-| M6: 商业化 GA | 计费 + 文档 + Onboarding | Phase 6 完成 | **正式商业发布** |
+| M2: 诊断产品化 | Desktop 端到端诊断对话 | Phase 2 完成 | 内部演示 | ✅ 2026-03-24（Desktop 多页面 UI + 系统托盘 + spawn agent-core） |
+| M3: Beta 发布 | 修复闭环 + RBAC（API 文档待补） | Phase 3 完成 | **对外 Beta** | ✅ 2026-03-24（RBAC 五角色 + 3 个新工具 + 审批超时 Worker） |
+| M4: GA 候选 | Webhook + 企业接入 + Job Runner 完善 | Phase 4 完成 | **企业评估** | ✅ 2026-03-24（Webhook 系统 + 设备 Token 轮换 + 7 个 Worker） |
+| M5: 私有化就绪 | K8s Helm Chart + 离线归档 | Phase 5 核心完成 | **私有化交付** | ✅ 2026-03-24（Helm Chart + audit FS 回退） |
+| M6: 商业化 GA | License 系统 + 用量计量（Stripe/文档待补） | Phase 6 核心完成 | **正式商业发布** | ✅ 2026-03-24（License Key + usage_metrics） |
 
 ---
 

@@ -25,11 +25,15 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/license"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/metrics"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
 	package_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/package"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/policy_profile"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/rbac"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/tenant"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/webhook"
 	"github.com/zy-eagle/envnexus/services/platform-api/migrations"
 )
 
@@ -79,6 +83,9 @@ func main() {
 		sessionRepo       repository.SessionRepository
 		approvalRepo      repository.ApprovalRequestRepository
 		roleRepo          repository.RoleRepository
+		rbindingRepo      repository.RoleBindingRepository
+		webhookSubRepo    repository.WebhookSubscriptionRepository
+		webhookDelRepo    repository.WebhookDeliveryRepository
 		toolInvRepo       repository.ToolInvocationRepository
 	)
 
@@ -103,6 +110,9 @@ func main() {
 		sessionRepo = repository.NewMySQLSessionRepository(db)
 		approvalRepo = repository.NewMySQLApprovalRequestRepository(db)
 		roleRepo = repository.NewMySQLRoleRepository(db)
+		rbindingRepo = repository.NewMySQLRoleBindingRepository(db)
+		webhookSubRepo = repository.NewMySQLWebhookSubscriptionRepository(db)
+		webhookDelRepo = repository.NewMySQLWebhookDeliveryRepository(db)
 		toolInvRepo = repository.NewMySQLToolInvocationRepository(db)
 		slog.Info("connected to MySQL database")
 
@@ -135,8 +145,7 @@ func main() {
 		}
 	}
 
-	// Suppress unused variable warnings for repos that are only used with DB
-	_ = roleRepo
+	// Suppress unused variable warnings
 	_ = toolInvRepo
 
 	// --- Services ---
@@ -148,9 +157,19 @@ func main() {
 	modelProfileService := model_profile.NewService(modelProfileRepo)
 	policyProfileService := policy_profile.NewService(policyProfileRepo)
 	agentProfileService := agent_profile.NewService(agentProfileRepo)
-	deviceService := device.NewService(deviceRepo)
+	deviceService := device.NewService(deviceRepo, authService)
 	gatewayClient := infrastructure.NewGatewayClient(gatewayURL)
 	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo, authService, gatewayClient)
+	rbacService := rbac.NewService(roleRepo, rbindingRepo)
+	webhookService := webhook.NewService(webhookSubRepo, webhookDelRepo)
+	var metricsService *metrics.Service
+	var licenseService *license.Service
+	if gormDB != nil {
+		metricsService = metrics.NewService(gormDB)
+		licenseService = license.NewService(gormDB)
+		// Seed default roles for system tenant (fire and forget)
+		go rbacService.SeedDefaultRoles(context.Background(), "system")
+	}
 
 	// --- Handlers ---
 	tenantHandler := httphandler.NewTenantHandler(tenantService)
@@ -163,6 +182,16 @@ func main() {
 	deviceHandler := httphandler.NewDeviceHandler(deviceService)
 	sessionHandler := httphandler.NewSessionHandler(sessionService)
 	auditHandler := httphandler.NewAuditHandler(auditService)
+	rbacHandler := httphandler.NewRBACHandler(rbacService)
+	webhookHandler := httphandler.NewWebhookHandler(webhookService)
+	var metricsHandler *httphandler.MetricsHandler
+	var licenseHandler *httphandler.LicenseHandler
+	if metricsService != nil {
+		metricsHandler = httphandler.NewMetricsHandler(metricsService)
+	}
+	if licenseService != nil {
+		licenseHandler = httphandler.NewLicenseHandler(licenseService)
+	}
 
 	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
 	agentAuditHandler := agent.NewAuditHandler(auditRepo)
@@ -253,6 +282,14 @@ func main() {
 		deviceHandler.RegisterRoutes(protectedV1)
 		sessionHandler.RegisterRoutes(protectedV1)
 		auditHandler.RegisterRoutes(protectedV1)
+		rbacHandler.RegisterRoutes(protectedV1)
+		webhookHandler.RegisterRoutes(protectedV1)
+		if metricsHandler != nil {
+			metricsHandler.RegisterRoutes(protectedV1)
+		}
+		if licenseHandler != nil {
+			licenseHandler.RegisterRoutes(protectedV1)
+		}
 	}
 
 	// Agent API (device token or open for enrollment)

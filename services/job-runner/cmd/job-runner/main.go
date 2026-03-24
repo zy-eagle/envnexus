@@ -60,6 +60,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	allWorkers := []string{"token_cleanup", "link_cleanup", "audit_flush", "session_cleanup", "approval_expiry", "package_build", "governance_scan"}
+
 	if db != nil {
 		var mc *minio.Client
 		var bucket string
@@ -71,6 +73,9 @@ func main() {
 		go worker.NewLinkCleanupWorker(db).Start(ctx)
 		go worker.NewAuditFlushWorker(db, mc, bucket).Start(ctx)
 		go worker.NewSessionCleanupWorker(db).Start(ctx)
+		go worker.NewApprovalExpiryWorker(db).Start(ctx)
+		go worker.NewPackageBuildWorker(db).Start(ctx)
+		go worker.NewGovernanceScanWorker(db).Start(ctx)
 	}
 
 	router := gin.Default()
@@ -81,7 +86,7 @@ func main() {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"status":  status,
-			"workers": []string{"token_cleanup", "link_cleanup", "audit_flush", "session_cleanup"},
+			"workers": allWorkers,
 		})
 	})
 

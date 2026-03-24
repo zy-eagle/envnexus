@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -84,11 +86,19 @@ func (w *AuditFlushWorker) flush(ctx context.Context) {
 
 	if w.minioClient != nil {
 		if err := w.uploadToMinIO(ctx, events); err != nil {
-			slog.Error("Failed to upload audit archive to MinIO", "worker", "audit_flush", "error", err)
-			return
+			slog.Warn("MinIO upload failed, falling back to local filesystem archive", "worker", "audit_flush", "error", err)
+			if err2 := w.writeToLocalFS(events); err2 != nil {
+				slog.Error("Local filesystem fallback also failed", "worker", "audit_flush", "error", err2)
+				return
+			}
 		}
 	} else {
-		slog.Warn("MinIO not configured, skipping upload but marking as archived", "worker", "audit_flush")
+		// Phase 5: offline fallback — write to local filesystem
+		slog.Info("MinIO not configured, writing audit archive to local filesystem", "worker", "audit_flush")
+		if err := w.writeToLocalFS(events); err != nil {
+			slog.Error("Failed to write audit archive to local filesystem", "worker", "audit_flush", "error", err)
+			return
+		}
 	}
 
 	ids := make([]string, len(events))
@@ -128,5 +138,31 @@ func (w *AuditFlushWorker) uploadToMinIO(ctx context.Context, events []auditEven
 	}
 
 	slog.Info("Uploaded audit archive to MinIO", "worker", "audit_flush", "object", objectName, "size_bytes", len(data))
+	return nil
+}
+
+// writeToLocalFS is the Phase 5 offline fallback — saves audit archives to local disk.
+func (w *AuditFlushWorker) writeToLocalFS(events []auditEvent) error {
+	archiveDir := "/var/lib/envnexus/audit-archives"
+	if v := os.Getenv("ENX_AUDIT_ARCHIVE_DIR"); v != "" {
+		archiveDir = v
+	}
+
+	dateDir := filepath.Join(archiveDir, time.Now().Format("2006/01/02"))
+	if err := os.MkdirAll(dateDir, 0750); err != nil {
+		return fmt.Errorf("create archive dir %s: %w", dateDir, err)
+	}
+
+	filename := filepath.Join(dateDir, fmt.Sprintf("audit_%s.json", time.Now().Format("20060102_150405")))
+	data, err := json.Marshal(events)
+	if err != nil {
+		return fmt.Errorf("marshal events: %w", err)
+	}
+
+	if err := os.WriteFile(filename, data, 0640); err != nil {
+		return fmt.Errorf("write audit archive %s: %w", filename, err)
+	}
+
+	slog.Info("Wrote audit archive to local filesystem", "worker", "audit_flush", "file", filename, "size_bytes", len(data))
 	return nil
 }

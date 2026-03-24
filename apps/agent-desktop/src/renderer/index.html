@@ -1,99 +1,769 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <title>EnvNexus Agent</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; background: #f9fafb; color: #333; }
-        h1 { color: #111; }
-        .card { background: white; border: 1px solid #e5e7eb; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .card h2 { margin-top: 0; font-size: 1.2rem; }
-        .btn { padding: 8px 16px; margin-right: 10px; cursor: pointer; border-radius: 4px; font-weight: 500; font-size: 14px; }
-        .btn-approve { background: #10b981; color: white; border: 1px solid #059669; }
-        .btn-approve:hover { background: #059669; }
-        .btn-deny { background: #ef4444; color: white; border: 1px solid #dc2626; }
-        .btn-deny:hover { background: #dc2626; }
-        pre { background: #f3f4f6; padding: 10px; border-radius: 4px; overflow-x: auto; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
+  <title>EnvNexus Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f9fafb;
+      --sidebar-bg: #1f2937;
+      --sidebar-text: #d1d5db;
+      --sidebar-active: #3b82f6;
+      --card-bg: #ffffff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --text-muted: #6b7280;
+      --blue: #3b82f6;
+      --green: #10b981;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --orange: #f97316;
+      --radius: 8px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body { font-family: var(--font); background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+
+    /* Sidebar */
+    #sidebar {
+      width: 200px; flex-shrink: 0;
+      background: var(--sidebar-bg);
+      display: flex; flex-direction: column;
+      padding: 0;
+    }
+    #sidebar-header {
+      padding: 16px;
+      border-bottom: 1px solid #374151;
+    }
+    #sidebar-header h1 { color: #f9fafb; font-size: 14px; font-weight: 700; letter-spacing: 0.05em; }
+    #status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; margin-top: 4px; color: var(--sidebar-text);
+    }
+    #status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--yellow);
+    }
+    #status-dot.online { background: var(--green); }
+    #status-dot.offline { background: var(--text-muted); }
+
+    nav { flex: 1; padding: 8px 0; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; cursor: pointer;
+      color: var(--sidebar-text); font-size: 13px;
+      border-left: 3px solid transparent;
+      transition: background 0.1s;
+      user-select: none;
+    }
+    .nav-item:hover { background: rgba(255,255,255,0.05); }
+    .nav-item.active { background: rgba(59,130,246,0.15); border-left-color: var(--blue); color: #fff; }
+    .nav-item .icon { width: 16px; text-align: center; }
+    .nav-badge {
+      margin-left: auto; background: var(--red);
+      color: white; font-size: 10px; font-weight: 700;
+      padding: 1px 5px; border-radius: 10px; min-width: 18px; text-align: center;
+    }
+
+    #sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid #374151;
+      font-size: 11px; color: #4b5563;
+    }
+
+    /* Main content */
+    #content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* Pages */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+    }
+    .card-title { font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+    .card-value { font-size: 28px; font-weight: 700; }
+    .card-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* Grid */
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+
+    /* Page title */
+    .page-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+
+    /* Badges */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+    }
+    .badge-green { background: #d1fae5; color: #065f46; }
+    .badge-red { background: #fee2e2; color: #991b1b; }
+    .badge-yellow { background: #fef3c7; color: #92400e; }
+    .badge-blue { background: #dbeafe; color: #1e40af; }
+    .badge-gray { background: #f3f4f6; color: #374151; }
+    .badge-orange { background: #ffedd5; color: #9a3412; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
+      cursor: pointer; border: none; transition: opacity 0.1s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--blue); color: white; }
+    .btn-success { background: var(--green); color: white; }
+    .btn-danger { background: var(--red); color: white; }
+    .btn-secondary { background: var(--border); color: var(--text); }
+    .btn-outline { background: transparent; color: var(--blue); border: 1px solid var(--blue); }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); background: #f9fafb; border-bottom: 1px solid var(--border); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f9fafb; }
+
+    /* Code / pre */
+    pre {
+      background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px;
+      font-size: 12px; font-family: 'Consolas', 'Monaco', monospace;
+      white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto;
+    }
+
+    /* Approval card */
+    .approval-card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+    }
+    .approval-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .approval-tool { font-size: 14px; font-weight: 600; }
+    .approval-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+    .approval-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+    /* Chat UI */
+    #chat-messages {
+      height: 380px; overflow-y: auto;
+      background: #f8fafc; border: 1px solid var(--border);
+      border-radius: var(--radius) var(--radius) 0 0;
+      padding: 12px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .msg { max-width: 75%; padding: 9px 13px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+    .msg-user { background: var(--blue); color: white; align-self: flex-end; border-radius: 12px 12px 2px 12px; }
+    .msg-agent { background: var(--card-bg); border: 1px solid var(--border); align-self: flex-start; border-radius: 12px 12px 12px 2px; }
+    .msg-system { background: #fef3c7; color: #92400e; align-self: center; border-radius: 6px; font-size: 12px; }
+    .msg-time { font-size: 10px; opacity: 0.6; margin-top: 3px; }
+
+    #chat-input-row {
+      display: flex; border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius); overflow: hidden;
+    }
+    #chat-input {
+      flex: 1; padding: 10px 14px; border: none; font-size: 13px;
+      font-family: var(--font); outline: none; background: white;
+    }
+    #chat-send { padding: 10px 16px; background: var(--blue); color: white; border: none; cursor: pointer; font-size: 13px; }
+    #chat-send:hover { background: #2563eb; }
+
+    /* Findings */
+    .finding {
+      background: var(--card-bg); border-left: 4px solid var(--yellow);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 12px 16px; margin-bottom: 8px;
+    }
+    .finding.critical { border-left-color: var(--red); }
+    .finding.ok { border-left-color: var(--green); }
+    .finding-title { font-weight: 600; font-size: 13px; }
+    .finding-detail { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* Settings */
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+    .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .form-input, .form-select {
+      width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+      border-radius: 6px; font-size: 13px; font-family: var(--font);
+      background: white; outline: none;
+    }
+    .form-input:focus, .form-select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+
+    /* Status info */
+    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .info-row:last-child { border-bottom: none; }
+    .info-key { color: var(--text-muted); }
+    .info-value { font-weight: 500; }
+
+    /* Empty state */
+    .empty { text-align: center; padding: 48px 24px; color: var(--text-muted); }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-text { font-size: 14px; }
+
+    /* Alert */
+    .alert { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; margin-bottom: 12px; }
+    .alert-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .alert-info { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+    .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+    /* Loading */
+    .loading { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+    /* Session history */
+    .session-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .session-row:last-child { border-bottom: none; }
+    .session-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  </style>
 </head>
 <body>
-    <h1>EnvNexus Local Agent</h1>
-    
-    <div class="card">
-        <h2>Device Status</h2>
-        <pre id="status">Loading...</pre>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>EnvNexus</h1>
+    <div id="status-badge">
+      <span id="status-dot"></span>
+      <span id="status-text">连接中...</span>
+    </div>
+  </div>
+  <nav>
+    <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+      <span class="icon">⊞</span> 仪表盘
+    </div>
+    <div class="nav-item" data-page="diagnosis" onclick="navigate('diagnosis')">
+      <span class="icon">⚕</span> 诊断对话
+    </div>
+    <div class="nav-item" data-page="approvals" onclick="navigate('approvals')">
+      <span class="icon">✔</span> 待审批
+      <span class="nav-badge" id="approval-count" style="display:none">0</span>
+    </div>
+    <div class="nav-item" data-page="history" onclick="navigate('history')">
+      <span class="icon">⏱</span> 历史会话
+    </div>
+    <div class="nav-item" data-page="settings" onclick="navigate('settings')">
+      <span class="icon">⚙</span> 设置
+    </div>
+  </nav>
+  <div id="sidebar-footer" id="app-version">v0.2.0</div>
+</div>
+
+<!-- Main Content -->
+<div id="content">
+
+  <!-- Dashboard -->
+  <div id="page-dashboard" class="page active">
+    <div class="page-title">仪表盘</div>
+
+    <div id="offline-alert" class="alert alert-warning" style="display:none">
+      ⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。
     </div>
 
-    <div class="card">
-        <h2>Pending Approvals</h2>
-        <div id="approvals">
-            <p style="color: #6b7280;">No pending approvals.</p>
+    <div class="grid-4">
+      <div class="card">
+        <div class="card-title">连接状态</div>
+        <div class="card-value" id="dash-status" style="font-size:16px">—</div>
+        <div class="card-sub" id="dash-device-id">—</div>
+      </div>
+      <div class="card">
+        <div class="card-title">运行工具数</div>
+        <div class="card-value" id="dash-tools">—</div>
+        <div class="card-sub">只读 / 写入</div>
+      </div>
+      <div class="card">
+        <div class="card-title">待审批</div>
+        <div class="card-value" id="dash-approvals" style="color:var(--orange)">—</div>
+        <div class="card-sub">需要确认</div>
+      </div>
+      <div class="card">
+        <div class="card-title">治理基线</div>
+        <div class="card-value" id="dash-baseline" style="font-size:14px">—</div>
+        <div class="card-sub" id="dash-drift">—</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Agent Core 状态</div>
+        <div id="status-detail">
+          <div class="loading"></div>
         </div>
+      </div>
+      <div class="card">
+        <div class="card-title">最新诊断发现</div>
+        <div id="latest-findings">
+          <div class="empty"><div class="empty-text">暂无诊断数据</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Diagnosis -->
+  <div id="page-diagnosis" class="page">
+    <div class="page-title">诊断对话</div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div id="chat-messages">
+        <div class="msg msg-system">
+          👋 你好！我是 EnvNexus 本地 AI 诊断助手。告诉我你遇到了什么问题，我来帮你诊断。
+        </div>
+      </div>
+      <div id="chat-input-row">
+        <input id="chat-input" type="text" placeholder="描述你的问题，例如：网络无法连接、服务启动失败..." onkeydown="handleChatKey(event)">
+        <button id="chat-send" onclick="sendDiagnosisRequest()">发送</button>
+      </div>
     </div>
 
-    <script>
-        async function fetchStatus() {
-            try {
-                const res = await window.electronAPI.getAgentStatus();
-                document.getElementById('status').innerText = JSON.stringify(res, null, 2);
-            } catch (e) {
-                document.getElementById('status').innerText = 'Error: ' + e.message;
-            }
-        }
+    <div id="findings-section" style="display:none; margin-top:16px;">
+      <div class="page-title" style="font-size:14px; margin-bottom:12px;">诊断结果</div>
+      <div id="findings-list"></div>
+    </div>
+  </div>
 
-        async function fetchApprovals() {
-            try {
-                const res = await fetch('http://127.0.0.1:17700/local/v1/approvals/pending');
-                const data = await res.json();
-                const container = document.getElementById('approvals');
-                
-                if (!data.pending_approvals || data.pending_approvals.length === 0) {
-                    container.innerHTML = '<p style="color: #6b7280;">No pending approvals.</p>';
-                    return;
-                }
+  <!-- Approvals -->
+  <div id="page-approvals" class="page">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <div class="page-title" style="margin:0">待审批操作</div>
+      <button class="btn btn-secondary" onclick="loadApprovals()">↻ 刷新</button>
+    </div>
+    <div id="approvals-list">
+      <div class="loading"></div>
+    </div>
+  </div>
 
-                container.innerHTML = ''; // clear
-                data.pending_approvals.forEach(app => {
-                    const div = document.createElement('div');
-                    div.style.border = '1px solid #e5e7eb';
-                    div.style.padding = '10px';
-                    div.style.marginTop = '10px';
-                    div.style.borderRadius = '4px';
-                    div.innerHTML = `
-                        <h3 style="margin-top:0;">Action Required: <code>${app.ToolName}</code></h3>
-                        <p style="font-size: 0.9rem; color: #4b5563;">ID: ${app.ID}</p>
-                        <p style="font-size: 0.9rem; color: #4b5563;">Status: ${app.Status}</p>
-                        <div style="margin-top: 10px;">
-                            <button class="btn btn-approve" onclick="resolveApproval('${app.ID}', true)">Approve</button>
-                            <button class="btn btn-deny" onclick="resolveApproval('${app.ID}', false)">Deny</button>
-                        </div>
-                    `;
-                    container.appendChild(div);
-                });
-            } catch (e) {
-                console.error('Failed to fetch approvals', e);
-            }
-        }
+  <!-- History -->
+  <div id="page-history" class="page">
+    <div class="page-title">历史会话</div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div id="history-list">
+        <div class="empty"><div class="empty-icon">⏱</div><div class="empty-text">加载中...</div></div>
+      </div>
+    </div>
+  </div>
 
-        async function resolveApproval(id, approved) {
-            try {
-                await fetch(`http://127.0.0.1:17700/local/v1/approvals/${id}/resolve`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ approved })
-                });
-                fetchApprovals();
-            } catch (e) {
-                alert('Failed to resolve approval: ' + e.message);
-            }
-        }
+  <!-- Settings -->
+  <div id="page-settings" class="page">
+    <div class="page-title">设置</div>
+    <div class="card">
+      <div class="card-title">常规设置</div>
+      <div class="form-group">
+        <label class="form-label">界面语言</label>
+        <select class="form-select" id="setting-language">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">平台地址</label>
+        <input class="form-input" id="setting-platform-url" type="text" placeholder="http://localhost:8080">
+        <div class="form-hint">EnvNexus 控制台后端地址</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">日志级别</label>
+        <select class="form-select" id="setting-log-level">
+          <option value="debug">Debug</option>
+          <option value="info">Info</option>
+          <option value="warn">Warn</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">开机自启动 Agent Core</label>
+        <select class="form-select" id="setting-auto-start">
+          <option value="true">启用</option>
+          <option value="false">禁用</option>
+        </select>
+      </div>
+    </div>
 
-        // Expose to window so inline onclick works
-        window.resolveApproval = resolveApproval;
+    <div class="card">
+      <div class="card-title">Agent Core 可执行文件</div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input class="form-input" id="setting-agent-path" type="text" placeholder="自动检测" style="flex:1">
+        <button class="btn btn-secondary" onclick="chooseBinary()">浏览...</button>
+      </div>
+      <div class="form-hint">留空则自动在常见路径中查找 enx-agent</div>
+    </div>
 
-        fetchStatus();
-        fetchApprovals();
-        setInterval(fetchApprovals, 3000); // Poll every 3 seconds
-    </script>
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
+      <button class="btn btn-secondary" onclick="restartAgentCore()">重启 Agent Core</button>
+      <button class="btn btn-outline" onclick="exportDiagnostics()">导出诊断包</button>
+    </div>
+
+    <div id="settings-msg" style="margin-top:12px; display:none;"></div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="card-title">关于</div>
+      <div id="about-info">
+        <div class="info-row"><span class="info-key">应用版本</span><span class="info-value" id="about-version">—</span></div>
+        <div class="info-row"><span class="info-key">Agent Core 地址</span><span class="info-value">127.0.0.1:17700</span></div>
+        <div class="info-row"><span class="info-key">项目主页</span>
+          <span class="info-value"><a href="#" onclick="openExternal('https://github.com/zy-eagle/envnexus')" style="color:var(--blue)">github.com/zy-eagle/envnexus</a></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end #content -->
+
+<script>
+// ── Navigation ────────────────────────────────────────────────────────────────
+const api = window.electronAPI;
+
+function navigate(page) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+  document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
+  document.getElementById(`page-${page}`)?.classList.add('active');
+
+  if (page === 'approvals') loadApprovals();
+  if (page === 'history') loadHistory();
+  if (page === 'settings') loadSettings_();
+  if (page === 'dashboard') loadDashboard();
+}
+
+// ── Status helpers ────────────────────────────────────────────────────────────
+function setStatus(status) {
+  const dot = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  dot.className = status;
+  text.textContent = { online: '在线', offline: '离线', connecting: '连接中...' }[status] || status;
+  document.getElementById('offline-alert').style.display = status === 'offline' ? 'block' : 'none';
+}
+
+function fmt(val) {
+  return val == null || val === '' ? '—' : String(val);
+}
+
+function riskBadge(level) {
+  const map = { L0: 'badge-green', L1: 'badge-blue', L2: 'badge-yellow', L3: 'badge-red' };
+  return `<span class="badge ${map[level] || 'badge-gray'}">${level || '?'}</span>`;
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const status = await api.getAgentStatus();
+    setStatus('online');
+
+    document.getElementById('dash-status').textContent = status.status || 'running';
+    document.getElementById('dash-device-id').textContent = 'ID: ' + (status.device_id || '—');
+
+    const tools = status.tools || {};
+    const ro = tools.read_only_count ?? '—';
+    const rw = (tools.total_count ?? 0) - (tools.read_only_count ?? 0);
+    document.getElementById('dash-tools').textContent = (tools.total_count || '—');
+    document.querySelector('#dash-tools + .card-sub').textContent = `${ro} 只读 / ${rw} 写入`;
+
+    document.getElementById('dash-baseline').textContent = status.governance?.has_baseline ? '已采集' : '未采集';
+    document.getElementById('dash-drift').textContent = status.governance?.drift_count
+      ? `${status.governance.drift_count} 处漂移`
+      : '无漂移';
+
+    // Status detail
+    const sd = document.getElementById('status-detail');
+    sd.innerHTML = `
+      <div class="info-row"><span class="info-key">Platform 连接</span><span class="info-value">${status.platform_connected ? '✅ 已连接' : '⚠ 未连接'}</span></div>
+      <div class="info-row"><span class="info-key">LLM Provider</span><span class="info-value">${fmt(status.llm_provider)}</span></div>
+      <div class="info-row"><span class="info-key">当前会话</span><span class="info-value">${fmt(status.active_session_id)}</span></div>
+      <div class="info-row"><span class="info-key">待审批</span><span class="info-value">${fmt(status.pending_approvals)}</span></div>
+    `;
+
+    const count = parseInt(status.pending_approvals) || 0;
+    document.getElementById('dash-approvals').textContent = count;
+    const badge = document.getElementById('approval-count');
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'inline-block' : 'none';
+
+  } catch (e) {
+    setStatus('offline');
+    document.getElementById('dash-status').textContent = '未连接';
+    document.getElementById('status-detail').innerHTML = `<div class="alert alert-error">无法连接到 agent-core：${e.details || e.message || '未知错误'}</div>`;
+  }
+}
+
+// ── Chat / Diagnosis ──────────────────────────────────────────────────────────
+let chatHistory = [];
+
+function addMsg(text, type) {
+  const div = document.createElement('div');
+  div.className = `msg msg-${type}`;
+  div.innerHTML = `<div>${text}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+  document.getElementById('chat-messages').appendChild(div);
+  document.getElementById('chat-messages').scrollTop = 99999;
+  return div;
+}
+
+function handleChatKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDiagnosisRequest(); }
+}
+
+async function sendDiagnosisRequest() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addMsg(text, 'user');
+  chatHistory.push({ role: 'user', content: text });
+
+  const thinkingMsg = addMsg('<span class="loading"></span> 分析中...', 'agent');
+
+  try {
+    // Try to call local diagnosis API (if it exists)
+    const resp = await fetch('http://127.0.0.1:17700/local/v1/diagnose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: text, history: chatHistory }),
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      thinkingMsg.innerHTML = `<div>${data.response || data.message || '诊断完成'}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+      chatHistory.push({ role: 'assistant', content: data.response || '' });
+
+      if (data.findings && data.findings.length > 0) {
+        renderFindings(data.findings);
+      }
+    } else {
+      thinkingMsg.innerHTML = `<div>⚠ 诊断服务返回错误 (${resp.status})</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+    }
+  } catch (e) {
+    thinkingMsg.innerHTML = `<div>⚠ 无法连接到 agent-core 诊断服务。请确保 agent-core 正在运行。<br><small style="color:#9ca3af">${e.message || ''}</small></div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+  }
+}
+
+function renderFindings(findings) {
+  const section = document.getElementById('findings-section');
+  const list = document.getElementById('findings-list');
+  section.style.display = 'block';
+  list.innerHTML = '';
+  findings.forEach(f => {
+    const div = document.createElement('div');
+    div.className = `finding ${f.severity === 'critical' ? 'critical' : f.severity === 'ok' ? 'ok' : ''}`;
+    div.innerHTML = `
+      <div class="finding-title">${f.title || f.check_name || '发现'}</div>
+      <div class="finding-detail">${f.description || f.detail || ''}</div>
+      ${f.recommended_action ? `<div style="font-size:12px; margin-top:6px; color:var(--blue)">建议：${f.recommended_action}</div>` : ''}
+    `;
+    list.appendChild(div);
+  });
+}
+
+// ── Approvals ─────────────────────────────────────────────────────────────────
+async function loadApprovals() {
+  const container = document.getElementById('approvals-list');
+  container.innerHTML = '<div class="loading"></div>';
+
+  try {
+    const data = await api.getPendingApprovals();
+    const pending = data.pending_approvals || [];
+
+    const badge = document.getElementById('approval-count');
+    badge.textContent = pending.length;
+    badge.style.display = pending.length > 0 ? 'inline-block' : 'none';
+    document.getElementById('dash-approvals').textContent = pending.length;
+
+    if (pending.length === 0) {
+      container.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">暂无待审批操作</div></div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    pending.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'approval-card';
+      div.id = `approval-${item.ID}`;
+
+      let paramsHTML = '';
+      if (item.Params) {
+        try {
+          paramsHTML = `<pre style="max-height:80px;">${JSON.stringify(item.Params, null, 2)}</pre>`;
+        } catch { paramsHTML = `<pre>${JSON.stringify(item.Params)}</pre>`; }
+      }
+
+      div.innerHTML = `
+        <div class="approval-header">
+          <div>
+            <div class="approval-tool">🔧 ${item.ToolName || item.tool_name}</div>
+            <div class="approval-meta">ID: ${item.ID || item.id} · 风险: ${riskBadge(item.RiskLevel || item.risk_level)}</div>
+          </div>
+          <span class="badge badge-orange">${item.Status || item.status || 'pending'}</span>
+        </div>
+        ${item.Reason ? `<p style="font-size:13px; margin-bottom:8px;">${item.Reason}</p>` : ''}
+        ${paramsHTML}
+        <div class="approval-actions">
+          <button class="btn btn-success" onclick="resolveApproval('${item.ID || item.id}', true, this)">✓ 批准</button>
+          <button class="btn btn-danger" onclick="resolveApproval('${item.ID || item.id}', false, this)">✗ 拒绝</button>
+        </div>
+      `;
+      container.appendChild(div);
+    });
+  } catch (e) {
+    container.innerHTML = `<div class="alert alert-error">加载失败：${e.details || e.message || '未知错误'}</div>`;
+  }
+}
+
+async function resolveApproval(id, approved, btn) {
+  btn.disabled = true;
+  btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = true);
+  try {
+    await api.resolveApproval(id, approved);
+    const card = document.getElementById(`approval-${id}`);
+    if (card) {
+      card.innerHTML = `<div style="text-align:center; padding:8px; color:${approved ? 'var(--green)' : 'var(--red)'}; font-weight:600;">${approved ? '✓ 已批准' : '✗ 已拒绝'}</div>`;
+      setTimeout(() => card.remove(), 1500);
+    }
+    setTimeout(loadApprovals, 1600);
+  } catch (e) {
+    alert('操作失败：' + (e.details || e.message || '未知错误'));
+    btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
+  }
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const container = document.getElementById('history-list');
+  try {
+    const data = await api.getRecentSessions();
+    const sessions = data.sessions || data || [];
+
+    if (!sessions || sessions.length === 0) {
+      container.innerHTML = '<div class="empty"><div class="empty-icon">⏱</div><div class="empty-text">暂无历史会话记录</div></div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    sessions.forEach(s => {
+      const statusColors = {
+        completed: 'var(--green)', aborted: 'var(--red)', executing: 'var(--yellow)',
+        created: 'var(--blue)', expired: 'var(--text-muted)'
+      };
+      const color = statusColors[s.status] || 'var(--text-muted)';
+
+      const div = document.createElement('div');
+      div.className = 'session-row';
+      div.innerHTML = `
+        <div class="session-status-dot" style="background:${color}"></div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:500; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.id || s.session_id}</div>
+          <div style="font-size:11px; color:var(--text-muted)">${s.started_at ? new Date(s.started_at).toLocaleString() : '—'}</div>
+        </div>
+        <span class="badge ${s.status === 'completed' ? 'badge-green' : s.status === 'aborted' ? 'badge-red' : 'badge-blue'}">${s.status || '—'}</span>
+      `;
+      container.appendChild(div);
+    });
+  } catch (e) {
+    container.innerHTML = `<div class="alert alert-error">加载历史失败：${e.details || e.message || '未知错误'}</div>`;
+  }
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function loadSettings_() {
+  try {
+    const s = await api.getSettings();
+    document.getElementById('setting-language').value = s.language || 'zh';
+    document.getElementById('setting-platform-url').value = s.platformURL || '';
+    document.getElementById('setting-log-level').value = s.logLevel || 'info';
+    document.getElementById('setting-agent-path').value = s.agentCorePath || '';
+    document.getElementById('setting-auto-start').value = s.autoStart ? 'true' : 'false';
+    const ver = await api.getAppVersion();
+    document.getElementById('about-version').textContent = 'v' + ver;
+  } catch (e) {
+    console.error('loadSettings error', e);
+  }
+}
+
+async function saveSettings() {
+  const settings = {
+    language: document.getElementById('setting-language').value,
+    platformURL: document.getElementById('setting-platform-url').value,
+    logLevel: document.getElementById('setting-log-level').value,
+    agentCorePath: document.getElementById('setting-agent-path').value,
+    autoStart: document.getElementById('setting-auto-start').value === 'true',
+  };
+
+  try {
+    await api.saveSettings(settings);
+    showSettingsMsg('✓ 设置已保存', 'success');
+  } catch (e) {
+    showSettingsMsg('✗ 保存失败：' + e.message, 'error');
+  }
+}
+
+function showSettingsMsg(msg, type) {
+  const el = document.getElementById('settings-msg');
+  el.className = `alert alert-${type === 'success' ? 'info' : 'error'}`;
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+async function chooseBinary() {
+  const path = await api.chooseAgentBinary();
+  if (path) document.getElementById('setting-agent-path').value = path;
+}
+
+async function restartAgentCore() {
+  try {
+    await api.restartAgentCore();
+    showSettingsMsg('✓ Agent Core 正在重启...', 'success');
+    setTimeout(loadDashboard, 3000);
+  } catch (e) {
+    showSettingsMsg('✗ 重启失败：' + e.message, 'error');
+  }
+}
+
+async function exportDiagnostics() {
+  try {
+    const data = await api.exportDiagnostics();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `envnexus-diag-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showSettingsMsg('✓ 诊断包已导出', 'success');
+  } catch (e) {
+    showSettingsMsg('✗ 导出失败：' + (e.details || e.message), 'error');
+  }
+}
+
+function openExternal(url) {
+  api.openExternal(url);
+}
+
+// ── Init & polling ────────────────────────────────────────────────────────────
+async function init() {
+  await loadDashboard();
+  loadSettings_();
+}
+
+// Poll for status and approvals every 10s
+setInterval(async () => {
+  try {
+    const status = await api.getAgentStatus();
+    setStatus('online');
+    const count = parseInt(status.pending_approvals) || 0;
+    const badge = document.getElementById('approval-count');
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'inline-block' : 'none';
+  } catch {
+    setStatus('offline');
+  }
+}, 10000);
+
+init();
+</script>
 </body>
 </html>
