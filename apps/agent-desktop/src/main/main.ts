@@ -390,6 +390,43 @@ function startHealthPolling(): void {
   }, 10_000);
 }
 
+// ── Auto-update ───────────────────────────────────────────────────────────────
+
+function initAutoUpdate(): void {
+  try {
+    const { autoUpdater } = require('electron-updater');
+
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('update-available', (info: any) => {
+      console.log(`[updater] Update available: ${info.version}`);
+      if (mainWindow) {
+        mainWindow.webContents.send('update-available', info.version);
+      }
+      autoUpdater.downloadUpdate();
+    });
+
+    autoUpdater.on('update-downloaded', (info: any) => {
+      console.log(`[updater] Update downloaded: ${info.version}`);
+      if (mainWindow) {
+        mainWindow.webContents.send('update-downloaded', info.version);
+      }
+    });
+
+    autoUpdater.on('error', (err: Error) => {
+      console.error('[updater] Error:', err.message);
+    });
+
+    autoUpdater.checkForUpdates().catch(() => {});
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(() => {});
+    }, 4 * 60 * 60 * 1000);
+  } catch {
+    console.log('[updater] electron-updater not available (dev mode)');
+  }
+}
+
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -397,6 +434,7 @@ app.whenReady().then(() => {
   createTray();
   createWindow();
   startHealthPolling();
+  initAutoUpdate();
 
   const settings = loadSettings();
   if (settings.autoStart) {

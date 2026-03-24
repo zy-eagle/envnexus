@@ -178,6 +178,15 @@ type RecentSession struct {
 	CreatedAt string
 }
 
+// Vacuum runs SQLite VACUUM to reclaim disk space and optimize the database.
+func (s *Store) Vacuum() error {
+	_, err := s.db.Exec("VACUUM")
+	if err != nil {
+		slog.Warn("[store] VACUUM failed", "error", err)
+	}
+	return err
+}
+
 func (s *Store) ListRecentSessions(limit int) ([]RecentSession, error) {
 	rows, err := s.db.Query(
 		`SELECT id, tenant_id, device_id, status, COALESCE(intent, ''), created_at FROM sessions ORDER BY created_at DESC LIMIT ?`,

@@ -15,10 +15,10 @@ maintainers:
     url: https://github.com/zy-eagle
 dependencies:
   - name: mysql
-    version: "9.x.x"
+    version: "~9.23"
     repository: https://charts.bitnami.com/bitnami
     condition: mysql.enabled
   - name: redis
-    version: "18.x.x"
+    version: "~18.19"
     repository: https://charts.bitnami.com/bitnami
     condition: redis.enabled

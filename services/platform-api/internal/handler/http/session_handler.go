@@ -7,15 +7,17 @@ import (
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
 )
 
 type SessionHandler struct {
 	sessionService *session.Service
+	toolInvRepo    repository.ToolInvocationRepository
 }
 
-func NewSessionHandler(sessionService *session.Service) *SessionHandler {
-	return &SessionHandler{sessionService: sessionService}
+func NewSessionHandler(sessionService *session.Service, toolInvRepo repository.ToolInvocationRepository) *SessionHandler {
+	return &SessionHandler{sessionService: sessionService, toolInvRepo: toolInvRepo}
 }
 
 func (h *SessionHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -24,6 +26,7 @@ func (h *SessionHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.POST("/sessions/:sessionId/approve", h.Approve)
 	router.POST("/sessions/:sessionId/deny", h.Deny)
 	router.POST("/sessions/:sessionId/abort", h.Abort)
+	router.GET("/sessions/:sessionId/tool-invocations", h.ListToolInvocations)
 }
 
 func (h *SessionHandler) List(c *gin.Context) {
@@ -104,4 +107,18 @@ func (h *SessionHandler) Abort(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "aborted"})
+}
+
+func (h *SessionHandler) ListToolInvocations(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+	if h.toolInvRepo == nil {
+		mw.RespondSuccess(c, http.StatusOK, gin.H{"items": []interface{}{}})
+		return
+	}
+	invocations, err := h.toolInvRepo.ListBySession(c.Request.Context(), sessionID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": invocations})
 }

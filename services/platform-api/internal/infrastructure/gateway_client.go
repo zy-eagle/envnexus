@@ -11,8 +11,9 @@ import (
 )
 
 type GatewayClient struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL     string
+	httpClient  *http.Client
+	redisClient *RedisClient
 }
 
 func NewGatewayClient(baseURL string) *GatewayClient {
@@ -22,6 +23,11 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 			Timeout: 5 * time.Second,
 		},
 	}
+}
+
+// SetRedisClient enables Redis pub/sub fallback for cross-instance event delivery.
+func (g *GatewayClient) SetRedisClient(rc *RedisClient) {
+	g.redisClient = rc
 }
 
 type SessionEvent struct {
@@ -48,7 +54,11 @@ func (g *GatewayClient) NotifySessionCreated(ctx context.Context, tenantID, devi
 		},
 	}
 
-	return g.sendEvent(ctx, sessionID, evt)
+	if err := g.sendEvent(ctx, sessionID, evt); err != nil {
+		slog.Warn("HTTP delivery to gateway failed, trying Redis pub/sub", "error", err)
+		return g.publishViaRedis(ctx, evt)
+	}
+	return nil
 }
 
 func (g *GatewayClient) sendEvent(ctx context.Context, sessionID string, evt SessionEvent) error {
@@ -74,4 +84,15 @@ func (g *GatewayClient) sendEvent(ctx context.Context, sessionID string, evt Ses
 		slog.Warn("gateway returned error", "status", resp.StatusCode, "session_id", sessionID)
 	}
 	return nil
+}
+
+func (g *GatewayClient) publishViaRedis(ctx context.Context, evt SessionEvent) error {
+	if g.redisClient == nil {
+		return fmt.Errorf("no Redis client available for pub/sub fallback")
+	}
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return fmt.Errorf("marshal event for Redis: %w", err)
+	}
+	return g.redisClient.Publish(ctx, "enx:session:events", string(data))
 }

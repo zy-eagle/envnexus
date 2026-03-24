@@ -44,6 +44,8 @@ func (e *Engine) SetStore(s *store.Store) {
 	e.store = s
 }
 
+// Start launches the governance engine with its own internal ticker.
+// Deprecated: prefer registering RunBaselineCheck as a runtime.Task instead.
 func (e *Engine) Start(ctx context.Context) {
 	slog.Info("[GovernanceEngine] Starting background baseline checks...")
 
@@ -52,7 +54,7 @@ func (e *Engine) Start(ctx context.Context) {
 	go func() {
 		defer ticker.Stop()
 
-		e.runBaselineCheck(ctx)
+		e.RunBaselineCheck(ctx)
 
 		for {
 			select {
@@ -60,7 +62,7 @@ func (e *Engine) Start(ctx context.Context) {
 				slog.Info("[GovernanceEngine] Stopping...")
 				return
 			case <-ticker.C:
-				e.runBaselineCheck(ctx)
+				e.RunBaselineCheck(ctx)
 			}
 		}
 	}()
@@ -192,7 +194,8 @@ func (e *Engine) DetectDrift() ([]DriftResult, error) {
 	return drifts, nil
 }
 
-func (e *Engine) runBaselineCheck(ctx context.Context) {
+// RunBaselineCheck performs a single baseline check cycle.
+func (e *Engine) RunBaselineCheck(ctx context.Context) {
 	if e.store == nil {
 		slog.Info("[GovernanceEngine] No store configured, skipping baseline check")
 		return

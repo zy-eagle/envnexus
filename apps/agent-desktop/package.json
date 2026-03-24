@@ -3,17 +3,78 @@
   "version": "0.2.0",
   "private": true,
   "main": "dist/main/main.js",
+  "author": "EnvNexus <team@envnexus.io>",
+  "description": "EnvNexus Agent Desktop — secure local diagnosis and guided repair",
   "scripts": {
     "build": "tsc",
     "start": "electron .",
-    "dev": "tsc --watch & electron ."
+    "dev": "tsc --watch & electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
-    "electron-store": "^8.2.0"
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "electron": "^30.0.0",
+    "electron-builder": "^25.1.0",
     "typescript": "^5.0.0"
+  },
+  "build": {
+    "appId": "io.envnexus.agent-desktop",
+    "productName": "EnvNexus Agent",
+    "copyright": "Copyright © 2026 EnvNexus",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "src/renderer/**/*",
+      "!node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../bin/",
+        "to": "bin",
+        "filter": ["enx-agent*"]
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Utility"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "zy-eagle",
+      "repo": "envnexus"
+    }
   }
 }

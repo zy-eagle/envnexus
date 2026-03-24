@@ -18,6 +18,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/providers"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/router"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
+	agentruntime "github.com/zy-eagle/envnexus/apps/agent-core/internal/runtime"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/session"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
@@ -33,6 +34,7 @@ type Bootstrapper struct {
 	configDir       string
 	localServer     *api.LocalServer
 	localStore      *store.Store
+	runtime         *agentruntime.Runtime
 }
 
 func NewBootstrapper() *Bootstrapper {
@@ -164,7 +166,6 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	if localStore != nil {
 		governanceEngine.SetStore(localStore)
 	}
-	governanceEngine.Start(ctx)
 
 	// Step 7: Start local API
 	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine, diagnosisEngine)
@@ -173,26 +174,42 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	}
 	b.localServer = localServer
 
-	// Step 8: Start heartbeat loop (only when platform reachable)
+	// Step 8: Initialize runtime with background tasks
+	rt := agentruntime.New()
+	b.runtime = rt
+
+	rt.Register(agentruntime.Task{
+		Name:     "governance_baseline",
+		Interval: 5 * time.Minute,
+		Fn: func(ctx context.Context) error {
+			governanceEngine.RunBaselineCheck(ctx)
+			return nil
+		},
+	})
+
 	if deviceToken != "" && platformReachable {
 		lifecycleClient := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
-		go func() {
-			interval := time.Duration(cfg.HeartbeatSeconds) * time.Second
-			ticker := time.NewTicker(interval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					currentCfg := b.configManager.Get()
-					if err := lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion); err != nil {
-						slog.Warn("[heartbeat] Failed", "error", err)
-					}
-				}
-			}
-		}()
+		rt.Register(agentruntime.Task{
+			Name:     "heartbeat",
+			Interval: time.Duration(cfg.HeartbeatSeconds) * time.Second,
+			Fn: func(ctx context.Context) error {
+				currentCfg := b.configManager.Get()
+				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion)
+			},
+		})
 	}
+
+	if localStore != nil {
+		rt.Register(agentruntime.Task{
+			Name:     "store_vacuum",
+			Interval: 24 * time.Hour,
+			Fn: func(ctx context.Context) error {
+				return localStore.Vacuum()
+			},
+		})
+	}
+
+	rt.Start(ctx)
 
 	// Step 9: Connect to session gateway (only when platform reachable)
 	if deviceToken != "" && platformReachable {
@@ -204,13 +221,16 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	if !platformReachable {
 		slog.Info("[boot] Bootstrap complete. Agent is running in OFFLINE mode (read-only only).")
 	} else {
-		slog.Info("[boot] Bootstrap complete. Agent is running.")
+		slog.Info("[boot] Bootstrap complete. Agent is running.", "runtime_tasks", rt.TaskCount())
 	}
 	return nil
 }
 
 func (b *Bootstrapper) Shutdown(ctx context.Context) {
 	slog.Info("[boot] Shutting down...")
+	if b.runtime != nil {
+		b.runtime.Stop()
+	}
 	if b.localServer != nil {
 		if err := b.localServer.Stop(ctx); err != nil {
 			slog.Error("[boot] Failed to stop local server", "error", err)

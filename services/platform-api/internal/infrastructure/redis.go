@@ -60,3 +60,7 @@ func (r *RedisClient) Incr(ctx context.Context, key string) (int64, error) {
 func (r *RedisClient) Expire(ctx context.Context, key string, expiration time.Duration) error {
 	return r.client.Expire(ctx, key, expiration).Err()
 }
+
+func (r *RedisClient) Publish(ctx context.Context, channel, message string) error {
+	return r.client.Publish(ctx, channel, message).Err()
+}

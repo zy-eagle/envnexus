@@ -176,6 +176,7 @@ func (m *SessionManager) BroadcastToTenant(tenantID string, envelope EventEnvelo
 }
 
 // POST /api/v1/sessions/:sessionId/events — platform-api dispatches events to agents
+// Tries local delivery first; falls back to Redis pub/sub for cross-instance fan-out.
 func (m *SessionManager) HandleSessionEvent(c *gin.Context) {
 	var envelope EventEnvelope
 	if err := c.ShouldBindJSON(&envelope); err != nil {
@@ -189,12 +190,18 @@ func (m *SessionManager) HandleSessionEvent(c *gin.Context) {
 		return
 	}
 
-	if err := m.SendToDevice(deviceID, envelope); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	if err := m.SendToDevice(deviceID, envelope); err == nil {
+		c.JSON(http.StatusOK, gin.H{"status": "delivered"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "delivered"})
+	if m.redisClient != nil {
+		m.redisClient.PublishSessionEvent(envelope)
+		c.JSON(http.StatusAccepted, gin.H{"status": "forwarded_via_pubsub"})
+		return
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "device not connected to this instance and no Redis available"})
 }
 
 // GET /ws/v1/sessions/:deviceId?token=... — agent connects with session token

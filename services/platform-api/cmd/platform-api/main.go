@@ -145,9 +145,6 @@ func main() {
 		}
 	}
 
-	// Suppress unused variable warnings
-	_ = toolInvRepo
-
 	// --- Services ---
 	authService := auth.NewService(userRepo, jwtSecret, deviceSecret, sessionSecret)
 	tenantService := tenant.NewService(tenantRepo)
@@ -159,6 +156,9 @@ func main() {
 	agentProfileService := agent_profile.NewService(agentProfileRepo)
 	deviceService := device.NewService(deviceRepo, authService)
 	gatewayClient := infrastructure.NewGatewayClient(gatewayURL)
+	if redisClient != nil {
+		gatewayClient.SetRedisClient(redisClient)
+	}
 	sessionService := session.NewService(sessionRepo, approvalRepo, deviceRepo, auditRepo, authService, gatewayClient)
 	rbacService := rbac.NewService(roleRepo, rbindingRepo)
 	webhookService := webhook.NewService(webhookSubRepo, webhookDelRepo)
@@ -180,7 +180,7 @@ func main() {
 	policyProfileHandler := httphandler.NewPolicyProfileHandler(policyProfileService)
 	agentProfileHandler := httphandler.NewAgentProfileHandler(agentProfileService)
 	deviceHandler := httphandler.NewDeviceHandler(deviceService)
-	sessionHandler := httphandler.NewSessionHandler(sessionService)
+	sessionHandler := httphandler.NewSessionHandler(sessionService, toolInvRepo)
 	auditHandler := httphandler.NewAuditHandler(auditService)
 	rbacHandler := httphandler.NewRBACHandler(rbacService)
 	webhookHandler := httphandler.NewWebhookHandler(webhookService)

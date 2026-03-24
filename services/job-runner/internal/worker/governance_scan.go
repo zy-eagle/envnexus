@@ -44,21 +44,32 @@ func (w *GovernanceScanWorker) Start(ctx context.Context) {
 
 func (w *GovernanceScanWorker) processNext(ctx context.Context) {
 	type Job struct {
-		ID          string
-		TenantID    *string
-		PayloadJSON *string
+		ID           string
+		TenantID     *string
+		PayloadJSON  *string
 		AttemptCount int
 		MaxAttempts  int
 	}
 
 	var job Job
 	now := time.Now()
-	err := w.db.WithContext(ctx).
-		Table("jobs").
-		Where("job_type = ? AND status = ? AND scheduled_at <= ?", "governance_scan", "queued", now).
-		Order("priority DESC, scheduled_at ASC").
-		Limit(1).
-		First(&job).Error
+
+	err := w.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Raw(
+			"SELECT id, tenant_id, payload_json, attempt_count, max_attempts FROM jobs WHERE job_type = ? AND status = ? AND scheduled_at <= ? ORDER BY priority DESC, scheduled_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
+			"governance_scan", "queued", now,
+		).Scan(&job).Error; err != nil {
+			return err
+		}
+		if job.ID == "" {
+			return gorm.ErrRecordNotFound
+		}
+		return tx.Table("jobs").Where("id = ?", job.ID).
+			Updates(map[string]interface{}{
+				"status": "running", "started_at": now,
+				"attempt_count": job.AttemptCount + 1,
+			}).Error
+	})
 
 	if err == gorm.ErrRecordNotFound {
 		return
@@ -67,13 +78,6 @@ func (w *GovernanceScanWorker) processNext(ctx context.Context) {
 		slog.Error("GovernanceScanWorker: query error", "error", err)
 		return
 	}
-
-	// Mark as running
-	w.db.WithContext(ctx).Table("jobs").Where("id = ?", job.ID).
-		Updates(map[string]interface{}{
-			"status": "running", "started_at": now,
-			"attempt_count": job.AttemptCount + 1,
-		})
 
 	if err := w.runScan(ctx, job.ID, job.PayloadJSON); err != nil {
 		slog.Error("GovernanceScanWorker: scan failed", "job_id", job.ID, "error", err)
