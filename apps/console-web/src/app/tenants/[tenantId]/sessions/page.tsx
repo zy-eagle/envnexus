@@ -1,28 +1,16 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
 import ConsoleLayout from '@/components/ConsoleLayout';
 
-const dict = {
-  en: {
-    title: "Sessions", noSessions: "No sessions found.", deviceId: "Device ID",
-    transport: "Transport", status: "Status", initiator: "Initiator",
-    startedAt: "Started At", actions: "Actions", view: "View", abort: "Abort",
-    confirmAbort: "Are you sure you want to abort this session?"
-  },
-  zh: {
-    title: "会话管理", noSessions: "暂无会话记录。", deviceId: "设备 ID",
-    transport: "传输方式", status: "状态", initiator: "发起方",
-    startedAt: "开始时间", actions: "操作", view: "查看", abort: "终止",
-    confirmAbort: "确定要终止此会话吗？"
-  }
-};
-
 function SessionsContent({ tenantId }: { tenantId: string }) {
   const { lang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('sessions', lang);
+  const ct = useDict('common', lang);
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -68,7 +56,7 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500">{ct.loading}</div>
         ) : sessions.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noSessions}</div>
         ) : (
@@ -77,16 +65,16 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.deviceId}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.transport}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.status}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{ct.status}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.initiator}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.startedAt}</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">{t.actions}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">{ct.actions}</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {sessions.map((session: any) => (
                 <tr key={session.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{session.device_id}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 font-mono text-xs">{session.device_id}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{session.transport}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor(session.status)}`}>
@@ -98,7 +86,12 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
                     {new Date(session.started_at).toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                    <button className="text-blue-600 hover:text-blue-900">{t.view}</button>
+                    <Link
+                      href={`/tenants/${tenantId}/sessions/${session.id}`}
+                      className="text-blue-600 hover:text-blue-900"
+                    >
+                      {t.view}
+                    </Link>
                     {isActive(session.status) && (
                       <button onClick={() => handleAbort(session.id)} className="text-red-600 hover:text-red-900">{t.abort}</button>
                     )}

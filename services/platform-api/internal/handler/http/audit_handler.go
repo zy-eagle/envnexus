@@ -25,11 +25,12 @@ func (h *AuditHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *AuditHandler) List(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	filters := repository.AuditFilters{
-		DeviceID:  c.Query("device_id"),
-		SessionID: c.Query("session_id"),
-		EventType: c.Query("event_type"),
-		StartAt:   c.Query("start_at"),
-		EndAt:     c.Query("end_at"),
+		DeviceID:        c.Query("device_id"),
+		SessionID:       c.Query("session_id"),
+		EventType:       c.Query("event_type"),
+		StartAt:         c.Query("start_at"),
+		EndAt:           c.Query("end_at"),
+		IncludeArchived: c.Query("include_archived") == "true",
 	}
 
 	events, err := h.auditService.ListEvents(c.Request.Context(), tenantID, filters)

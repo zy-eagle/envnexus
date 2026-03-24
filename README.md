@@ -6,11 +6,11 @@ EnvNexus is an AI-native platform for environment governance, secure local diagn
 
 ## Project Status
 
-This repository is currently in the specification-first stage.
+EnvNexus is in active development (Phase 1 — MVP).
 
-- The primary source of truth is [`docs/envnexus-proposal.md`](docs/envnexus-proposal.md).
-- The implementation scaffold is planned but not fully generated yet.
-- The deployment and runtime model below describes the target operating model defined by the proposal.
+- Proposal: [`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
+- Roadmap: [`docs/development-roadmap.md`](docs/development-roadmap.md)
+- Commercialization: [`docs/commercialization-plan.md`](docs/commercialization-plan.md)
 
 ## What EnvNexus Solves
 
@@ -83,27 +83,27 @@ agent-core (localhost API)
     \--> SQLite + Files
 ```
 
-## Planned Repository Layout
-
-The proposal defines a monorepo layout for implementation:
+## Repository Layout
 
 ```text
 envnexus/
   apps/
-    console-web/
-    agent-desktop/
-    agent-core/
+    console-web/         # Next.js 14 admin console
+    agent-desktop/       # Electron desktop shell
+    agent-core/          # Go local execution core
   services/
-    platform-api/
-    session-gateway/
-    job-runner/
+    platform-api/        # Go REST API (Gin + GORM)
+    session-gateway/     # Go WebSocket gateway
+    job-runner/          # Go background workers
   libs/
+    shared/              # Shared Go library
   deploy/
-    docker/
+    docker/              # Docker Compose deployment
+  scripts/
+    smoke-test.sh        # MVP 12-step smoke test
+    seed.sh              # Seed default tenant + admin
   docs/
 ```
-
-At the moment, this repository mainly contains the proposal document and legal/project metadata.
 
 ## Core MVP Capabilities
 
@@ -119,6 +119,91 @@ The first implementation is expected to include:
 - Audit event reporting and querying
 - Single-host deployment with `Docker Compose`
 
+## Local Development
+
+### Prerequisites
+
+- Go 1.25+
+- Node.js 20+ and pnpm
+- Docker and Docker Compose
+
+### Quick Start with Docker Compose
+
+```bash
+# 1. Clone and enter the repo
+git clone https://github.com/zy-eagle/envnexus.git
+cd envnexus
+
+# 2. Set up environment
+cp deploy/docker/.env.example deploy/docker/.env
+# Edit .env — set ENX_JWT_SECRET, ENX_DEVICE_TOKEN_SECRET, ENX_SESSION_TOKEN_SECRET to secure random values
+
+# 3. Start all services
+cd deploy/docker
+docker compose up -d
+
+# 4. Wait for health checks, then seed default data
+cd ../..
+bash scripts/seed.sh
+
+# 5. Open the console
+# http://localhost:3000
+# Login: admin@envnexus.io / admin123
+```
+
+### Running Services Locally (without Docker)
+
+```bash
+# Start infrastructure (MySQL, Redis, MinIO)
+cd deploy/docker && docker compose up -d mysql redis minio && cd ../..
+
+# Build all Go services
+make build
+
+# Run platform-api
+export ENX_DATABASE_DSN="root:root@tcp(localhost:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
+export ENX_REDIS_ADDR="localhost:6379"
+export ENX_OBJECT_STORAGE_ENDPOINT="localhost:9000"
+export ENX_JWT_SECRET="dev-secret-change-in-prod"
+export ENX_DEVICE_TOKEN_SECRET="dev-device-secret"
+export ENX_SESSION_TOKEN_SECRET="dev-session-secret"
+./bin/platform-api
+
+# Run session-gateway (in another terminal)
+export ENX_SESSION_TOKEN_SECRET="dev-session-secret"
+export ENX_REDIS_ADDR="localhost:6379"
+./bin/session-gateway
+
+# Run job-runner (in another terminal)
+export ENX_DATABASE_DSN="root:root@tcp(localhost:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
+./bin/job-runner
+
+# Run console-web (in another terminal)
+cd apps/console-web && pnpm install && pnpm dev
+
+# Run agent-core (in another terminal)
+./bin/enx-agent
+```
+
+### Smoke Test
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+The smoke test validates the full MVP loop: health checks, login, tenant setup, profile creation, download link generation, agent enrollment, session creation, and audit trail.
+
+### Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build all Go binaries to `./bin/` |
+| `make run-api` | Run platform-api locally |
+| `make run-gateway` | Run session-gateway locally |
+| `make run-runner` | Run job-runner locally |
+| `make run-web` | Run console-web dev server |
+| `make run-desktop` | Run agent-desktop in dev mode |
+
 ## Deployment Modes
 
 The proposal defines three operating modes:
@@ -133,9 +218,7 @@ The first delivery target is a single-host MVP deployment:
 - One managed endpoint runs `agent-core` and `agent-desktop`
 - Platform services are started with `Docker Compose`
 
-## Planned Deployment Guide
-
-These steps describe the target deployment model from the proposal. They document how the project is intended to be deployed once the scaffold is generated.
+## Deployment Guide
 
 ### Platform Services
 
@@ -178,9 +261,7 @@ Platform deployment requirements:
 - Persistent data must be mounted to host volumes
 - Readiness must depend on migration and upstream dependencies
 
-## Planned Runtime Flow
-
-Once implemented, the expected runtime flow is:
+## Runtime Flow
 
 1. Start platform services with `Docker Compose`
 2. Complete initial console login and tenant setup

@@ -15,20 +15,22 @@ import (
 )
 
 type Service struct {
-	userRepo        repository.UserRepository
-	jwtSecret       string
-	deviceSecret    string
-	sessionSecret   string
-	tokenExpiration time.Duration
+	userRepo           repository.UserRepository
+	jwtSecret          string
+	deviceSecret       string
+	sessionSecret      string
+	tokenExpiration    time.Duration
+	refreshExpiration  time.Duration
 }
 
 func NewService(userRepo repository.UserRepository, jwtSecret, deviceSecret, sessionSecret string) *Service {
 	return &Service{
-		userRepo:        userRepo,
-		jwtSecret:       jwtSecret,
-		deviceSecret:    deviceSecret,
-		sessionSecret:   sessionSecret,
-		tokenExpiration: 24 * time.Hour,
+		userRepo:          userRepo,
+		jwtSecret:         jwtSecret,
+		deviceSecret:      deviceSecret,
+		sessionSecret:     sessionSecret,
+		tokenExpiration:   1 * time.Hour,
+		refreshExpiration: 7 * 24 * time.Hour,
 	}
 }
 
@@ -63,12 +65,18 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginRe
 		return nil, domain.ErrInternalError
 	}
 
+	refreshTokenStr, err := s.issueRefreshToken(user.ID, user.TenantID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+
 	user.LastLoginAt = &now
 	_ = s.userRepo.Update(ctx, user)
 
 	resp := &dto.LoginResponse{
-		AccessToken: tokenStr,
-		ExpiresIn:   int(s.tokenExpiration.Seconds()),
+		AccessToken:  tokenStr,
+		RefreshToken: refreshTokenStr,
+		ExpiresIn:    int(s.tokenExpiration.Seconds()),
 	}
 	resp.User.ID = user.ID
 	resp.User.TenantID = user.TenantID
@@ -115,6 +123,78 @@ func (s *Service) IssueSessionToken(deviceID, tenantID, sessionID string) (strin
 
 func (s *Service) GetSessionSecret() string {
 	return s.sessionSecret
+}
+
+type RefreshClaims struct {
+	UserID   string `json:"user_id"`
+	TenantID string `json:"tenant_id"`
+	jwt.RegisteredClaims
+}
+
+func (s *Service) issueRefreshToken(userID, tenantID string) (string, error) {
+	now := time.Now()
+	claims := &RefreshClaims{
+		UserID:   userID,
+		TenantID: tenantID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.refreshExpiration)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        ulid.Make().String(),
+			Subject:   "refresh",
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.jwtSecret))
+}
+
+func (s *Service) RefreshAccessToken(ctx context.Context, refreshTokenStr string) (*dto.RefreshTokenResponse, error) {
+	claims := &RefreshClaims{}
+	token, err := jwt.ParseWithClaims(refreshTokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(s.jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return nil, domain.ErrInvalidCredentials
+	}
+	if claims.Subject != "refresh" {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	user, err := s.userRepo.GetByID(ctx, claims.UserID)
+	if err != nil || user == nil {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	now := time.Now()
+	accessClaims := &middleware.Claims{
+		UserID:      user.ID,
+		TenantID:    user.TenantID,
+		Email:       user.Email,
+		DisplayName: user.DisplayName,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.tokenExpiration)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        ulid.Make().String(),
+		},
+	}
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	accessTokenStr, err := accessToken.SignedString([]byte(s.jwtSecret))
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+
+	newRefreshTokenStr, err := s.issueRefreshToken(user.ID, user.TenantID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+
+	return &dto.RefreshTokenResponse{
+		AccessToken:  accessTokenStr,
+		RefreshToken: newRefreshTokenStr,
+		ExpiresIn:    int(s.tokenExpiration.Seconds()),
+	}, nil
 }
 
 func HashPassword(password string) (string, error) {

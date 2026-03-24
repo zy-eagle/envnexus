@@ -22,6 +22,7 @@ func (h *AuthHandler) RegisterRoutes(router *gin.RouterGroup) {
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/login", h.Login)
+		authGroup.POST("/refresh", h.RefreshToken)
 	}
 	router.GET("/me", h.Me)
 	router.GET("/bootstrap", h.Bootstrap)
@@ -35,6 +36,21 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	resp, err := h.authService.Login(c.Request.Context(), req)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *AuthHandler) RefreshToken(c *gin.Context) {
+	var req dto.RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+
+	resp, err := h.authService.RefreshAccessToken(c.Request.Context(), req.RefreshToken)
 	if err != nil {
 		mw.RespondError(c, err)
 		return

@@ -9,6 +9,7 @@ type AuditEvent struct {
 	SessionID        *string
 	EventType        string
 	EventPayloadJSON string
+	Archived         bool
 	CreatedAt        time.Time
 }
 

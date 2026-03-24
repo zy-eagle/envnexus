@@ -2,15 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-
-const dict = {
-  en: { console: "Console", admin: "Admin User" },
-  zh: { console: "控制台", admin: "管理员" }
-};
+import { useDict } from '@/lib/i18n/dictionary';
 
 export default function Header() {
   const { lang, setLang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('header', lang);
   const [userName, setUserName] = useState(t.admin);
   const [userInitial, setUserInitial] = useState('A');
 

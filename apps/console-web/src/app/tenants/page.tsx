@@ -3,15 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-
-const dict = {
-  en: { title: "Tenants", createBtn: "Create Tenant", loading: "Loading tenants...", noTenants: "No tenants found. Create one to get started.", name: "Name", slug: "Slug", status: "Status", createdAt: "Created At", actions: "Actions", manage: "Manage", edit: "Edit", delete: "Delete", modalTitle: "Create New Tenant", editModalTitle: "Edit Tenant", tenantName: "Tenant Name", tenantSlug: "Tenant Slug", cancel: "Cancel", create: "Create", save: "Save", creating: "Creating...", confirmDelete: "Are you sure you want to delete this tenant?" },
-  zh: { title: "租户管理", createBtn: "创建租户", loading: "加载中...", noTenants: "未找到租户，请创建一个。", name: "名称", slug: "标识 (Slug)", status: "状态", createdAt: "创建时间", actions: "操作", manage: "管理", edit: "编辑", delete: "删除", modalTitle: "创建新租户", editModalTitle: "编辑租户", tenantName: "租户名称", tenantSlug: "租户标识 (Slug)", cancel: "取消", create: "创建", save: "保存", creating: "创建中...", confirmDelete: "确定要删除此租户吗？" }
-};
+import { useDict } from '@/lib/i18n/dictionary';
+import { api } from '@/lib/api/client';
 
 export default function TenantsPage() {
   const { lang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('tenants', lang);
+  const ct = useDict('common', lang);
   const [tenants, setTenants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,27 +35,17 @@ export default function TenantsPage() {
     setIsModalOpen(true);
   };
 
-  const fetchTenants = () => {
+  const fetchTenants = async () => {
     setLoading(true);
-    const token = localStorage.getItem('token');
-    fetch('/api/v1/tenants', {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.data) {
-          setTenants(data.data);
-        } else {
-          setTenants([]);
-        }
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to fetch tenants', err);
-        setLoading(false);
-      });
+    try {
+      const data = await api.get<{ items: any[] }>('/tenants');
+      setTenants(data.items || []);
+    } catch (err) {
+      console.error('Failed to fetch tenants', err);
+      setTenants([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -68,33 +56,22 @@ export default function TenantsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
-      const url = editingId ? `/api/v1/tenants/${editingId}` : '/api/v1/tenants';
-      const method = editingId ? 'PUT' : 'POST';
       const body = editingId 
         ? { name: newTenantName, status: newTenantStatus }
         : { name: newTenantName, slug: newTenantSlug };
 
-      const res = await fetch(url, {
-        method,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        setIsModalOpen(false);
-        setNewTenantName('');
-        setNewTenantSlug('');
-        fetchTenants();
+      if (editingId) {
+        await api.put(`/tenants/${editingId}`, body);
       } else {
-        const errorData = await res.json();
-        alert(`Failed to save tenant: ${errorData.error || 'Unknown error'}`);
+        await api.post('/tenants', body);
       }
-    } catch (err) {
+      setIsModalOpen(false);
+      setNewTenantName('');
+      setNewTenantSlug('');
+      fetchTenants();
+    } catch (err: any) {
       console.error(err);
-      alert('Network error while saving tenant');
+      alert(`Failed to save tenant: ${err.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -103,18 +80,8 @@ export default function TenantsPage() {
   const handleDeleteTenant = async (id: string) => {
     if (!confirm(t.confirmDelete)) return;
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/tenants/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (res.ok) {
-        fetchTenants();
-      } else {
-        alert('Failed to delete tenant');
-      }
+      await api.delete(`/tenants/${id}`);
+      fetchTenants();
     } catch (err) {
       console.error(err);
     }
@@ -132,7 +99,6 @@ export default function TenantsPage() {
         </button>
       </div>
 
-      {/* Create/Edit Tenant Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
@@ -167,7 +133,7 @@ export default function TenantsPage() {
                 )}
                 {editingId && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">{t.status}</label>
+                    <label className="block text-sm font-medium text-gray-700">{ct.status}</label>
                     <select 
                       className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                       value={newTenantStatus}
@@ -186,14 +152,14 @@ export default function TenantsPage() {
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
-                  {t.cancel}
+                  {ct.cancel}
                 </button>
                 <button 
                   type="submit" 
                   disabled={isSubmitting}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isSubmitting ? t.creating : (editingId ? t.save : t.create)}
+                  {isSubmitting ? t.creating : (editingId ? ct.save : ct.create)}
                 </button>
               </div>
             </form>
@@ -205,7 +171,7 @@ export default function TenantsPage() {
         {loading ? (
           <div className="p-8 text-center text-gray-500">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600 mb-4"></div>
-            <p>{t.loading}</p>
+            <p>{ct.loading}</p>
           </div>
         ) : tenants.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
@@ -223,13 +189,13 @@ export default function TenantsPage() {
                     {t.slug}
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t.status}
+                    {ct.status}
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     {t.createdAt}
                   </th>
                   <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t.actions}
+                    {ct.actions}
                   </th>
                 </tr>
               </thead>
@@ -259,13 +225,13 @@ export default function TenantsPage() {
                         onClick={() => openEditModal(tenant)}
                         className="text-blue-600 hover:text-blue-900 mr-4"
                       >
-                        {t.edit}
+                        {ct.edit}
                       </button>
                       <button 
                         onClick={() => handleDeleteTenant(tenant.id)}
                         className="text-red-600 hover:text-red-900 mr-4"
                       >
-                        {t.delete}
+                        {ct.delete}
                       </button>
                       <Link href={`/tenants/${tenant.id}/devices`} className="text-gray-600 hover:text-gray-900">
                         {t.manage}

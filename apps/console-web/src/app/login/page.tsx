@@ -2,30 +2,14 @@
 
 import { useState } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { useDict } from '@/lib/i18n/dictionary';
 import { api, APIError } from '@/lib/api/client';
 import { useRouter } from 'next/navigation';
-
-const dict = {
-  en: {
-    title: "Sign in to EnvNexus",
-    emailPlaceholder: "Email address",
-    passwordPlaceholder: "Password",
-    signInBtn: "Sign in",
-    loginFailed: "Login failed",
-  },
-  zh: {
-    title: "登录 EnvNexus",
-    emailPlaceholder: "邮箱地址",
-    passwordPlaceholder: "密码",
-    signInBtn: "登录",
-    loginFailed: "登录失败",
-  }
-};
 
 export default function LoginPage() {
   const router = useRouter();
   const { lang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('login', lang);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');

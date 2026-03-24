@@ -14,11 +14,12 @@ type AuditRepository interface {
 }
 
 type AuditFilters struct {
-	DeviceID  string
-	SessionID string
-	EventType string
-	StartAt   string
-	EndAt     string
+	DeviceID     string
+	SessionID    string
+	EventType    string
+	StartAt      string
+	EndAt        string
+	IncludeArchived bool
 }
 
 type MySQLAuditRepository struct {
@@ -42,6 +43,9 @@ func (r *MySQLAuditRepository) CreateBatch(ctx context.Context, events []*domain
 
 func (r *MySQLAuditRepository) ListByTenant(ctx context.Context, tenantID string, filters AuditFilters) ([]*domain.AuditEvent, error) {
 	query := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
+	if !filters.IncludeArchived {
+		query = query.Where("archived = ?", false)
+	}
 	if filters.DeviceID != "" {
 		query = query.Where("device_id = ?", filters.DeviceID)
 	}

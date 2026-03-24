@@ -45,6 +45,7 @@ func (s *LocalServer) Start() error {
 		api.GET("/approvals/pending", s.handleGetPendingApprovals)
 		api.POST("/approvals/:id/resolve", s.handleResolveApproval)
 		api.POST("/diagnose", s.handleDiagnose)
+		api.POST("/diagnostics/export", s.handleDiagnosticsExport)
 	}
 
 	s.server = &http.Server{
@@ -141,4 +142,25 @@ func (s *LocalServer) handleDiagnose(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"diagnosis": result})
+}
+
+func (s *LocalServer) handleDiagnosticsExport(c *gin.Context) {
+	report := gin.H{
+		"agent_version": "0.1.0",
+		"export_time":   time.Now().UTC().Format(time.RFC3339),
+		"uptime_ms":     time.Since(s.startTime).Milliseconds(),
+		"runtime_status": gin.H{
+			"status":  "running",
+			"started": s.startTime.Format(time.RFC3339),
+		},
+	}
+
+	deviceID, err := s.identityManager.GetOrCreateDeviceID()
+	if err == nil {
+		report["device_id"] = deviceID
+	}
+
+	report["pending_approvals"] = s.policyEngine.GetPending()
+
+	c.JSON(http.StatusOK, gin.H{"diagnostic_bundle": report})
 }

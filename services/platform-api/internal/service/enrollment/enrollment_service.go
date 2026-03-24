@@ -68,6 +68,26 @@ func (s *Service) CreateToken(ctx context.Context, tenantID string, req dto.Crea
 	}, nil
 }
 
+func (s *Service) ListTokens(ctx context.Context, tenantID string) ([]*dto.TokenResponse, error) {
+	tokens, err := s.enrollRepo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, domain.ErrInternalError
+	}
+	var result []*dto.TokenResponse
+	for _, t := range tokens {
+		result = append(result, &dto.TokenResponse{
+			ID:        t.ID,
+			TenantID:  t.TenantID,
+			Token:     "(hidden)",
+			MaxUses:   t.MaxUses,
+			UsedCount: t.UsedCount,
+			ExpiresAt: t.ExpiresAt,
+			CreatedAt: t.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
 func (s *Service) EnrollAgent(ctx context.Context, req dto.AgentEnrollRequest) (*dto.AgentEnrollResponse, error) {
 	hash := sha256.Sum256([]byte(req.EnrollmentToken))
 	tokenHash := hex.EncodeToString(hash[:])

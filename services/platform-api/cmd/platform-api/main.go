@@ -144,7 +144,7 @@ func main() {
 	tenantService := tenant.NewService(tenantRepo)
 	enrollService := enrollment.NewService(enrollRepo, deviceRepo, authService)
 	auditService := audit.NewService(auditRepo)
-	pkgService := package_svc.NewService(pkgRepo)
+	pkgService := package_svc.NewService(pkgRepo, minioClient)
 	modelProfileService := model_profile.NewService(modelProfileRepo)
 	policyProfileService := policy_profile.NewService(policyProfileRepo)
 	agentProfileService := agent_profile.NewService(agentProfileRepo)
@@ -235,6 +235,7 @@ func main() {
 	publicV1 := router.Group("/api/v1")
 	{
 		publicV1.POST("/auth/login", middleware.RateLimiter(10, 20), func(c *gin.Context) { authHandler.Login(c) })
+		publicV1.POST("/auth/refresh", middleware.RateLimiter(20, 40), func(c *gin.Context) { authHandler.RefreshToken(c) })
 		publicV1.GET("/bootstrap", func(c *gin.Context) { authHandler.Bootstrap(c) })
 	}
 

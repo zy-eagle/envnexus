@@ -2,53 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-
-const dict = {
-  en: {
-    title: "Agent Profiles",
-    addProfile: "Add Profile",
-    noProfiles: "No agent profiles configured for this tenant.",
-    name: "Name",
-    modelProfile: "Model Profile ID",
-    policyProfile: "Policy Profile ID",
-    capabilities: "Capabilities (JSON)",
-    channel: "Update Channel",
-    status: "Status",
-    actions: "Actions",
-    createTitle: "Create Agent Profile",
-    editTitle: "Edit Agent Profile",
-    cancel: "Cancel",
-    create: "Create",
-    save: "Save",
-    edit: "Edit",
-    delete: "Delete",
-    confirmDelete: "Are you sure you want to delete this profile?",
-  },
-  zh: {
-    title: "Agent 配置",
-    addProfile: "添加配置",
-    noProfiles: "该租户暂无 Agent 配置。",
-    name: "名称",
-    modelProfile: "模型配置 ID",
-    policyProfile: "策略配置 ID",
-    capabilities: "能力清单 (JSON)",
-    channel: "更新通道",
-    status: "状态",
-    actions: "操作",
-    createTitle: "创建 Agent 配置",
-    editTitle: "编辑 Agent 配置",
-    cancel: "取消",
-    create: "创建",
-    save: "保存",
-    edit: "编辑",
-    delete: "删除",
-    confirmDelete: "确定要删除此配置吗？",
-  }
-};
+import { useDict } from '@/lib/i18n/dictionary';
+import { api } from '@/lib/api/client';
 
 export default function AgentProfilesPage({ params }: { params: { tenantId: string } }) {
   const { lang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('agentProfiles', lang);
+  const ct = useDict('common', lang);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<any[]>([]);
@@ -65,14 +25,8 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
 
   const fetchProfiles = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/tenants/${params.tenantId}/agent-profiles`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProfiles(data.data || []);
-      }
+      const data = await api.get<{ items: any[] }>(`/tenants/${params.tenantId}/agent-profiles`);
+      setProfiles(data.items || []);
     } catch (error) {
       console.error('Failed to fetch profiles:', error);
     } finally {
@@ -113,26 +67,13 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem('token');
-      const url = editingId 
-        ? `/api/v1/tenants/${params.tenantId}/agent-profiles/${editingId}`
-        : `/api/v1/tenants/${params.tenantId}/agent-profiles`;
-      const method = editingId ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData),
-      });
-      if (res.ok) {
-        setIsModalOpen(false);
-        fetchProfiles();
+      if (editingId) {
+        await api.put(`/tenants/${params.tenantId}/agent-profiles/${editingId}`, formData);
       } else {
-        alert('Failed to save profile');
+        await api.post(`/tenants/${params.tenantId}/agent-profiles`, formData);
       }
+      setIsModalOpen(false);
+      fetchProfiles();
     } catch (error) {
       console.error('Error saving profile:', error);
     }
@@ -141,16 +82,8 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
   const handleDelete = async (id: string) => {
     if (!confirm(t.confirmDelete)) return;
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/tenants/${params.tenantId}/agent-profiles/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        fetchProfiles();
-      } else {
-        alert('Failed to delete profile');
-      }
+      await api.delete(`/tenants/${params.tenantId}/agent-profiles/${id}`);
+      fetchProfiles();
     } catch (error) {
       console.error('Error deleting profile:', error);
     }
@@ -229,7 +162,7 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
               </div>
               {editingId && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.status}</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{ct.status}</label>
                   <select 
                     value={formData.status}
                     onChange={e => setFormData({...formData, status: e.target.value})}
@@ -246,13 +179,13 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50"
                 >
-                  {t.cancel}
+                  {ct.cancel}
                 </button>
                 <button 
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
                 >
-                  {editingId ? t.save : t.create}
+                  {editingId ? ct.save : ct.create}
                 </button>
               </div>
             </form>
@@ -262,7 +195,7 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500">{ct.loading}</div>
         ) : profiles.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noProfiles}</div>
         ) : (
@@ -271,12 +204,12 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.name}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.channel}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.status}</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{t.actions}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{ct.status}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{ct.actions}</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {profiles.map((profile) => (
+              {profiles.map((profile: any) => (
                 <tr key={profile.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{profile.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{profile.update_channel}</td>
@@ -290,13 +223,13 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
                       onClick={() => openEditModal(profile)}
                       className="text-blue-600 hover:text-blue-900 mr-4"
                     >
-                      {t.edit}
+                      {ct.edit}
                     </button>
                     <button 
                       onClick={() => handleDelete(profile.id)}
                       className="text-red-600 hover:text-red-900"
                     >
-                      {t.delete}
+                      {ct.delete}
                     </button>
                   </td>
                 </tr>

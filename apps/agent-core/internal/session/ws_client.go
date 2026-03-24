@@ -28,33 +28,38 @@ type EventEnvelope struct {
 	Payload   interface{} `json:"payload"`
 }
 
-type WSClient struct {
-	serverURL    string
-	deviceID     string
-	tenantID     string
-	deviceToken  string
-	conn         *websocket.Conn
-	mu           sync.Mutex
-	done         chan struct{}
-	sendCh       chan []byte
-	registry     *tools.Registry
-	auditClient  *audit.Client
-	policyEngine *policy.Engine
-	diagEngine   *diagnosis.Engine
+type SessionTokenProvider interface {
+	GetSessionToken(ctx context.Context, deviceID, tenantID string) (string, error)
 }
 
-func NewWSClient(serverURL, deviceID, tenantID, deviceToken string, registry *tools.Registry, auditClient *audit.Client, policyEngine *policy.Engine, diagEngine *diagnosis.Engine) *WSClient {
+type WSClient struct {
+	serverURL     string
+	deviceID      string
+	tenantID      string
+	sessionToken  string
+	tokenProvider SessionTokenProvider
+	conn          *websocket.Conn
+	mu            sync.Mutex
+	done          chan struct{}
+	sendCh        chan []byte
+	registry      *tools.Registry
+	auditClient   *audit.Client
+	policyEngine  *policy.Engine
+	diagEngine    *diagnosis.Engine
+}
+
+func NewWSClient(serverURL, deviceID, tenantID string, tokenProvider SessionTokenProvider, registry *tools.Registry, auditClient *audit.Client, policyEngine *policy.Engine, diagEngine *diagnosis.Engine) *WSClient {
 	return &WSClient{
-		serverURL:    serverURL,
-		deviceID:     deviceID,
-		tenantID:     tenantID,
-		deviceToken:  deviceToken,
-		done:         make(chan struct{}),
-		sendCh:       make(chan []byte, 64),
-		registry:     registry,
-		auditClient:  auditClient,
-		policyEngine: policyEngine,
-		diagEngine:   diagEngine,
+		serverURL:     serverURL,
+		deviceID:      deviceID,
+		tenantID:      tenantID,
+		tokenProvider: tokenProvider,
+		done:          make(chan struct{}),
+		sendCh:        make(chan []byte, 64),
+		registry:      registry,
+		auditClient:   auditClient,
+		policyEngine:  policyEngine,
+		diagEngine:    diagEngine,
 	}
 }
 
@@ -72,7 +77,6 @@ func (c *WSClient) Stop() {
 }
 
 func (c *WSClient) connectLoop(ctx context.Context) {
-	dialURL := c.buildDialURL()
 	backoff := time.Second * 2
 	maxBackoff := time.Minute
 
@@ -85,6 +89,21 @@ func (c *WSClient) connectLoop(ctx context.Context) {
 		default:
 		}
 
+		if c.tokenProvider != nil {
+			token, err := c.tokenProvider.GetSessionToken(ctx, c.deviceID, c.tenantID)
+			if err != nil {
+				slog.Warn("[ws] Failed to obtain session token, retrying", "error", err, "backoff", backoff)
+				time.Sleep(backoff)
+				backoff = backoff * 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+				continue
+			}
+			c.sessionToken = token
+		}
+
+		dialURL := c.buildDialURL()
 		slog.Info("[ws] Connecting to session-gateway", "dial_url", dialURL)
 		conn, _, err := websocket.DefaultDialer.DialContext(ctx, dialURL, nil)
 		if err != nil {
@@ -134,8 +153,8 @@ func (c *WSClient) buildDialURL() string {
 	}
 
 	q := u.Query()
-	if c.deviceToken != "" {
-		q.Set("token", c.deviceToken)
+	if c.sessionToken != "" {
+		q.Set("token", c.sessionToken)
 	}
 	q.Set("tenant_id", c.tenantID)
 	u.RawQuery = q.Encode()

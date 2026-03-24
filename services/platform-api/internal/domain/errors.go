@@ -43,4 +43,5 @@ var (
 	ErrDuplicateName         = NewAppError("duplicate_name", "name already exists for this tenant", http.StatusConflict)
 	ErrSessionInvalidState   = NewAppError("session_invalid_state", "session is in an invalid state for this operation", http.StatusConflict)
 	ErrInvalidRequest        = NewAppError("invalid_request", "invalid request parameters", http.StatusBadRequest)
+	ErrNotFound              = NewAppError("not_found", "resource not found", http.StatusNotFound)
 )

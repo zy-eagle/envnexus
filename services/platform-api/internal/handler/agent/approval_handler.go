@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
 )
@@ -22,6 +23,7 @@ func NewApprovalHandler(sessionService *session.Service) *ApprovalHandler {
 func (h *ApprovalHandler) RegisterRoutes(router *gin.RouterGroup) {
 	agentGroup := router.Group("/agent/v1")
 	{
+		agentGroup.POST("/sessions", h.CreateSession)
 		agentGroup.POST("/approvals", h.CreateApproval)
 		agentGroup.POST("/approvals/:approvalId/executing", h.MarkExecuting)
 		agentGroup.POST("/approvals/:approvalId/succeeded", h.MarkSucceeded)
@@ -30,6 +32,47 @@ func (h *ApprovalHandler) RegisterRoutes(router *gin.RouterGroup) {
 		agentGroup.GET("/approvals/:approvalId", h.GetApproval)
 		agentGroup.GET("/sessions/:sessionId/approvals/pending", h.GetPendingApproval)
 	}
+}
+
+func (h *ApprovalHandler) CreateSession(c *gin.Context) {
+	deviceID, _ := c.Get("device_id")
+	deviceIDStr, _ := deviceID.(string)
+
+	var req struct {
+		DeviceID      string `json:"device_id"`
+		Transport     string `json:"transport"`
+		InitiatorType string `json:"initiator_type"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+
+	if req.DeviceID == "" {
+		req.DeviceID = deviceIDStr
+	}
+	if req.Transport == "" {
+		req.Transport = "websocket"
+	}
+	if req.InitiatorType == "" {
+		req.InitiatorType = "agent"
+	}
+
+	result, err := h.sessionService.CreateSession(c.Request.Context(), dto.CreateSessionRequest{
+		DeviceID:      req.DeviceID,
+		Transport:     req.Transport,
+		InitiatorType: req.InitiatorType,
+	})
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusCreated, gin.H{
+		"session_id": result.Session.ID,
+		"ws_token":   result.WSToken,
+		"status":     result.Session.Status,
+	})
 }
 
 type CreateApprovalRequest struct {

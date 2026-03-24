@@ -2,47 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-
-const dict = {
-  en: {
-    title: "Policy Profiles",
-    addProfile: "Add Policy",
-    noProfiles: "No policy profiles configured for this tenant.",
-    name: "Name",
-    policyJSON: "Policy (JSON)",
-    status: "Status",
-    actions: "Actions",
-    createTitle: "Create Policy Profile",
-    editTitle: "Edit Policy Profile",
-    cancel: "Cancel",
-    create: "Create",
-    save: "Save",
-    edit: "Edit",
-    delete: "Delete",
-    confirmDelete: "Are you sure you want to delete this policy?",
-  },
-  zh: {
-    title: "策略配置",
-    addProfile: "添加策略",
-    noProfiles: "该租户暂无策略配置。",
-    name: "名称",
-    policyJSON: "策略内容 (JSON)",
-    status: "状态",
-    actions: "操作",
-    createTitle: "创建策略配置",
-    editTitle: "编辑策略配置",
-    cancel: "取消",
-    create: "创建",
-    save: "保存",
-    edit: "编辑",
-    delete: "删除",
-    confirmDelete: "确定要删除此策略吗？",
-  }
-};
+import { useDict } from '@/lib/i18n/dictionary';
+import { api } from '@/lib/api/client';
 
 export default function PolicyProfilesPage({ params }: { params: { tenantId: string } }) {
   const { lang } = useLanguage();
-  const t = dict[lang];
+  const t = useDict('policyProfiles', lang);
+  const ct = useDict('common', lang);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<any[]>([]);
@@ -56,14 +22,8 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
 
   const fetchProfiles = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/tenants/${params.tenantId}/policy-profiles`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProfiles(data.data || []);
-      }
+      const data = await api.get<{ items: any[] }>(`/tenants/${params.tenantId}/policy-profiles`);
+      setProfiles(data.items || []);
     } catch (error) {
       console.error('Failed to fetch profiles:', error);
     } finally {
@@ -98,26 +58,13 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem('token');
-      const url = editingId 
-        ? `/api/v1/tenants/${params.tenantId}/policy-profiles/${editingId}`
-        : `/api/v1/tenants/${params.tenantId}/policy-profiles`;
-      const method = editingId ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData),
-      });
-      if (res.ok) {
-        setIsModalOpen(false);
-        fetchProfiles();
+      if (editingId) {
+        await api.put(`/tenants/${params.tenantId}/policy-profiles/${editingId}`, formData);
       } else {
-        alert('Failed to save profile');
+        await api.post(`/tenants/${params.tenantId}/policy-profiles`, formData);
       }
+      setIsModalOpen(false);
+      fetchProfiles();
     } catch (error) {
       console.error('Error saving profile:', error);
     }
@@ -126,16 +73,8 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
   const handleDelete = async (id: string) => {
     if (!confirm(t.confirmDelete)) return;
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/v1/tenants/${params.tenantId}/policy-profiles/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        fetchProfiles();
-      } else {
-        alert('Failed to delete profile');
-      }
+      await api.delete(`/tenants/${params.tenantId}/policy-profiles/${id}`);
+      fetchProfiles();
     } catch (error) {
       console.error('Error deleting profile:', error);
     }

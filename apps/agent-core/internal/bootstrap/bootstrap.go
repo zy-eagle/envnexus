@@ -19,6 +19,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/router"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/session"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/cache"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/network"
@@ -30,6 +31,8 @@ type Bootstrapper struct {
 	identityManager *device.IdentityManager
 	configManager   *config.Manager
 	configDir       string
+	localServer     *api.LocalServer
+	localStore      *store.Store
 }
 
 func NewBootstrapper() *Bootstrapper {
@@ -50,8 +53,18 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	slog.Info("[boot] Starting agent bootstrap sequence...")
 	cfg := b.configManager.Get()
 
+	// Step 0: Initialize local SQLite store
+	dataDir := filepath.Join(b.configDir, "data")
+	localStore, err := store.New(dataDir)
+	if err != nil {
+		slog.Warn("[boot] SQLite store init failed, running without local persistence", "error", err)
+	} else {
+		b.localStore = localStore
+	}
+
 	// Step 1: Check device identity / enroll if needed
 	var deviceID, deviceToken, tenantID string
+	platformReachable := true
 
 	if b.identityManager.HasIdentity() {
 		id, _ := b.identityManager.GetIdentity()
@@ -71,6 +84,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 			if err != nil {
 				slog.Warn("[boot] Enrollment failed, running in standalone mode", "error", err)
 				deviceID = "standalone"
+				platformReachable = false
 			} else {
 				deviceID = resp.DeviceID
 				deviceToken = resp.DeviceToken
@@ -92,13 +106,14 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 		}
 	}
 
-	// Step 2: Pull remote config
-	if deviceToken != "" {
+	// Step 2: Pull remote config (skip in offline mode)
+	if deviceToken != "" && platformReachable {
 		slog.Info("[boot] Pulling remote configuration...")
 		lifecycleClient := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
 		configResp, err := lifecycleClient.GetConfig(ctx, cfg.ConfigVersion)
 		if err != nil {
-			slog.Warn("[boot] Config pull failed", "error", err)
+			slog.Warn("[boot] Config pull failed, entering offline mode", "error", err)
+			platformReachable = false
 		} else if configResp.HasUpdate {
 			slog.Info("[boot] Config updated", "config_version", configResp.ConfigVersion)
 			b.configManager.Update(func(c *config.AgentConfig) {
@@ -114,31 +129,49 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	registry.Register(network.NewReadNetworkConfigTool())
 	registry.Register(network.NewFlushDNSTool())
 	registry.Register(system.NewReadSystemInfoTool())
+	registry.Register(system.NewReadDiskUsageTool())
+	registry.Register(system.NewReadProcessListTool())
 	registry.Register(service.NewRestartTool())
 	registry.Register(cache.NewRebuildTool())
-	slog.Info("[boot] Registered tools", "count", registry.Count())
+
+	if !platformReachable {
+		slog.Info("[boot] Offline mode: only read-only tools available", "count", countReadOnly(registry))
+	} else {
+		slog.Info("[boot] Registered tools", "count", registry.Count())
+	}
 
 	// Step 4: Initialize LLM router
 	llmRouter := b.initLLMRouter()
 
 	// Step 5: Initialize engines
 	policyEngine := policy.NewEngine()
-	if deviceToken != "" {
+	if deviceToken != "" && platformReachable {
 		policyEngine.SetPlatformClient(policy.NewPlatformClient(cfg.PlatformURL, deviceToken))
 	}
+
 	auditClient := audit.NewClient(cfg.PlatformURL, deviceID, deviceToken)
+	if platformReachable {
+		go auditClient.StartFlushLoop(ctx, 15*time.Second)
+	}
+
 	diagnosisEngine := diagnosis.NewEngine(registry, llmRouter)
 
-	go auditClient.StartFlushLoop(ctx, 15*time.Second)
+	// Step 6: Start governance engine
+	governanceEngine := governance.NewEngine()
+	if localStore != nil {
+		governanceEngine.SetStore(localStore)
+	}
+	governanceEngine.Start(ctx)
 
-	// Step 6: Start local API
+	// Step 7: Start local API
 	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine, diagnosisEngine)
 	if err := localServer.Start(); err != nil {
 		slog.Error("[boot] Failed to start local API", "error", err)
 	}
+	b.localServer = localServer
 
-	// Step 7: Start heartbeat loop
-	if deviceToken != "" {
+	// Step 8: Start heartbeat loop (only when platform reachable)
+	if deviceToken != "" && platformReachable {
 		lifecycleClient := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
 		go func() {
 			interval := time.Duration(cfg.HeartbeatSeconds) * time.Second
@@ -158,18 +191,34 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 		}()
 	}
 
-	// Step 8: Start governance engine
-	governanceEngine := governance.NewEngine()
-	governanceEngine.Start(ctx)
-
-	// Step 9: Connect to session gateway
-	if deviceToken != "" {
-		wsClient := session.NewWSClient(cfg.WSURL, deviceID, tenantID, deviceToken, registry, auditClient, policyEngine, diagnosisEngine)
+	// Step 9: Connect to session gateway (only when platform reachable)
+	if deviceToken != "" && platformReachable {
+		tokenProvider := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
+		wsClient := session.NewWSClient(cfg.WSURL, deviceID, tenantID, tokenProvider, registry, auditClient, policyEngine, diagnosisEngine)
 		wsClient.Start(ctx)
 	}
 
-	slog.Info("[boot] Bootstrap complete. Agent is running.")
+	if !platformReachable {
+		slog.Info("[boot] Bootstrap complete. Agent is running in OFFLINE mode (read-only only).")
+	} else {
+		slog.Info("[boot] Bootstrap complete. Agent is running.")
+	}
 	return nil
+}
+
+func (b *Bootstrapper) Shutdown(ctx context.Context) {
+	slog.Info("[boot] Shutting down...")
+	if b.localServer != nil {
+		if err := b.localServer.Stop(ctx); err != nil {
+			slog.Error("[boot] Failed to stop local server", "error", err)
+		}
+	}
+	if b.localStore != nil {
+		if err := b.localStore.Close(); err != nil {
+			slog.Error("[boot] Failed to close store", "error", err)
+		}
+	}
+	slog.Info("[boot] Shutdown complete")
 }
 
 func (b *Bootstrapper) initLLMRouter() *router.Router {
@@ -252,4 +301,14 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func countReadOnly(registry *tools.Registry) int {
+	count := 0
+	for _, t := range registry.List() {
+		if t.IsReadOnly() {
+			count++
+		}
+	}
+	return count
 }

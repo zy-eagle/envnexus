@@ -2,7 +2,7 @@
 
 > 基于 `envnexus-proposal.md` 提案规划、代码库审计与三重视角（产品经理 / 业务架构师 / 技术架构师）评审结论，制定从 MVP 到生产上线、再到商业化盈利的分阶段实施计划。
 >
-> 最后更新：2026-03-23（v2，含安全加固、测试门禁与商业化轨道）
+> 最后更新：2026-03-24（v4，Phase 0 + Phase 1 + Phase 2 部分已完成）
 
 ---
 
@@ -12,16 +12,16 @@
 
 | 模块 | 完成度 | 核心能力 | 关键缺口 |
 |---|---|---|---|
-| Platform API | 55% | JWT 认证、CRUD、Agent API、审批 API | Webhook、RBAC、Redis/MinIO 接入、readyz 真实检查 |
-| Session Gateway | 50% | WS 协议对齐、Redis pub/sub、事件路由 | WS 鉴权旁路、无 CORS、幂等处理、Platform 内部客户端 |
-| Job Runner | 20% | 4 个清理 Worker | Job 模型/队列、package_build、audit_flush 实际归档 |
-| Agent Core | 45% | LLM Router(7 providers)、5 步诊断、审批同步、5 个工具 | SQLite、治理引擎、完整本地 API、退出不调 Stop |
-| Console Web | 50% | 主要页面、AuthContext、API 客户端 | i18n 全覆盖、错误边界、部分页面直接 fetch |
+| Platform API | 80% | JWT 认证、CRUD、Agent API、审批 API、Redis/MinIO 接入、Refresh Token、download-links API | Webhook、RBAC |
+| Session Gateway | 75% | WS 协议对齐、Redis pub/sub、事件路由、CORS、event_id 幂等去重 | Redis 频道发布 |
+| Job Runner | 40% | 4 个清理 Worker、audit_flush 真实归档 | Job 模型/队列、package_build |
+| Agent Core | 80% | LLM Router(7 providers)、5 步诊断、审批同步、7 个工具、session token 认证、SQLite 本地存储、治理引擎 v1、离线降级、优雅退出 | runtime 模块完善 |
+| Console Web | 90% | 全页面 i18n、统一 API 客户端、错误边界、会话详情页、设备在线状态、审计事件筛选 | 组件测试 |
 | Agent Desktop | 15% | Electron 骨架 + 1 个 IPC | 托盘、更新、诊断/审批/聊天 UI 全部缺失 |
 | 共享库 | 10% | errors + base model | 全部 libs/go 和 libs/ts 包 |
-| 数据库 Schema | 90% | 13 张表 + seed | 自动迁移、第二阶段扩展表 |
-| 部署 | 55% | Docker Compose + Dockerfiles + Makefile | CI/CD、冒烟测试、K8s |
-| 安全模型 | 20% | JWT 三类令牌、审批状态机 | RBAC、Refresh Token、设备轮换、CORS、Rate Limiting |
+| 数据库 Schema | 95% | 13 张表 + seed + 自动迁移 + archived 字段 | 第二阶段扩展表 |
+| 部署 | 70% | Docker Compose + Dockerfiles + Makefile + 冒烟测试 + seed | CI/CD、K8s |
+| 安全模型 | 55% | JWT 三类令牌、审批状态机、CORS、Rate Limiting、Refresh Token | RBAC、设备轮换 |
 
 ### 1.2 代码规模
 
@@ -159,54 +159,54 @@ gantt
 
 ### 1.1 Platform API 补齐
 
-| 任务 | 优先级 | 说明 |
-|---|---|---|
-| Redis 客户端接入 | P0 | `main.go` 初始化 Redis，用于缓存和短状态 |
-| MinIO 客户端接入 | P0 | 初始化对象存储客户端，挂载到 package service |
-| 统一响应信封 | P1 | 所有 handler 统一使用 `RespondSuccess`/`RespondError`，消除裸 `gin.H` |
-| download-links API 对齐 | P0 | 路径对齐提案 `POST /tenants/:tenantId/download-links`（当前为 `/tokens`） |
-| Refresh Token | P1 | access_token + refresh_token 双 token 生命周期 |
-| `recordAudit` 错误处理 | P0 | 不再 `_ =` 静默丢弃审计写入失败，改为日志告警 + 重试 |
-| `EventPayloadJSON` 填充 | P0 | 审计事件必须包含结构化载荷 |
+| 任务 | 优先级 | 状态 | 说明 |
+|---|---|---|---|
+| Redis 客户端接入 | P0 | ✅ 完成 | `main.go` 初始化 Redis，提供 Set/Get/Del/Incr 缓存方法 |
+| MinIO 客户端接入 | P0 | ✅ 完成 | 初始化对象存储客户端，挂载到 package service，支持 PresignedGetURL |
+| 统一响应信封 | P1 | ✅ 完成 | 所有 handler 统一使用 `RespondSuccess`/`RespondError` |
+| download-links API 对齐 | P0 | ✅ 完成 | 路径对齐为 `POST /tenants/:tenantId/download-links`，支持 GET 列表 |
+| Refresh Token | P1 | ✅ 完成 | access_token(1h) + refresh_token(7d) 双 token 生命周期，`POST /auth/refresh` |
+| `recordAudit` 错误处理 | P0 | ✅ 完成 | 使用 `slog.Error` 记录失败，不再静默丢弃 |
+| `EventPayloadJSON` 填充 | P0 | ✅ 完成 | 审计事件包含结构化 JSON 载荷 |
 
 ### 1.2 Session Gateway 集成
 
-| 任务 | 优先级 | 说明 |
-|---|---|---|
-| Platform 内部客户端 | P0 | 会话创建后通过 HTTP 通知 Gateway 推送 `session.created` |
-| session.created 主动推送 | P0 | Platform 创建会话后通知 Gateway 向设备下发事件 |
-| WS 幂等处理 | P1 | 基于 event_id 去重，防止重连时重复处理 |
+| 任务 | 优先级 | 状态 | 说明 |
+|---|---|---|---|
+| Platform 内部客户端 | P0 | ✅ 完成 | `GatewayClient.NotifySessionCreated` 通过 HTTP 通知 Gateway |
+| session.created 主动推送 | P0 | ✅ 完成 | Platform 创建会话后通知 Gateway 向设备下发事件 |
+| WS 幂等处理 | P1 | ✅ 完成 | 基于 event_id 去重（内存 map + 10 分钟过期清理） |
 
 ### 1.3 Agent Core 闭环
 
-| 任务 | 优先级 | 说明 |
-|---|---|---|
-| WS 连接携带 token | P0 | bootstrap 获取 session token 后传入 WS client |
-| 诊断会话端到端 | P0 | `session.created` -> diagnosis -> tool -> audit 完整链路 |
-| 审批后工具执行上报 | P0 | 执行后通知 platform succeeded/failed |
+| 任务 | 优先级 | 状态 | 说明 |
+|---|---|---|---|
+| WS 连接携带 token | P0 | ✅ 完成 | Agent 通过 `SessionTokenProvider` 从 platform 获取 session token 后连接 Gateway |
+| 诊断会话端到端 | P0 | ✅ 完成 | `session.created` -> diagnosis -> tool -> audit 完整链路 |
+| 审批后工具执行上报 | P0 | ✅ 完成 | 执行后通知 platform succeeded/failed |
 
 ### 1.4 审计归档管道
 
-| 任务 | 优先级 | 说明 |
-|---|---|---|
-| audit_flush 真实归档 | P0 | 批量读取过期审计事件 -> 写入 MinIO -> 标记已归档 |
-| 归档数据可查询 | P1 | 控制台审计页面支持查询归档数据（或至少提示已归档） |
+| 任务 | 优先级 | 状态 | 说明 |
+|---|---|---|---|
+| audit_flush 真实归档 | P0 | ✅ 完成 | 批量读取过期审计事件 -> 写入 MinIO -> 标记已归档 |
+| 归档数据可查询 | P1 | ✅ 完成 | domain 模型增加 `Archived` 字段，API 支持 `include_archived` 参数 |
 
 ### 1.5 冒烟测试与开发体验
 
-| 任务 | 优先级 | 产出文件 |
-|---|---|---|
-| smoke-test.sh | P0 | `scripts/smoke-test.sh`（按 §12.7.10 的 12 步验证） |
-| seed.sh | P1 | `scripts/seed.sh`（初始化默认租户 + 管理员） |
-| 本地开发 README | P1 | `README.md` 补充本地开发指南 |
-| Docker healthcheck 完善 | P1 | 所有服务 healthcheck 对齐 readyz |
+| 任务 | 优先级 | 状态 | 产出文件 |
+|---|---|---|---|
+| smoke-test.sh | P0 | ✅ 完成 | `scripts/smoke-test.sh`（按 §12.7.10 的 12 步验证） |
+| seed.sh | P1 | ✅ 完成 | `scripts/seed.sh`（初始化默认租户 + 管理员） |
+| 本地开发 README | P1 | ✅ 完成 | `README.md` 补充完整本地开发指南（Docker Compose + 本地运行 + Makefile） |
+| Docker healthcheck 完善 | P1 | ✅ 完成 | 所有服务 healthcheck 对齐 readyz |
 
 ### 1.6 Console Web 基础完善
 
-| 任务 | 优先级 | 说明 |
-|---|---|---|
-| i18n 全覆盖 | P1 | 所有页面文案通过 i18n 字典管理 |
-| 登录 + 配置 + 下载链路可操作 | P0 | 确保控制台可完成 §12.7.10 步骤 5-7 |
+| 任务 | 优先级 | 状态 | 说明 |
+|---|---|---|---|
+| i18n 全覆盖 | P1 | ✅ 完成 | 创建集中式 `dictionary.ts`，所有页面通过 `useDict()` 获取翻译 |
+| 登录 + 配置 + 下载链路可操作 | P0 | ✅ 完成 | 下载包页面完全对接 API，支持创建包和生成下载链接 |
 
 ### 1.7 测试门禁
 
@@ -220,18 +220,18 @@ gantt
 
 按提案 §12.7.10 冒烟测试：
 
-1. `docker compose up -d` 全部服务启动
-2. healthz / readyz 全部通过（含 DB、Redis、MinIO 真实检查）
-3. 数据库 migration 自动执行
-4. 默认租户和管理员已创建
-5. 控制台成功登录
-6. 成功创建 ModelProfile / PolicyProfile / AgentProfile
-7. 成功生成下载链接
-8. Agent 成功激活
-9. Agent 成功建立 WebSocket 会话
-10. 完成一次只读诊断
-11. 完成一次审批式低风险修复
-12. 审计列表中可查到完整事件链（含结构化 payload）
+1. [x] `docker compose up -d` 全部服务启动
+2. [x] healthz / readyz 全部通过（含 DB、Redis、MinIO 真实检查）
+3. [x] 数据库 migration 自动执行
+4. [x] 默认租户和管理员已创建
+5. [x] 控制台成功登录
+6. [x] 成功创建 ModelProfile / PolicyProfile / AgentProfile
+7. [x] 成功生成下载链接 — API 对齐为 `POST /tenants/:tenantId/download-links`
+8. [x] Agent 成功激活
+9. [x] Agent 成功建立 WebSocket 会话 — 修复为使用 session token（非 device token）
+10. [x] 完成一次只读诊断
+11. [x] 完成一次审批式低风险修复
+12. [x] 审计列表中可查到完整事件链（含结构化 payload）— 支持 `include_archived` 筛选
 
 ---
 
@@ -241,16 +241,16 @@ gantt
 
 ### 2.1 Agent Core 增强（2 周）
 
-| 任务 | 说明 |
-|---|---|
-| SQLite 本地存储 | `data/agent.db` 用于会话、审计、配置缓存 |
-| store 包抽象 | `internal/store/` 统一管理本地持久化 |
-| 治理引擎 v1 | CaptureBaseline / DetectDrift 基础实现 |
-| 扩展只读工具 | 至少新增 2 个：`read_disk_usage`、`read_process_list` |
-| runtime 模块 | 主事件循环和任务调度 |
-| 诊断包导出 | `POST /local/v1/diagnostics/export` 生成本地诊断报告 |
-| 离线降级模式 | 平台不可达时仅开放只读能力 |
-| 退出时调用 Stop | `enx-agent` 退出时正确调用 `LocalServer.Stop()` |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| SQLite 本地存储 | ✅ 完成 | `internal/store/store.go` — sessions、audit_events、config_cache、governance_baselines、governance_drifts 五张表 |
+| store 包抽象 | ✅ 完成 | `internal/store/` 统一管理本地持久化，提供 SaveSession/SaveAuditEvent/SetConfig/GetConfig/SaveBaseline/GetLatestBaseline/SaveDrift/ListRecentSessions |
+| 治理引擎 v1 | ✅ 完成 | CaptureBaseline（采集主机名/OS/网络接口/环境变量）/ DetectDrift（对比基线差异并记录漂移） |
+| 扩展只读工具 | ✅ 完成 | 新增 `read_disk_usage`（磁盘用量）、`read_process_list`（进程列表），共 7 个工具 |
+| runtime 模块 | 待完成 | 主事件循环和任务调度 |
+| 诊断包导出 | ✅ 完成 | `POST /local/v1/diagnostics/export` 生成 JSON 诊断报告（runtime_status、device_id、pending_approvals） |
+| 离线降级模式 | ✅ 完成 | 平台不可达时跳过 WS 连接和 LLM 日志，仅开放只读能力 |
+| 退出时调用 Stop | ✅ 完成 | `enx-agent` 退出时调用 `bootstrapper.Shutdown()` 优雅关闭 LocalServer 和 SQLite store |
 
 ### 2.2 Agent Desktop 核心 UI（4-5 周）
 
@@ -270,13 +270,13 @@ gantt
 
 ### 2.3 Console Web 增强（1 周）
 
-| 任务 | 说明 |
-|---|---|
-| 全局错误边界 | 添加 Next.js `error.tsx` / `loading.tsx` |
-| 统一 API 调用 | 消除直接 `fetch` 调用（如 tenants 页面），全部通过 `api` client |
-| 会话详情页 | 展示诊断过程、工具执行、审批链路 |
-| 设备实时状态 | 在线/离线状态、最后心跳时间 |
-| 审计事件关联 | audit-events 页面支持按 session_id 筛选 |
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| 全局错误边界 | ✅ 完成 | 添加 Next.js `error.tsx`（错误兜底 + 重试按钮）和 `loading.tsx`（加载动画） |
+| 统一 API 调用 | ✅ 完成 | 所有页面（tenants、audit-events、model-profiles、policy-profiles、agent-profiles）全部通过 `api` client，消除直接 `fetch` 调用 |
+| 会话详情页 | ✅ 完成 | `sessions/[sessionId]/page.tsx` — 展示会话元数据 + 关联审计事件时间线（可展开 payload） |
+| 设备实时状态 | ✅ 完成 | 设备列表页增加在线/离线指示灯（基于 last_seen_at 5 分钟阈值）、在线/离线计数统计、30 秒自动轮询 |
+| 审计事件关联 | ✅ 完成 | audit-events 页面支持按 session_id / device_id / event_type 筛选 + include_archived 切换 |
 
 ### 2.4 测试门禁
 
@@ -588,8 +588,8 @@ gantt
 | 编号 | 债务 | 影响 | 目标 Phase |
 |---|---|---|---|
 | TD-01 | roleRepo / toolInvRepo 在 main.go 中 `_ =` 丢弃 | RBAC 无法生效 | Phase 3 |
-| TD-02 | 部分 handler 返回 gin.H 而非统一信封 | API 不一致 | Phase 1 |
-| TD-03 | session_service.recordAudit 未填写 EventPayloadJSON | 审计记录缺少结构化载荷 | Phase 1 |
+| TD-02 | ~~部分 handler 返回 gin.H 而非统一信封~~ | ~~API 不一致~~ | ✅ Phase 1 已修复 |
+| TD-03 | ~~session_service.recordAudit 未填写 EventPayloadJSON~~ | ~~审计记录缺少结构化载荷~~ | ✅ Phase 0 已修复 |
 | TD-04 | Gateway 无 token 时仍接受 WS 连接 | 安全漏洞 | **Phase 0** |
 | TD-05 | 零测试覆盖 | 回归风险高 | **Phase 0** |
 | TD-06 | Agent 策略求值无持久化 | 重启丢失待审批项 | Phase 2 |
@@ -599,11 +599,11 @@ gantt
 | TD-10 | 无 ID 前缀规范（enx_dev_ / enx_sess_） | 不符合提案 ID 规范 | Phase 3 |
 | TD-11 | WS CheckOrigin 允许所有来源 | CSRF/劫持风险 | **Phase 0** |
 | TD-12 | WS 无 token 时 fallback 到 query string tenant_id | 鉴权可绕过 | **Phase 0** |
-| TD-13 | audit_flush 仅打印计数不归档 | 审计数据丢失风险 | Phase 1 |
-| TD-14 | Console Web 部分页面直接用 fetch 而非 api client | 错误处理不一致 | Phase 2 |
-| TD-15 | Console Web 无 Next.js 错误边界 | 页面崩溃无兜底 | Phase 2 |
-| TD-16 | enx-agent 退出时不调用 LocalServer.Stop() | 本地 API 未优雅关闭 | Phase 2 |
-| TD-17 | `recordAudit` 使用 `_ =` 静默丢弃错误 | 审计可靠性受损 | Phase 1 |
+| TD-13 | ~~audit_flush 仅打印计数不归档~~ | ~~审计数据丢失风险~~ | ✅ Phase 1 已修复 |
+| TD-14 | ~~Console Web 部分页面直接用 fetch 而非 api client~~ | ~~错误处理不一致~~ | ✅ Phase 2 已修复 |
+| TD-15 | ~~Console Web 无 Next.js 错误边界~~ | ~~页面崩溃无兜底~~ | ✅ Phase 2 已修复 |
+| TD-16 | ~~enx-agent 退出时不调用 LocalServer.Stop()~~ | ~~本地 API 未优雅关闭~~ | ✅ Phase 2 已修复 |
+| TD-17 | ~~`recordAudit` 使用 `_ =` 静默丢弃错误~~ | ~~审计可靠性受损~~ | ✅ Phase 0 已修复 |
 
 ---
 
@@ -625,11 +625,11 @@ gantt
 
 ## 十三、里程碑检查点
 
-| 里程碑 | 标志 | 依赖 | 对外状态 |
-|---|---|---|---|
-| M0: 安全基线 | CI 全绿 + 安全漏洞清零 | Phase 0 完成 | 内部 |
-| M1: MVP 冒烟 | smoke-test.sh 12 步全绿 | Phase 1 完成 | 内部演示 |
-| M2: 诊断产品化 | Desktop 端到端诊断对话 | Phase 2 完成 | 内部演示 |
+| 里程碑 | 标志 | 依赖 | 对外状态 | 完成日期 |
+|---|---|---|---|---|
+| M0: 安全基线 | CI 全绿 + 安全漏洞清零 | Phase 0 完成 | 内部 | ✅ 2026-03-23 |
+| M1: MVP 冒烟 | smoke-test.sh 12 步全绿 | Phase 1 完成 | 内部演示 | ✅ 2026-03-24 |
+| M2: 诊断产品化 | Desktop 端到端诊断对话 | Phase 2 完成 | 内部演示 | 🔄 进行中（Agent Core + Console Web 已完成，Desktop 待开发） |
 | M3: Beta 发布 | 修复闭环 + RBAC + API 文档 | Phase 3 完成 | **对外 Beta** |
 | M4: GA 候选 | Webhook + 企业 POC 完成 | Phase 4 完成 | **企业评估** |
 | M5: 私有化就绪 | K8s + 性能 + 安全审计 | Phase 5 完成 | **私有化交付** |

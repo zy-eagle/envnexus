@@ -4,41 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useAuth } from '@/lib/auth/AuthContext';
-
-const translations = {
-  en: {
-    dashboard: "Dashboard Overview",
-    tenantMgmt: "Tenant Management",
-    allTenants: "All Tenants",
-    devices: "Devices",
-    sessions: "Sessions",
-    auditEvents: "Audit Events",
-    downloadPackages: "Download Packages",
-    modelProfiles: "Model Profiles",
-    policyProfiles: "Policy Profiles",
-    agentProfiles: "Agent Profiles",
-    governance: "Governance",
-    platform: "Platform",
-    settings: "Settings",
-    signOut: "Sign Out"
-  },
-  zh: {
-    dashboard: "仪表盘总览",
-    tenantMgmt: "租户管理",
-    allTenants: "所有租户",
-    devices: "设备管理",
-    sessions: "会话管理",
-    auditEvents: "审计事件",
-    downloadPackages: "下载包管理",
-    modelProfiles: "模型配置",
-    policyProfiles: "策略配置",
-    agentProfiles: "Agent 配置",
-    governance: "环境治理",
-    platform: "平台设置",
-    settings: "系统设置",
-    signOut: "退出登录"
-  }
-};
+import { useDict } from '@/lib/i18n/dictionary';
 
 export default function Sidebar() {
   const { lang } = useLanguage();
@@ -48,7 +14,7 @@ export default function Sidebar() {
     platform: true
   });
 
-  const t = translations[lang];
+  const t = useDict('nav', lang);
   const tid = tenantId || 'default';
 
   const toggle = (key: keyof typeof expanded) => {

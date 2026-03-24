@@ -55,13 +55,46 @@ type SessionManager struct {
 	tokenSecret    string
 	redisClient    *RedisClient
 	upgrader       websocket.Upgrader
+	seenEvents     map[string]time.Time
+	seenMu         sync.Mutex
 }
 
 func NewSessionManager(tokenSecret string, allowedOrigins []string) *SessionManager {
-	return &SessionManager{
+	sm := &SessionManager{
 		connections: make(map[string]*DeviceConnection),
 		tokenSecret: tokenSecret,
 		upgrader:    newUpgrader(allowedOrigins),
+		seenEvents:  make(map[string]time.Time),
+	}
+	go sm.cleanupSeenEvents()
+	return sm
+}
+
+func (m *SessionManager) isDuplicate(eventID string) bool {
+	if eventID == "" {
+		return false
+	}
+	m.seenMu.Lock()
+	defer m.seenMu.Unlock()
+	if _, exists := m.seenEvents[eventID]; exists {
+		return true
+	}
+	m.seenEvents[eventID] = time.Now()
+	return false
+}
+
+func (m *SessionManager) cleanupSeenEvents() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		m.seenMu.Lock()
+		cutoff := time.Now().Add(-10 * time.Minute)
+		for id, ts := range m.seenEvents {
+			if ts.Before(cutoff) {
+				delete(m.seenEvents, id)
+			}
+		}
+		m.seenMu.Unlock()
 	}
 }
 
@@ -274,6 +307,11 @@ func (m *SessionManager) readPump(dc *DeviceConnection) {
 		var envelope EventEnvelope
 		if err := json.Unmarshal(p, &envelope); err != nil {
 			slog.Info("Invalid event from device", "device_id", dc.DeviceID, "error", err)
+			continue
+		}
+
+		if m.isDuplicate(envelope.EventID) {
+			slog.Info("Duplicate event ignored", "event_id", envelope.EventID, "device_id", dc.DeviceID)
 			continue
 		}
 

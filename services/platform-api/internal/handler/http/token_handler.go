@@ -20,9 +20,10 @@ func NewTokenHandler(enrollService *enrollment.Service) *TokenHandler {
 }
 
 func (h *TokenHandler) RegisterRoutes(router *gin.RouterGroup) {
-	tokens := router.Group("/tenants/:tenantId/tokens")
+	links := router.Group("/tenants/:tenantId/download-links")
 	{
-		tokens.POST("", h.CreateToken)
+		links.POST("", h.CreateToken)
+		links.GET("", h.ListTokens)
 	}
 }
 
@@ -46,4 +47,20 @@ func (h *TokenHandler) CreateToken(c *gin.Context) {
 	}
 
 	mw.RespondSuccess(c, http.StatusCreated, resp)
+}
+
+func (h *TokenHandler) ListTokens(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	if tenantID == "" {
+		mw.RespondValidationError(c, "tenantId is required")
+		return
+	}
+
+	tokens, err := h.enrollService.ListTokens(c.Request.Context(), tenantID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": tokens})
 }
