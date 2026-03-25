@@ -98,7 +98,7 @@ EnvNexus 采用现代化的**云边协同（Cloud-Edge）微服务架构**，代
 
 ---
 
-## 4. 关键技术实现细节
+## 4. 关键技术实现细节与交互时序
 
 ### 4.1 零编译流式注入分发 (EOF Injection)
 为了解决 SaaS 平台为每个租户打包专属客户端导致 CI 资源耗尽的问题，系统实现了产品级的 **EOF 二进制注入分发**。
@@ -106,10 +106,97 @@ EnvNexus 采用现代化的**云边协同（Cloud-Edge）微服务架构**，代
 2.  **零内存流式拼接**：当用户请求下载时，`Job Runner` 使用 Go 的 `io.MultiReader`，将 MinIO 中的基础包下载流与内存中动态生成的租户 JSON 配置流（带有 `ENX_CONF_START:` 魔数）无缝拼接，直接上传为租户专属包。全程**零内存拷贝，耗时毫秒级**。
 3.  **客户端自解析**：Agent 启动时，调用 `os.Executable()` 读取自身文件末尾 4KB，解析出 JSON，实现免填参数的静默激活。
 
+**分发与激活时序图：**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as 租户管理员
+    participant Web as Console Web
+    participant API as Platform API
+    participant Job as Job Runner
+    participant MinIO as MinIO (对象存储)
+    actor User as 终端用户
+    participant Agent as Agent Core
+
+    Admin->>Web: 选择系统架构，点击"生成下载包"
+    Web->>API: POST /download-packages
+    API->>API: 数据库创建 pending 记录
+    API->>Job: 插入 package_build 异步任务
+    API-->>Web: 返回任务已受理
+    
+    Job->>Job: 轮询获取 package_build 任务
+    Job->>MinIO: 拉取 Base Package (如 enx-agent-base.exe)
+    Job->>Job: 生成租户专属 JSON 配置
+    Job->>Job: io.MultiReader 零内存 EOF 拼接
+    Job->>MinIO: 上传租户专属安装包
+    Job->>API: 更新包状态为 ready
+    
+    Web->>API: 轮询包状态
+    API-->>Web: 返回 Presigned 下载链接
+    Web-->>Admin: 展示下载链接
+    Admin->>User: 发送下载链接
+    
+    User->>Agent: 下载并双击运行
+    Agent->>Agent: os.Executable() 读取自身文件末尾
+    Agent->>Agent: 解析 EOF 注入的租户配置
+    Agent->>API: POST /agent/v1/enroll (携带 Token)
+    API-->>Agent: 返回 Device Token & 平台配置
+    Agent->>Agent: 初始化本地 SQLite 与策略引擎
+```
+
 ### 4.2 诊断与审批状态机
 每一次环境修复都必须经历严格的状态流转，由 `Platform API` 维护全局状态机：
 `Pending_User` (等待用户同意) -> `Approved` (已同意) -> `Executing` (执行中) -> `Completed` / `Failed`。
 Agent Core 只有在轮询/接收到状态变为 `Approved` 后，才被允许调用底层 OS API 执行写入动作。
+
+**诊断与审批执行时序图：**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Expert as IT 专家
+    participant Gateway as Session Gateway
+    participant Agent as Agent Core
+    participant Policy as Policy Engine
+    participant Desktop as Agent Desktop (UI)
+    participant API as Platform API
+    participant Job as Job Runner
+
+    Expert->>Gateway: 发起远程诊断指令 (WebSocket)
+    Gateway->>Agent: 下发指令
+    
+    Agent->>Agent: LLM 路由分析问题
+    Agent->>Agent: 匹配到需要执行的 Tool (如 config.modify)
+    
+    Agent->>Policy: 策略求值 (Evaluate)
+    alt 策略拒绝 (Deny)
+        Policy-->>Agent: 拦截执行
+        Agent-->>Gateway: 返回拦截错误
+    else 策略允许 (Allow)
+        Policy-->>Agent: 允许进入审批流
+        Agent->>API: POST /approval-requests (创建审批单)
+        API-->>Agent: 返回 Approval ID
+        
+        Agent->>Desktop: IPC 推送审批弹窗 (含风险提示)
+        Desktop-->>User: 闪烁置顶，展示 3 秒倒计时
+        User->>Desktop: 点击“同意”
+        Desktop->>Agent: IPC 确认
+        Agent->>API: POST /approvals/{id}/confirm
+        
+        Agent->>Agent: 实际调用系统底层 API 执行动作
+        Agent-->>Gateway: 返回执行结果 (stdout/stderr)
+        
+        Agent->>Agent: 将执行结果写入本地 SQLite 审计表
+    end
+    
+    loop 每 15 秒
+        Agent->>API: 批量上报本地审计日志
+    end
+    
+    loop 每小时
+        Job->>API: 提取全量审计数据
+        Job->>MinIO: 打包为 JSONL 归档
+    end
+```
 
 ### 4.3 离线与降级容灾
 *   **审计回退**：当 MinIO 宕机时，`Job Runner` 的 `audit_flush` worker 会自动降级，将审计日志写入本地文件系统（FS Fallback），确保合规数据不丢失。
