@@ -35,7 +35,104 @@
 
 ---
 
-## 3. 详细功能需求规格
+## 3. 完整系统交互图 (System Interaction Diagrams)
+
+为了更直观地展示各模块（Console Web, Platform API, Job Runner, Session Gateway, Agent Core, Agent Desktop）之间的协作关系，以下是系统核心业务流的交互时序图。
+
+### 3.1 客户端零编译分发与激活时序图
+此流程展示了管理员如何生成下载链接，以及终端用户下载后，Agent 如何利用 EOF 注入技术实现“免填参数、静默激活”。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as 租户管理员
+    participant Web as Console Web
+    participant API as Platform API
+    participant Job as Job Runner
+    participant MinIO as MinIO (对象存储)
+    actor User as 终端用户
+    participant Agent as Agent Core
+
+    Admin->>Web: 选择系统架构，点击"生成下载包"
+    Web->>API: POST /download-packages
+    API->>API: 数据库创建 pending 记录
+    API->>Job: 插入 package_build 异步任务
+    API-->>Web: 返回任务已受理
+    
+    Job->>Job: 轮询获取 package_build 任务
+    Job->>MinIO: 拉取 Base Package (如 enx-agent-base.exe)
+    Job->>Job: 生成租户专属 JSON 配置
+    Job->>Job: io.MultiReader 零内存 EOF 拼接
+    Job->>MinIO: 上传租户专属安装包
+    Job->>API: 更新包状态为 ready
+    
+    Web->>API: 轮询包状态
+    API-->>Web: 返回 Presigned 下载链接
+    Web-->>Admin: 展示下载链接
+    Admin->>User: 发送下载链接
+    
+    User->>Agent: 下载并双击运行
+    Agent->>Agent: os.Executable() 读取自身文件末尾
+    Agent->>Agent: 解析 EOF 注入的租户配置
+    Agent->>API: POST /agent/v1/enroll (携带 Token)
+    API-->>Agent: 返回 Device Token & 平台配置
+    Agent->>Agent: 初始化本地 SQLite 与策略引擎
+```
+
+### 3.2 诊断与审批执行时序图
+此流程展示了核心的“只读诊断 -> 策略拦截 -> 用户审批 -> 安全执行 -> 审计归档”闭环。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Expert as IT 专家
+    participant Gateway as Session Gateway
+    participant Agent as Agent Core
+    participant Policy as Policy Engine
+    participant Desktop as Agent Desktop (UI)
+    participant API as Platform API
+    participant Job as Job Runner
+
+    Expert->>Gateway: 发起远程诊断指令 (WebSocket)
+    Gateway->>Agent: 下发指令
+    
+    Agent->>Agent: LLM 路由分析问题
+    Agent->>Agent: 匹配到需要执行的 Tool (如 config.modify)
+    
+    Agent->>Policy: 策略求值 (Evaluate)
+    alt 策略拒绝 (Deny)
+        Policy-->>Agent: 拦截执行
+        Agent-->>Gateway: 返回拦截错误
+    else 策略允许 (Allow)
+        Policy-->>Agent: 允许进入审批流
+        Agent->>API: POST /approval-requests (创建审批单)
+        API-->>Agent: 返回 Approval ID
+        
+        Agent->>Desktop: IPC 推送审批弹窗 (含风险提示)
+        Desktop-->>User: 闪烁置顶，展示 3 秒倒计时
+        User->>Desktop: 点击“同意”
+        Desktop->>Agent: IPC 确认
+        Agent->>API: POST /approvals/{id}/confirm
+        
+        Agent->>Agent: 实际调用系统底层 API 执行动作
+        Agent-->>Gateway: 返回执行结果 (stdout/stderr)
+        
+        Agent->>Agent: 将执行结果写入本地 SQLite 审计表
+    end
+    
+    loop 每 15 秒
+        Agent->>API: 批量上报本地审计日志
+    end
+    
+    loop 每小时
+        Job->>API: 提取全量审计数据
+        Job->>MinIO: 打包为 JSONL 归档
+    end
+```
+
+---
+
+## 4. 详细功能需求规格
 
 ### 3.1 租户与身份管理模块
 #### 3.1.1 租户 (Tenant)
@@ -102,7 +199,7 @@
 
 ---
 
-## 4. 异常处理与边界条件
+## 5. 异常处理与边界条件
 
 ### 4.1 网络异常降级 (Offline Mode)
 *   **场景**：Agent 所在设备断网或无法连接云端 Platform。
@@ -122,7 +219,7 @@
 
 ---
 
-## 5. 非功能需求 (NFRs)
+## 6. 非功能需求 (NFRs)
 
 ### 5.1 性能与容量指标
 *   **连接数**：单台 Session Gateway 节点需支撑至少 **5,000** 个并发 WebSocket 连接。
@@ -143,7 +240,7 @@
 
 ---
 
-## 6. UI/UX 规范与约束
+## 7. UI/UX 规范与约束
 
 ### 6.1 Agent Desktop (终端)
 *   **静默原则**：软件启动后默认最小化到系统托盘，不弹窗、不抢焦点。
