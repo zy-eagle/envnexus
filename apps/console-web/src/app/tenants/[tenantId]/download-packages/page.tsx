@@ -191,6 +191,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.arch}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.signStatus}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{t.downloadUrl || 'Download'}</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -206,6 +207,15 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                     }`}>
                       {pkg.sign_status}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    {pkg.download_url ? (
+                      <a href={pkg.download_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-900">
+                        Download
+                      </a>
+                    ) : (
+                      <span className="text-gray-400">Pending</span>
+                    )}
                   </td>
                 </tr>
               ))}

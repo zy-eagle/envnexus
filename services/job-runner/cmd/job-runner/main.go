@@ -74,7 +74,7 @@ func main() {
 		go worker.NewAuditFlushWorker(db, mc, bucket).Start(ctx)
 		go worker.NewSessionCleanupWorker(db).Start(ctx)
 		go worker.NewApprovalExpiryWorker(db).Start(ctx)
-		go worker.NewPackageBuildWorker(db).Start(ctx)
+		go worker.NewPackageBuildWorker(db, mc, bucket).Start(ctx)
 		go worker.NewGovernanceScanWorker(db).Start(ctx)
 	}
 

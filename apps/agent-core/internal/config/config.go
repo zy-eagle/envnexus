@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -36,6 +37,7 @@ func NewManager(configDir string) *Manager {
 		},
 	}
 	m.loadFromDisk()
+	m.loadFromExecutable()
 	return m
 }
 
@@ -75,6 +77,62 @@ func (m *Manager) loadFromDisk() {
 	}
 	if diskConfig.HeartbeatSeconds > 0 {
 		m.config.HeartbeatSeconds = diskConfig.HeartbeatSeconds
+	}
+}
+
+// loadFromExecutable attempts to read a JSON payload appended to the end of the executable.
+// It looks for a magic string "ENX_CONF_START:" followed by JSON data.
+func (m *Manager) loadFromExecutable() {
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+
+	fileInfo, err := os.Stat(exePath)
+	if err != nil {
+		return
+	}
+
+	// Only read the last 4KB to look for the payload
+	readSize := int64(4096)
+	if fileInfo.Size() < readSize {
+		readSize = fileInfo.Size()
+	}
+
+	f, err := os.Open(exePath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	buf := make([]byte, readSize)
+	_, err = f.ReadAt(buf, fileInfo.Size()-readSize)
+	if err != nil {
+		return
+	}
+
+	magic := []byte("ENX_CONF_START:")
+	idx := bytes.LastIndex(buf, magic)
+	if idx == -1 {
+		return // No injected config found
+	}
+
+	jsonPayload := buf[idx+len(magic):]
+	// Trim trailing null bytes or newlines that might have been added
+	jsonPayload = bytes.TrimRight(jsonPayload, "\x00\n\r\t ")
+
+	var injectedConfig AgentConfig
+	if err := json.Unmarshal(jsonPayload, &injectedConfig); err != nil {
+		slog.Error("[config] Found injected config but failed to parse JSON", "error", err)
+		return
+	}
+
+	slog.Info("[config] Successfully loaded injected config from executable")
+	if injectedConfig.PlatformURL != "" {
+		m.config.PlatformURL = injectedConfig.PlatformURL
+	}
+	if injectedConfig.EnrollmentToken != "" {
+		m.config.EnrollmentToken = injectedConfig.EnrollmentToken
 	}
 }
 

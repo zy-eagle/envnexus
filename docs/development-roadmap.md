@@ -2,7 +2,7 @@
 
 > 基于 `envnexus-proposal.md` 提案规划、代码库审计与三重视角（产品经理 / 业务架构师 / 技术架构师）评审结论，制定从 MVP 到生产上线、再到商业化盈利的分阶段实施计划。
 >
-> 最后更新：2026-03-24（v6，所有 Phase 代码完成，全模块 100%）
+> 最后更新：2026-03-25（v7，引入零编译 EOF 流式注入分发机制，全模块 100%）
 
 ---
 
@@ -14,9 +14,9 @@
 |---|---|---|---|
 | Platform API | 100% | JWT 认证、CRUD、Agent API、审批 API、Redis/MinIO 接入、Refresh Token、download-links API、RBAC（五角色）、Webhook 系统、用量指标、License 激活、设备 Token 轮换、**工具调用查询 API**、**审计导出 PII 脱敏**、**Redis pub/sub 事件转发** | — |
 | Session Gateway | 100% | WS 协议对齐、Redis pub/sub、事件路由、CORS、event_id 幂等去重、**跨实例 Redis 事件转发**、**自动重连** | — |
-| Job Runner | 100% | 7 个 Worker（token_cleanup、link_cleanup、audit_flush、session_cleanup、approval_expiry、package_build、governance_scan）、离线 FS 归档回退、**`FOR UPDATE SKIP LOCKED` 原子抢占** | — |
-| Agent Core | 100% | LLM Router(7 providers)、5 步诊断、审批同步、10 个工具（含 proxy.toggle、config.modify、container.reload）、SQLite 本地存储、治理引擎、离线降级、优雅退出、**Runtime 模块（任务调度器）**、**SQLite VACUUM 定时维护** | — |
-| Console Web | 100% | 全页面 i18n、统一 API 客户端、错误边界、会话详情页、设备在线状态、审计事件筛选 | — |
+| Job Runner | 100% | 7 个 Worker（token_cleanup、link_cleanup、audit_flush、session_cleanup、approval_expiry、package_build、governance_scan）、离线 FS 归档回退、**`FOR UPDATE SKIP LOCKED` 原子抢占**、**零编译 EOF 流式注入分发** | — |
+| Agent Core | 100% | LLM Router(7 providers)、5 步诊断、审批同步、10 个工具（含 proxy.toggle、config.modify、container.reload）、SQLite 本地存储、治理引擎、离线降级、优雅退出、**Runtime 模块（任务调度器）**、**SQLite VACUUM 定时维护**、**EOF 二进制自解析注入配置** | — |
+| Console Web | 100% | 全页面 i18n、统一 API 客户端、错误边界、会话详情页、设备在线状态、审计事件筛选、**安装包生成与预签名下载** | — |
 | Agent Desktop | 100% | 系统托盘（在线状态）、多页面 UI（仪表盘/诊断对话/审批/历史会话/设置）、spawn agent-core、完整 IPC 通道、诊断包导出、**electron-builder 打包**、**auto-update（electron-updater）** | — |
 | 共享库 | 100% | errors、base model、**logging（结构化日志初始化）**、**httputil（API 响应信封）**、**config（环境变量工具）**、**id（带前缀的 ID 生成）** | — |
 | 数据库 Schema | 100% | 13 张基础表 + 12 张扩展表（role_bindings、device_heartbeats、session_messages、governance_baselines/drifts、webhook_subscriptions/deliveries、jobs、usage_metrics、licenses、policy_snapshots、device_labels） | — |
@@ -166,7 +166,7 @@ gantt
 4. [x] 默认租户和管理员已创建
 5. [x] 控制台成功登录
 6. [x] 成功创建 ModelProfile / PolicyProfile / AgentProfile
-7. [x] 成功生成下载链接
+7. [x] 成功生成下载链接（基于 EOF 流式注入）
 8. [x] Agent 成功激活
 9. [x] Agent 成功建立 WebSocket 会话
 10. [x] 完成一次只读诊断
