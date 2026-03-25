@@ -74,27 +74,32 @@ EnvNexus 采用现代化的**云边协同（Cloud-Edge）微服务架构**，代
 
 ### 3.1 Platform API (平台核心服务)
 *   **架构模式**：严格遵循 **DDD (领域驱动设计)** 架构（`domain` -> `repository` -> `service` -> `handler`）。
-*   **安全机制**：
-    *   基于 JWT 的三级令牌体系：User Token（管理员）、Device Token（设备身份）、Session Token（单次诊断会话）。
-    *   基于中间件的 RBAC（Role-Based Access Control）五级权限控制。
+*   **安全与鉴权机制**：
+    *   **三级 JWT 令牌体系**：
+        *   `Access Token`：有效期 2 小时，用于 Web 控制台的常规 API 请求。
+        *   `Refresh Token`：有效期 7 天，用于换取新的 Access Token。
+        *   `Device Token`：设备专属，有效期 30 天，支持服务端强制吊销 (Revoke) 和主动轮换 (Rotate)。
+    *   **RBAC 权限控制**：通过 `middleware/rbac.go` 实现，预置 5 级角色（System Admin, Tenant Owner, Tenant Admin, Operator, Auditor），在路由层拦截越权访问。
 *   **职责**：处理所有 CRUD 操作，管理 Profile（模型/策略），签发下载链接。
 
 ### 3.2 Session Gateway (会话网关)
 *   **职责**：维持与海量 Agent 的 WebSocket 长连接。
-*   **高可用设计**：无状态设计。Agent 连接到任意网关节点后，网关通过 Redis Pub/Sub 订阅该设备的专属 Channel。当 Platform API 需要向设备下发指令时，将消息推送到 Redis，由持有该连接的网关节点负责转发。
+*   **心跳与保活机制**：Agent 侧每 30 秒发送一次 Ping，网关侧维护 90 秒的 TTL。超时未收到心跳则标记设备为 `Offline`。
+*   **高可用设计 (Redis Pub/Sub)**：无状态设计。Agent 连接到任意网关节点后，网关通过 Redis Pub/Sub 订阅该设备的专属 Channel。当 Platform API 需要向设备下发指令时，将消息推送到 Redis，由持有该连接的网关节点负责转发（跨实例事件路由）。
 
 ### 3.3 Job Runner (异步任务调度)
 *   **职责**：处理耗时任务，解耦核心 API。
-*   **并发控制**：基于 MySQL 的 `FOR UPDATE SKIP LOCKED` 实现轻量级、无死锁的分布式任务抢占。
+*   **并发控制机制**：基于 MySQL 8.0 的 `FOR UPDATE SKIP LOCKED` 语法实现轻量级、无死锁的分布式任务抢占。多个 Job Runner 实例可以并发拉取 `jobs` 表中的待处理任务而不会发生锁冲突。
 *   **核心 Worker**：
     *   `package_build`：处理客户端分发包的流式注入。
     *   `audit_flush`：将高频的审计事件批量打包写入 MinIO。
-    *   `approval_expiry`：清理超时的审批请求。
+    *   `approval_expiry`：清理超时的审批请求（超过 10 分钟未处理自动标记为 Expired）。
 
 ### 3.4 Agent Core (本地执行内核)
 *   **工具注册表 (Tool Registry)**：所有系统操作（如读文件、查进程、改配置）被抽象为独立的 Tool。每个 Tool 必须显式声明其是否为 `ReadOnly`。
-*   **LLM 路由 (LLM Router)**：内置对 OpenAI, Anthropic, DeepSeek, Ollama 等多家大模型 API 的标准化适配，支持断网时回退到本地 Ollama 模型。
-*   **策略引擎 (Policy Engine)**：在执行任何非 ReadOnly 工具前，必须经过本地策略求值。如果命中 Deny 规则，直接在内核层拦截，不予执行。
+*   **LLM 路由 (LLM Router)**：内置对 OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Ollama 等多家大模型 API 的标准化适配，支持断网时回退到本地 Ollama 模型。
+*   **策略引擎 (Policy Engine)**：在执行任何非 ReadOnly 工具前，必须经过本地策略求值。引擎解析 JSON 格式的 Policy Profile，进行 `allowed_tools` (白名单) 和 `blocked_paths` (黑名单) 匹配。如果命中 Deny 规则，直接在内核层拦截，不予执行。
+*   **本地审计缓冲 (Local SQLite)**：为了应对弱网环境，Agent 产生的审计日志先写入本地 SQLite 数据库，随后由后台任务每 15 秒批量上报云端。
 
 ---
 
@@ -199,8 +204,19 @@ sequenceDiagram
 ```
 
 ### 4.3 离线与降级容灾
-*   **审计回退**：当 MinIO 宕机时，`Job Runner` 的 `audit_flush` worker 会自动降级，将审计日志写入本地文件系统（FS Fallback），确保合规数据不丢失。
-*   **Agent 离线模式**：当 Agent 无法连接云端时，会自动切换到 Offline 模式。此时仅开放只读工具，允许用户通过本地 UI 导出加密的诊断包（Diagnostic Bundle），通过 U 盘等物理媒介转移给专家分析。
+*   **审计回退 (Storage Fallback)**：当云端 MinIO 对象存储服务宕机时，`Job Runner` 的 `audit_flush` worker 会自动触发 Fallback 机制，将审计归档文件写入宿主机的本地文件系统（如 `/var/lib/envnexus/audit_fallback/`），确保合规数据不丢失，并在日志中触发 `Critical` 告警。
+*   **Agent 离线模式 (Offline Mode)**：当 Agent 所在设备断网或无法连接云端 Platform 时，会自动切换到 Offline 模式。此时禁用所有需要云端 LLM 的自动分析功能，仅开放本地只读工具。允许用户通过本地 UI 一键导出加密的 `.zip` 诊断包（Diagnostic Bundle），以便通过 U 盘等物理媒介转移给 IT 人员分析。
+
+### 4.4 审计与合规流水线 (Audit Pipeline)
+为了满足企业级合规要求，系统实现了**三级架构的审计流水线**，确保高吞吐与防篡改：
+1.  **终端缓冲层 (Agent SQLite)**：终端产生的事件（登录、审批、工具执行）先写入本地 SQLite，每 15 秒批量上报。
+2.  **在线存储层 (MySQL 8.0)**：Platform API 接收上报并写入 `audit_events` 表，保留 180 天的热数据，支持控制台实时筛选查询。
+3.  **冷备归档层 (MinIO JSONL)**：Job Runner 每小时将 MySQL 中的增量审计数据打包为 JSONL 格式，上传至 MinIO，保留 3 年。
+*   **脱敏导出 (PII Redaction)**：控制台请求导出审计报表时，Platform API 会在内存中自动将 Payload 内的 MAC 地址、内网 IP、Windows 用户名等个人隐私信息替换为 `[REDACTED]`。
+
+### 4.5 审批并发冲突锁 (Concurrency Lock)
+在远程协助场景中，可能出现多个专家同时下发冲突修复脚本的情况。
+*   **Agent 侧队列锁**：Agent Core 内部实现了任务队列锁。前一个审批请求未完结（未进入 `Approved` / `Denied` / `Expired` 状态）前，新到达的高危请求会被直接拒绝（返回 `ErrBusy`），确保同一时刻终端用户屏幕上只有一个待处理的变更请求。
 
 ---
 
