@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { useAuth } from '@/lib/auth/AuthContext';
 import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
 
 export default function TenantsPage() {
   const { lang } = useLanguage();
+  const { switchTenant, activeTenantId } = useAuth();
+  const router = useRouter();
   const t = useDict('tenants', lang);
   const ct = useDict('common', lang);
   const [tenants, setTenants] = useState<any[]>([]);
@@ -90,76 +93,68 @@ export default function TenantsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
-        <button 
-          onClick={openCreateModal}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">{t.title}</h1>
+          <p className="mt-1 text-sm text-slate-500">{lang === 'zh' ? '管理您的租户组织' : 'Manage your tenant organizations'}</p>
+        </div>
+        <button onClick={openCreateModal} className="btn-primary">
+          <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
           {t.createBtn}
         </button>
       </div>
 
+      {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <h2 className="text-xl font-semibold mb-4">{editingId ? t.editModalTitle : t.modalTitle}</h2>
-            <form onSubmit={handleSaveTenant}>
-              <div className="space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-content max-w-md">
+            <h2 className="text-lg font-semibold text-slate-900 mb-5">{editingId ? t.editModalTitle : t.modalTitle}</h2>
+            <form onSubmit={handleSaveTenant} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{t.tenantName}</label>
+                <input 
+                  type="text" 
+                  required
+                  className="input-field"
+                  value={newTenantName}
+                  onChange={(e) => setNewTenantName(e.target.value)}
+                  placeholder="e.g. Acme Corp"
+                />
+              </div>
+              {!editingId && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">{t.tenantName}</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{t.tenantSlug}</label>
                   <input 
                     type="text" 
                     required
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    value={newTenantName}
-                    onChange={(e) => setNewTenantName(e.target.value)}
-                    placeholder="e.g. Acme Corp"
+                    pattern="[a-z0-9-]+"
+                    title="Only lowercase letters, numbers, and hyphens are allowed"
+                    className="input-field"
+                    value={newTenantSlug}
+                    onChange={(e) => setNewTenantSlug(e.target.value)}
+                    placeholder="e.g. acme-corp"
                   />
                 </div>
-                {!editingId && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">{t.tenantSlug}</label>
-                    <input 
-                      type="text" 
-                      required
-                      pattern="[a-z0-9-]+"
-                      title="Only lowercase letters, numbers, and hyphens are allowed"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      value={newTenantSlug}
-                      onChange={(e) => setNewTenantSlug(e.target.value)}
-                      placeholder="e.g. acme-corp"
-                    />
-                  </div>
-                )}
-                {editingId && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">{ct.status}</label>
-                    <select 
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      value={newTenantStatus}
-                      onChange={(e) => setNewTenantStatus(e.target.value)}
-                    >
-                      <option value="active">Active</option>
-                      <option value="suspended">Suspended</option>
-                      <option value="archived">Archived</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-              <div className="mt-6 flex justify-end space-x-3">
-                <button 
-                  type="button" 
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
+              )}
+              {editingId && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{ct.status}</label>
+                  <select 
+                    className="select-field"
+                    value={newTenantStatus}
+                    onChange={(e) => setNewTenantStatus(e.target.value)}
+                  >
+                    <option value="active">Active</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="btn-secondary">
                   {ct.cancel}
                 </button>
-                <button 
-                  type="submit" 
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isSubmitting ? t.creating : (editingId ? ct.save : ct.create)}
+                <button type="submit" disabled={isSubmitting} className="btn-primary">
+                  {isSubmitting ? '...' : (editingId ? ct.save : ct.create)}
                 </button>
               </div>
             </form>
@@ -167,75 +162,88 @@ export default function TenantsPage() {
         </div>
       )}
       
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      {/* Table */}
+      <div className="card overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600 mb-4"></div>
-            <p>{ct.loading}</p>
+          <div className="p-12 text-center">
+            <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-slate-200 border-t-indigo-600 mb-3"></div>
+            <p className="text-sm text-slate-400">{ct.loading}</p>
           </div>
         ) : tenants.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            <p>{t.noTenants}</p>
+          <div className="p-12 text-center">
+            <svg className="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" /></svg>
+            <p className="text-sm text-slate-400">{t.noTenants}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t.name}
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t.slug}
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {ct.status}
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {t.createdAt}
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {ct.actions}
-                  </th>
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/50">
+                  <th className="table-header">{t.name}</th>
+                  <th className="table-header">{t.slug}</th>
+                  <th className="table-header">{ct.status}</th>
+                  <th className="table-header">{t.createdAt}</th>
+                  <th className="table-header text-right">{ct.actions}</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-100">
                 {tenants.map((tenant: any) => (
-                  <tr key={tenant.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {tenant.name}
+                  <tr key={tenant.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="table-cell">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          activeTenantId === tenant.id
+                            ? 'bg-indigo-100 text-indigo-600'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          <span className="text-xs font-bold">{tenant.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <span className="font-medium text-slate-900">{tenant.name}</span>
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {tenant.slug}
+                    <td className="table-cell">
+                      <code className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-mono">{tenant.slug}</code>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        tenant.status === 'active' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
+                    <td className="table-cell">
+                      <span className={
+                        tenant.status === 'active' ? 'badge-success' :
+                        tenant.status === 'suspended' ? 'badge-warning' : 'badge-neutral'
+                      }>
                         {tenant.status || 'active'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="table-cell text-slate-500">
                       {new Date(tenant.created_at).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button 
-                        onClick={() => openEditModal(tenant)}
-                        className="text-blue-600 hover:text-blue-900 mr-4"
-                      >
-                        {ct.edit}
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteTenant(tenant.id)}
-                        className="text-red-600 hover:text-red-900 mr-4"
-                      >
-                        {ct.delete}
-                      </button>
-                      <Link href={`/tenants/${tenant.id}/devices`} className="text-gray-600 hover:text-gray-900">
-                        {t.manage}
-                      </Link>
+                    <td className="table-cell text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openEditModal(tenant)} className="btn-ghost text-xs">
+                          {ct.edit}
+                        </button>
+                        <button onClick={() => handleDeleteTenant(tenant.id)} className="btn-danger text-xs">
+                          {ct.delete}
+                        </button>
+                        <button
+                          onClick={() => { switchTenant(tenant.id); router.push(`/tenants/${tenant.id}/devices`); }}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 ${
+                            activeTenantId === tenant.id
+                              ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20'
+                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                          }`}
+                        >
+                          {activeTenantId === tenant.id ? (
+                            <>
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              {t.current || 'Current'}
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
+                              {t.manage}
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

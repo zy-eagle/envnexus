@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { useAuth } from '@/lib/auth/AuthContext';
 import { useDict } from '@/lib/i18n/dictionary';
 
 export default function Header() {
   const { lang, setLang } = useLanguage();
+  const { activeTenantName } = useAuth();
   const t = useDict('header', lang);
   const [userName, setUserName] = useState(t.admin);
   const [userInitial, setUserInitial] = useState('A');
@@ -20,27 +22,48 @@ export default function Header() {
           setUserName(name);
           setUserInitial(name.charAt(0).toUpperCase());
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
   }, []);
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-      <div className="text-lg font-medium text-gray-800">{t.console}</div>
-      <div className="flex items-center space-x-4">
-        <select 
-          value={lang} 
-          onChange={(e) => setLang(e.target.value as 'en' | 'zh')}
-          className="text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 py-1 px-2"
-        >
-          <option value="en">English</option>
-          <option value="zh">中文</option>
-        </select>
-        <div className="text-sm text-gray-500">{userName}</div>
-        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
-          {userInitial}
+    <header className="h-14 bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex items-center justify-between px-6 sticky top-0 z-30">
+      <div className="flex items-center gap-2">
+        <h1 className="text-sm font-medium text-slate-500">{t.console}</h1>
+        {activeTenantName && (
+          <>
+            <svg className="w-4 h-4 text-slate-300" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            <span className="text-sm font-semibold text-slate-900">{activeTenantName}</span>
+          </>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+          <button
+            onClick={() => setLang('en')}
+            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150 ${
+              lang === 'en' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            EN
+          </button>
+          <button
+            onClick={() => setLang('zh')}
+            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150 ${
+              lang === 'zh' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            中文
+          </button>
+        </div>
+        <div className="h-6 w-px bg-slate-200" />
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-white text-xs font-semibold shadow-sm">
+            {userInitial}
+          </div>
+          <span className="text-sm font-medium text-slate-700">{userName}</span>
         </div>
       </div>
     </header>

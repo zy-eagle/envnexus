@@ -63,6 +63,9 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     max_devices: 1,
   });
 
+  // Agent profiles for dropdown
+  const [agentProfiles, setAgentProfiles] = useState<any[]>([]);
+
   // Binding modal state
   const [bindingPkg, setBindingPkg] = useState<DownloadPackage | null>(null);
   const [bindings, setBindings] = useState<DeviceBinding[]>([]);
@@ -85,9 +88,19 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     }
   }, [params.tenantId]);
 
+  const fetchAgentProfiles = useCallback(async () => {
+    try {
+      const data = await api.get<any[]>(`/tenants/${params.tenantId}/agent-profiles`);
+      setAgentProfiles(Array.isArray(data) ? data : []);
+    } catch {
+      setAgentProfiles([]);
+    }
+  }, [params.tenantId]);
+
   useEffect(() => {
     fetchPackages();
-  }, [fetchPackages]);
+    fetchAgentProfiles();
+  }, [fetchPackages, fetchAgentProfiles]);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,6 +172,11 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     }
   };
 
+  const agentProfileName = (profileId: string) => {
+    const ap = agentProfiles.find(p => p.id === profileId);
+    return ap ? ap.name : profileId || '-';
+  };
+
   const modeLabel = (mode: string) =>
     mode === 'manual' ? t.activationModeManual : t.activationModeAuto;
 
@@ -214,13 +232,16 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                 <form onSubmit={handleGenerate} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.agentProfileId}</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.agent_profile_id}
                       onChange={e => setFormData({ ...formData, agent_profile_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="(optional)"
-                    />
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    >
+                      <option value="">-- {t.selectAgentProfile || 'Select Agent Profile'} --</option>
+                      {agentProfiles.map(ap => (
+                        <option key={ap.id} value={ap.id}>{ap.name}</option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Activation Mode */}
@@ -456,6 +477,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.packageName}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.agentProfileId}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.platform}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.activationMode}</th>
@@ -468,6 +490,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
               {packages.map((pkg) => (
                 <tr key={pkg.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{pkg.package_name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{agentProfileName(pkg.agent_profile_id)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{pkg.platform}/{pkg.arch}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{pkg.version}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">

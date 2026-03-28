@@ -6,64 +6,84 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import { api } from '@/lib/api/client';
 
 const dict = {
-  en: { title: "Dashboard Overview", totalDev: "Total Devices", activeSess: "Active Sessions", sysStatus: "System Status", healthy: "Healthy", recentAct: "Recent Activity", noAct: "No recent activity to display." },
-  zh: { title: "仪表盘总览", totalDev: "设备总数", activeSess: "活跃会话", sysStatus: "系统状态", healthy: "健康", recentAct: "最近活动", noAct: "暂无最近活动。" }
+  en: { title: "Dashboard", subtitle: "Overview of your environment", totalDev: "Total Devices", activeSess: "Active Sessions", sysStatus: "System Status", healthy: "All systems operational", recentAct: "Recent Activity", noAct: "No recent activity to display." },
+  zh: { title: "仪表盘", subtitle: "环境概览", totalDev: "设备总数", activeSess: "活跃会话", sysStatus: "系统状态", healthy: "所有系统运行正常", recentAct: "最近活动", noAct: "暂无最近活动。" }
 };
+
+function StatCard({ label, value, icon, color }: { label: string; value: string | number; icon: JSX.Element; color: string }) {
+  return (
+    <div className="card p-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900 tracking-tight">{value}</p>
+        </div>
+        <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center`}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function OverviewPage() {
   const { lang } = useLanguage();
-  const { tenantId } = useAuth();
+  const { activeTenantId } = useAuth();
   const t = dict[lang];
   const [deviceCount, setDeviceCount] = useState<number | string>('...');
   const [sessionCount, setSessionCount] = useState<number | string>('...');
 
   useEffect(() => {
-    if (!tenantId) return;
+    if (!activeTenantId) return;
 
-    api.get<{ items: any[] }>(`/tenants/${tenantId}/devices`)
+    api.get<{ items: any[] }>(`/tenants/${activeTenantId}/devices`)
       .then(data => setDeviceCount(Array.isArray(data) ? data.length : 0))
       .catch(() => setDeviceCount(0));
 
-    api.get<{ items: any[] }>(`/tenants/${tenantId}/sessions`)
+    api.get<{ items: any[] }>(`/tenants/${activeTenantId}/sessions`)
       .then(data => {
         const active = data.items?.filter((s: any) => !['completed', 'aborted', 'expired'].includes(s.status)) || [];
         setSessionCount(active.length);
       })
       .catch(() => setSessionCount(0));
-  }, [tenantId]);
+  }, [activeTenantId]);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500">{t.totalDev}</h3>
-          <div className="mt-2">
-            <span className="text-3xl font-semibold text-gray-900">{deviceCount}</span>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500">{t.activeSess}</h3>
-          <div className="mt-2">
-            <span className="text-3xl font-semibold text-gray-900">{sessionCount}</span>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500">{t.sysStatus}</h3>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            <span className="text-lg font-medium text-gray-900">{t.healthy}</span>
-          </div>
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">{t.title}</h1>
+        <p className="mt-1 text-sm text-slate-500">{t.subtitle}</p>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-900">{t.recentAct}</h2>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard
+          label={t.totalDev}
+          value={deviceCount}
+          color="bg-blue-50"
+          icon={<svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25A2.25 2.25 0 0 1 5.25 3h13.5A2.25 2.25 0 0 1 21 5.25Z" /></svg>}
+        />
+        <StatCard
+          label={t.activeSess}
+          value={sessionCount}
+          color="bg-emerald-50"
+          icon={<svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>}
+        />
+        <StatCard
+          label={t.sysStatus}
+          value=""
+          color="bg-emerald-50"
+          icon={<svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>}
+        />
+      </div>
+
+      {/* Fix the system status card to show the healthy text */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 className="text-sm font-semibold text-slate-900">{t.recentAct}</h2>
         </div>
-        <div className="p-6">
-          <p className="text-gray-500 text-sm">{t.noAct}</p>
+        <div className="px-5 py-12 text-center">
+          <svg className="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+          <p className="text-sm text-slate-400">{t.noAct}</p>
         </div>
       </div>
     </div>
