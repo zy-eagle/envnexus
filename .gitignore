@@ -52,3 +52,6 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Submodules / Independent Repos
+omnidev-kit/
