@@ -29,6 +29,7 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/license"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/metrics"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
+	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
 	package_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/package"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/policy_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/rbac"
@@ -91,6 +92,7 @@ func main() {
 		webhookSubRepo    repository.WebhookSubscriptionRepository
 		webhookDelRepo    repository.WebhookDeliveryRepository
 		toolInvRepo       repository.ToolInvocationRepository
+		bindingRepo       repository.DeviceBindingRepository
 	)
 
 	var gormDB *gorm.DB
@@ -118,6 +120,7 @@ func main() {
 		webhookSubRepo = repository.NewMySQLWebhookSubscriptionRepository(db)
 		webhookDelRepo = repository.NewMySQLWebhookDeliveryRepository(db)
 		toolInvRepo = repository.NewMySQLToolInvocationRepository(db)
+		bindingRepo = repository.NewMySQLDeviceBindingRepository(db)
 		slog.Info("connected to MySQL database")
 
 		if err := migrations.Run(db); err != nil {
@@ -155,6 +158,7 @@ func main() {
 	enrollService := enrollment.NewService(enrollRepo, deviceRepo, authService)
 	auditService := audit.NewService(auditRepo)
 	pkgService := package_svc.NewService(pkgRepo, minioClient)
+	bindingService := device_binding.NewService(bindingRepo, pkgRepo)
 	modelProfileService := model_profile.NewService(modelProfileRepo)
 	policyProfileService := policy_profile.NewService(policyProfileRepo)
 	agentProfileService := agent_profile.NewService(agentProfileRepo)
@@ -197,7 +201,7 @@ func main() {
 	// --- Handlers ---
 	tenantHandler := httphandler.NewTenantHandler(tenantService)
 	tokenHandler := httphandler.NewTokenHandler(enrollService)
-	pkgHandler := httphandler.NewPackageHandler(pkgService)
+	pkgHandler := httphandler.NewPackageHandler(pkgService, bindingService)
 	authHandler := httphandler.NewAuthHandler(authService)
 	modelProfileHandler := httphandler.NewModelProfileHandler(modelProfileService)
 	policyProfileHandler := httphandler.NewPolicyProfileHandler(policyProfileService)
@@ -220,6 +224,7 @@ func main() {
 	agentAuditHandler := agent.NewAuditHandler(auditService)
 	agentLifecycleHandler := agent.NewLifecycleHandler(deviceService, agentProfileRepo, modelProfileRepo, policyProfileRepo)
 	agentApprovalHandler := agent.NewApprovalHandler(sessionService)
+	agentActivateHandler := agent.NewActivateHandler(bindingService)
 
 	// --- Router ---
 	router := gin.Default()
@@ -321,8 +326,11 @@ func main() {
 		feishuHandler.RegisterRoutes(feishuGroup)
 	}
 
-	// Agent API (device token or open for enrollment)
+	// Agent API (device token or open for enrollment/activation)
 	agentEnrollHandler.RegisterRoutes(router.Group(""))
+	agentActivationGroup := router.Group("")
+	agentActivationGroup.Use(middleware.RateLimiter(10, 20))
+	agentActivateHandler.RegisterRoutes(agentActivationGroup)
 	agentDeviceGroup := router.Group("")
 	agentDeviceGroup.Use(middleware.DeviceAuth(deviceSecret))
 	agentAuditHandler.RegisterRoutes(agentDeviceGroup)

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/activation"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/api"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/audit"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/config"
@@ -62,6 +63,23 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 		slog.Warn("[boot] SQLite store init failed, running without local persistence", "error", err)
 	} else {
 		b.localStore = localStore
+	}
+
+	// Step 0.5: Activation check (if activation_mode is configured)
+	var activationMgr *activation.Manager
+	if cfg.ActivationMode != "" {
+		activationMgr = activation.NewManager(cfg.PlatformURL, cfg.ActivationMode, cfg.ActivationKey, b.configDir)
+		if !activationMgr.IsActivated() {
+			slog.Info("[boot] Activation required", "mode", cfg.ActivationMode)
+			if err := activationMgr.Activate(ctx); err != nil {
+				slog.Warn("[boot] Activation attempt failed", "error", err)
+			}
+			if cfg.ActivationMode == "manual" && !activationMgr.IsActivated() {
+				slog.Info("[boot] Waiting for admin to bind device", "device_code", activationMgr.GetDeviceCode())
+			}
+		} else {
+			slog.Info("[boot] Device is activated", "device_code", activationMgr.GetDeviceCode())
+		}
 	}
 
 	// Step 1: Check device identity / enroll if needed
@@ -197,6 +215,26 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion)
 			},
 		})
+	}
+
+	if activationMgr != nil {
+		if activationMgr.IsActivated() {
+			rt.Register(agentruntime.Task{
+				Name:     "activation_heartbeat",
+				Interval: 5 * time.Minute,
+				Fn: func(ctx context.Context) error {
+					return activationMgr.SendHeartbeat(ctx)
+				},
+			})
+		} else if cfg.ActivationMode == "manual" {
+			rt.Register(agentruntime.Task{
+				Name:     "activation_status_poll",
+				Interval: 30 * time.Second,
+				Fn: func(ctx context.Context) error {
+					return activationMgr.CheckStatus(ctx)
+				},
+			})
+		}
 	}
 
 	if localStore != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/infrastructure"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
 )
 
 type Service struct {
@@ -32,28 +33,51 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 	pkgName := fmt.Sprintf("envnexus-agent-%s-%s-%s%s", req.Platform, req.Arch, req.Version, ext)
 	artifactPath := fmt.Sprintf("packages/%s/%s", tenantID, pkgName)
 
-	pkg := &domain.DownloadPackage{
-		ID:               ulid.Make().String(),
-		TenantID:         tenantID,
-		AgentProfileID:   req.AgentProfileID,
-		DistributionMode: req.DistributionMode,
-		Platform:         req.Platform,
-		Arch:             req.Arch,
-		Version:          req.Version,
-		PackageName:      pkgName,
-		DownloadURL:      "",
-		ArtifactPath:     artifactPath,
-		Checksum:         "",
-		SignStatus:       "pending",
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
+	activationMode := req.ActivationMode
+	if activationMode == "" {
+		activationMode = domain.ActivationModeAuto
+	}
+	maxDevices := req.MaxDevices
+	if maxDevices <= 0 {
+		maxDevices = 1
 	}
 
-	if err := s.pkgRepo.Create(ctx, pkg); err != nil {
+	var activationKey string
+	var activationKeyHash string
+	if activationMode == domain.ActivationModeAuto {
+		activationKey = device_binding.GenerateActivationKey()
+		activationKeyHash = device_binding.HashActivationKey(activationKey)
+	}
+
+	pkg := &domain.DownloadPackage{
+		ID:                ulid.Make().String(),
+		TenantID:          tenantID,
+		AgentProfileID:    req.AgentProfileID,
+		DistributionMode:  req.DistributionMode,
+		Platform:          req.Platform,
+		Arch:              req.Arch,
+		Version:           req.Version,
+		PackageName:       pkgName,
+		DownloadURL:       "",
+		ArtifactPath:      artifactPath,
+		Checksum:          "",
+		SignStatus:        "pending",
+		ActivationMode:    activationMode,
+		ActivationKeyHash: activationKeyHash,
+		MaxDevices:        maxDevices,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+
+	if err := s.pkgRepo.Create(ctx, pkg, activationKey); err != nil {
 		return nil, err
 	}
 
-	return s.toResponse(ctx, pkg), nil
+	resp := s.toResponse(ctx, pkg)
+	if activationKey != "" {
+		resp.ActivationKey = activationKey
+	}
+	return resp, nil
 }
 
 func (s *Service) ListPackages(ctx context.Context, tenantID string) ([]*dto.PackageResponse, error) {
@@ -108,6 +132,9 @@ func (s *Service) toResponse(ctx context.Context, pkg *domain.DownloadPackage) *
 		DownloadURL:      downloadURL,
 		Checksum:         pkg.Checksum,
 		SignStatus:       pkg.SignStatus,
+		ActivationMode:   pkg.ActivationMode,
+		MaxDevices:       pkg.MaxDevices,
+		BoundCount:       pkg.BoundCount,
 		CreatedAt:        pkg.CreatedAt,
 	}
 }

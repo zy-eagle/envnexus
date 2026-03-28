@@ -40,8 +40,11 @@ func main() {
 	sessionTokenSecret := envRequired("ENX_SESSION_TOKEN_SECRET")
 	allowedOrigins := envOrDefault("ENX_CORS_ALLOWED_ORIGINS", "http://localhost:3000")
 
+	platformURL := envOrDefault("ENX_PLATFORM_URL", "http://localhost:8080")
+
 	origins := strings.Split(allowedOrigins, ",")
 	sessionManager := ws.NewSessionManager(sessionTokenSecret, origins)
+	sessionManager.SetPlatformURL(platformURL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

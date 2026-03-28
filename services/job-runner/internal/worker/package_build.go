@@ -32,10 +32,12 @@ func NewPackageBuildWorker(db *gorm.DB, minioClient *minio.Client, bucket string
 }
 
 type packageBuildPayload struct {
-	PackageID string `json:"package_id"`
-	TenantID  string `json:"tenant_id"`
-	Platform  string `json:"platform"`
-	Arch      string `json:"arch"`
+	PackageID      string `json:"package_id"`
+	TenantID       string `json:"tenant_id"`
+	Platform       string `json:"platform"`
+	Arch           string `json:"arch"`
+	ActivationMode string `json:"activation_mode,omitempty"`
+	ActivationKey  string `json:"activation_key,omitempty"`
 }
 
 func (w *PackageBuildWorker) Start(ctx context.Context) {
@@ -179,7 +181,14 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 		configPayload := map[string]string{
 			"platform_url":     platformURL,
 			"ws_url":           wsURL,
-			"enrollment_token": "auto_generated_token_for_" + p.TenantID, // In a full implementation, fetch a real token from DB
+			"enrollment_token": "auto_generated_token_for_" + p.TenantID,
+		}
+
+		if p.ActivationMode != "" {
+			configPayload["activation_mode"] = p.ActivationMode
+		}
+		if p.ActivationMode == "auto" && p.ActivationKey != "" {
+			configPayload["activation_key"] = p.ActivationKey
 		}
 		payloadBytes, _ := json.Marshal(configPayload)
 		injectedData := append([]byte("\nENX_CONF_START:"), payloadBytes...)

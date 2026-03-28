@@ -16,6 +16,8 @@ type AgentConfig struct {
 	ConfigVersion    int    `json:"config_version"`
 	HeartbeatSeconds int    `json:"heartbeat_seconds"`
 	AgentVersion     string `json:"agent_version"`
+	ActivationMode   string `json:"activation_mode,omitempty"`
+	ActivationKey    string `json:"activation_key,omitempty"`
 }
 
 type Manager struct {
@@ -133,6 +135,12 @@ func (m *Manager) loadFromExecutable() {
 	}
 	if injectedConfig.EnrollmentToken != "" {
 		m.config.EnrollmentToken = injectedConfig.EnrollmentToken
+	}
+	if injectedConfig.ActivationMode != "" {
+		m.config.ActivationMode = injectedConfig.ActivationMode
+	}
+	if injectedConfig.ActivationKey != "" {
+		m.config.ActivationKey = injectedConfig.ActivationKey
 	}
 }
 

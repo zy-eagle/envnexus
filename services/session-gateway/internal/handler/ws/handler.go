@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,6 +58,7 @@ type SessionManager struct {
 	upgrader       websocket.Upgrader
 	seenEvents     map[string]time.Time
 	seenMu         sync.Mutex
+	platformURL    string
 }
 
 func NewSessionManager(tokenSecret string, allowedOrigins []string) *SessionManager {
@@ -68,6 +70,10 @@ func NewSessionManager(tokenSecret string, allowedOrigins []string) *SessionMana
 	}
 	go sm.cleanupSeenEvents()
 	return sm
+}
+
+func (m *SessionManager) SetPlatformURL(url string) {
+	m.platformURL = url
 }
 
 func (m *SessionManager) isDuplicate(eventID string) bool {
@@ -376,6 +382,10 @@ func (m *SessionManager) handleAgentEvent(dc *DeviceConnection, evt EventEnvelop
 		slog.Info("Approval requested from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
+	case "activation_heartbeat":
+		slog.Info("Activation heartbeat from device", "device_id", dc.DeviceID)
+		go m.forwardActivationHeartbeat(dc, evt)
+
 	default:
 		slog.Info("Unhandled event type from device", "event_type", evt.EventType, "device_id", dc.DeviceID)
 	}
@@ -408,4 +418,45 @@ func (m *SessionManager) IsDeviceOnline(deviceID string) bool {
 	defer m.mu.RUnlock()
 	_, ok := m.connections[deviceID]
 	return ok
+}
+
+func (m *SessionManager) forwardActivationHeartbeat(dc *DeviceConnection, evt EventEnvelope) {
+	if m.platformURL == "" {
+		return
+	}
+
+	body, _ := json.Marshal(evt.Payload)
+	url := m.platformURL + "/agent/v1/heartbeat"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("Failed to forward activation heartbeat", "device_id", dc.DeviceID, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return
+	}
+
+	ack := EventEnvelope{
+		EventID:   evt.EventID,
+		EventType: "activation_heartbeat.ack",
+		DeviceID:  dc.DeviceID,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Payload:   map[string]string{"status": result.Data.Status},
+	}
+	data, _ := json.Marshal(ack)
+	select {
+	case dc.SendCh <- data:
+	default:
+	}
+
+	if result.Data.Status == "revoked" {
+		slog.Info("Activation revoked for device", "device_id", dc.DeviceID)
+	}
 }

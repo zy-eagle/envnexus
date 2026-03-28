@@ -12,9 +12,11 @@ import (
 )
 
 type PackageRepository interface {
-	Create(ctx context.Context, pkg *domain.DownloadPackage) error
+	Create(ctx context.Context, pkg *domain.DownloadPackage, activationKey ...string) error
 	GetByID(ctx context.Context, id string) (*domain.DownloadPackage, error)
 	ListByTenant(ctx context.Context, tenantID string) ([]*domain.DownloadPackage, error)
+	GetByActivationKeyHash(ctx context.Context, keyHash string) (*domain.DownloadPackage, error)
+	UpdateMaxDevices(ctx context.Context, packageID string, maxDevices int) error
 }
 
 type MySQLPackageRepository struct {
@@ -25,18 +27,23 @@ func NewMySQLPackageRepository(db *gorm.DB) *MySQLPackageRepository {
 	return &MySQLPackageRepository{db: db}
 }
 
-func (r *MySQLPackageRepository) Create(ctx context.Context, pkg *domain.DownloadPackage) error {
+func (r *MySQLPackageRepository) Create(ctx context.Context, pkg *domain.DownloadPackage, activationKey ...string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(pkg).Error; err != nil {
 			return err
 		}
 
-		// Enqueue build job
 		payload := map[string]string{
 			"package_id": pkg.ID,
 			"tenant_id":  pkg.TenantID,
 			"platform":   pkg.Platform,
 			"arch":       pkg.Arch,
+		}
+		if pkg.ActivationMode != "" {
+			payload["activation_mode"] = pkg.ActivationMode
+		}
+		if len(activationKey) > 0 && activationKey[0] != "" {
+			payload["activation_key"] = activationKey[0]
 		}
 		payloadBytes, _ := json.Marshal(payload)
 		payloadStr := string(payloadBytes)
@@ -73,4 +80,20 @@ func (r *MySQLPackageRepository) ListByTenant(ctx context.Context, tenantID stri
 	var pkgs []*domain.DownloadPackage
 	err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Find(&pkgs).Error
 	return pkgs, err
+}
+
+func (r *MySQLPackageRepository) GetByActivationKeyHash(ctx context.Context, keyHash string) (*domain.DownloadPackage, error) {
+	var pkg domain.DownloadPackage
+	err := r.db.WithContext(ctx).Where("activation_key_hash = ? AND activation_key_hash != ''", keyHash).First(&pkg).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &pkg, nil
+}
+
+func (r *MySQLPackageRepository) UpdateMaxDevices(ctx context.Context, packageID string, maxDevices int) error {
+	return r.db.WithContext(ctx).Model(&domain.DownloadPackage{}).Where("id = ?", packageID).Update("max_devices", maxDevices).Error
 }

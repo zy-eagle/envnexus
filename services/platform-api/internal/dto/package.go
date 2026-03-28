@@ -8,6 +8,8 @@ type CreatePackageRequest struct {
 	Platform         string `json:"platform" binding:"required"`
 	Arch             string `json:"arch" binding:"required"`
 	Version          string `json:"version" binding:"required"`
+	ActivationMode   string `json:"activation_mode"`
+	MaxDevices       int    `json:"max_devices"`
 }
 
 type PackageResponse struct {
@@ -22,5 +24,9 @@ type PackageResponse struct {
 	DownloadURL      string    `json:"download_url"`
 	Checksum         string    `json:"checksum"`
 	SignStatus       string    `json:"sign_status"`
+	ActivationMode   string    `json:"activation_mode"`
+	ActivationKey    string    `json:"activation_key,omitempty"`
+	MaxDevices       int       `json:"max_devices"`
+	BoundCount       int       `json:"bound_count"`
 	CreatedAt        time.Time `json:"created_at"`
 }

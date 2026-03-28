@@ -20,10 +20,19 @@ type DownloadPackage struct {
 	BuildVersion          string
 	SignStatus            string
 	SignMetadataJSON      *string
+	ActivationMode        string `gorm:"column:activation_mode"`
+	ActivationKeyHash     string `gorm:"column:activation_key_hash"`
+	MaxDevices            int    `gorm:"column:max_devices"`
+	BoundCount            int    `gorm:"column:bound_count"`
 	Status                string
 	PublishedAt           *time.Time
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 }
+
+const (
+	ActivationModeAuto   = "auto"
+	ActivationModeManual = "manual"
+)
 
 func (p *DownloadPackage) TableName() string { return "download_packages" }
