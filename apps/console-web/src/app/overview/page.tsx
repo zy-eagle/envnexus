@@ -4,14 +4,13 @@ import { useEffect, useState } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { api } from '@/lib/api/client';
-import ConsoleLayout from '@/components/ConsoleLayout';
 
 const dict = {
   en: { title: "Dashboard Overview", totalDev: "Total Devices", activeSess: "Active Sessions", sysStatus: "System Status", healthy: "Healthy", recentAct: "Recent Activity", noAct: "No recent activity to display." },
   zh: { title: "仪表盘总览", totalDev: "设备总数", activeSess: "活跃会话", sysStatus: "系统状态", healthy: "健康", recentAct: "最近活动", noAct: "暂无最近活动。" }
 };
 
-function OverviewContent() {
+export default function OverviewPage() {
   const { lang } = useLanguage();
   const { tenantId } = useAuth();
   const t = dict[lang];
@@ -68,13 +67,5 @@ function OverviewContent() {
         </div>
       </div>
     </div>
-  );
-}
-
-export default function OverviewPage() {
-  return (
-    <ConsoleLayout>
-      <OverviewContent />
-    </ConsoleLayout>
   );
 }

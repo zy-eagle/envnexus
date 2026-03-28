@@ -9,6 +9,7 @@ type ModelProfile struct {
 	Provider               string
 	BaseURL                string
 	ModelName              string
+	APIKey                 string `gorm:"column:api_key"`
 	ParamsJSON             string // Stored as JSON string
 	SecretMode             string
 	FallbackModelProfileID *string

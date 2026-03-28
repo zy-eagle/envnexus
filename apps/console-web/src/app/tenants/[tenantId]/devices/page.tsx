@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
-import ConsoleLayout from '@/components/ConsoleLayout';
+
 
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 30 * 1000;
@@ -215,9 +215,5 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
 }
 
 export default function DevicesPage({ params }: { params: { tenantId: string } }) {
-  return (
-    <ConsoleLayout>
-      <DevicesContent tenantId={params.tenantId} />
-    </ConsoleLayout>
-  );
+  return <DevicesContent tenantId={params.tenantId} />;
 }

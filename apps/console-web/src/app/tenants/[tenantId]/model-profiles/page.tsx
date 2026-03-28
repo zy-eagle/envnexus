@@ -11,6 +11,7 @@ interface ModelProfile {
   provider: string;
   base_url: string;
   model_name: string;
+  api_key?: string;
   status: string;
   params_json?: string;
   secret_mode?: string;
@@ -30,6 +31,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
     provider: 'openai',
     base_url: 'https://api.openai.com/v1',
     model_name: 'gpt-4',
+    api_key: '',
     params_json: '{}',
     secret_mode: 'env'
   });
@@ -41,6 +43,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
       provider: 'openai',
       base_url: 'https://api.openai.com/v1',
       model_name: 'gpt-4',
+      api_key: '',
       params_json: '{}',
       secret_mode: 'env'
     });
@@ -54,6 +57,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
       provider: profile.provider,
       base_url: profile.base_url,
       model_name: profile.model_name,
+      api_key: profile.api_key || '',
       params_json: profile.params_json || '{}',
       secret_mode: profile.secret_mode || 'env'
     });
@@ -195,6 +199,16 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
                     </>
                   )}
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.apiKey}</label>
+                <input 
+                  type="password" 
+                  value={formData.api_key}
+                  onChange={e => setFormData({...formData, api_key: e.target.value})}
+                  placeholder={t.apiKeyPlaceholder}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500" 
+                />
               </div>
               <div className="flex justify-end space-x-3 mt-6">
                 <button 

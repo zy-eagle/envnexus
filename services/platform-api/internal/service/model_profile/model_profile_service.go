@@ -34,6 +34,7 @@ func (s *Service) ListProfiles(ctx context.Context, tenantID string) ([]*dto.Mod
 			Provider:   p.Provider,
 			BaseURL:    p.BaseURL,
 			ModelName:  p.ModelName,
+			APIKey:     p.APIKey,
 			ParamsJSON: p.ParamsJSON,
 			SecretMode: p.SecretMode,
 			Status:     p.Status,
@@ -54,6 +55,7 @@ func (s *Service) CreateProfile(ctx context.Context, tenantID string, req dto.Cr
 		Provider:   req.Provider,
 		BaseURL:    req.BaseURL,
 		ModelName:  req.ModelName,
+		APIKey:     req.APIKey,
 		ParamsJSON: req.ParamsJSON,
 		SecretMode: req.SecretMode,
 		Status:     "active",
@@ -71,6 +73,7 @@ func (s *Service) CreateProfile(ctx context.Context, tenantID string, req dto.Cr
 		Provider:   profile.Provider,
 		BaseURL:    profile.BaseURL,
 		ModelName:  profile.ModelName,
+		APIKey:     profile.APIKey,
 		ParamsJSON: profile.ParamsJSON,
 		SecretMode: profile.SecretMode,
 		Status:     profile.Status,
@@ -101,6 +104,9 @@ func (s *Service) UpdateProfile(ctx context.Context, tenantID, id string, req dt
 	if req.ModelName != "" {
 		profile.ModelName = req.ModelName
 	}
+	if req.APIKey != "" {
+		profile.APIKey = req.APIKey
+	}
 	if req.ParamsJSON != "" {
 		profile.ParamsJSON = req.ParamsJSON
 	}
@@ -123,6 +129,7 @@ func (s *Service) UpdateProfile(ctx context.Context, tenantID, id string, req dt
 		Provider:   profile.Provider,
 		BaseURL:    profile.BaseURL,
 		ModelName:  profile.ModelName,
+		APIKey:     profile.APIKey,
 		ParamsJSON: profile.ParamsJSON,
 		SecretMode: profile.SecretMode,
 		Status:     profile.Status,

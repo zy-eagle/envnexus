@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
-import ConsoleLayout from '@/components/ConsoleLayout';
+
 
 function SessionsContent({ tenantId }: { tenantId: string }) {
   const { lang } = useLanguage();
@@ -107,9 +107,5 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
 }
 
 export default function SessionsPage({ params }: { params: { tenantId: string } }) {
-  return (
-    <ConsoleLayout>
-      <SessionsContent tenantId={params.tenantId} />
-    </ConsoleLayout>
-  );
+  return <SessionsContent tenantId={params.tenantId} />;
 }
