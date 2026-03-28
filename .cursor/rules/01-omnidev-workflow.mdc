@@ -1,0 +1,81 @@
+---
+description: OmniDev core workflow specification. Forces the AI to brainstorm, design globally, and break down plans before coding. Supports command parameterization, multi-persona collaboration, mid-stream requirement changes, and project type awareness.
+globs: *
+---
+# OmniDev Core Workflow
+
+As an AI coding assistant, when a user submits a new requirement or types `/od`, you MUST **strictly follow the phases below**.
+**It is strictly prohibited to write business code directly before requirements are clear and confirmed.**
+
+All generated documents must be stored in the `docs/omnidev-state/` directory.
+
+## Phase 0: Command & Parameters Parsing
+Users can trigger the workflow using the following commands:
+- `/od help`: View the meanings and usage of all OmniDev commands. Output a beautifully formatted help manual.
+- `/od onboard`: Legacy project onboarding. Actively scan the current project directory, analyze the tech stack, architecture, and conventions, and generate a context document.
+- `/od learn`: Self-learning & retrospective mechanism. Analyze recent errors and user corrections, extract lessons, and update the pitfall guide.
+- `/od [requirement]`: Standard workflow.
+- `/od --fast [requirement]`: Skip blueprint and planning, enter development directly (for urgent hotfixes).
+- `/od --plan-only [requirement]`: Only output blueprint and plan, do not write code.
+- `/od change [new requirement/adjustment]`: Handle mid-stream requirement changes or additions.
+- `/od <Issue-URL>`: Automatically fetch Issue content (e.g., GitHub/Jira) and convert it into a requirement blueprint.
+- `/od review`: Act as a strict architect, only perform Code Review on the current code, do not modify code.
+- `/od qa`: Act as a QA engineer, only write test cases and execute tests.
+
+If no parameters are specified, perform a **Task Complexity Assessment (T-Shirt Sizing)**:
+- **S (Trivial)**: Skip blueprint and plan, fix and test directly.
+- **M (Medium)**: Skip blueprint, directly generate `02-plan.md`, develop after confirmation.
+- **L/XL (Large)**: Execute the full Phase 1 to Phase 4 workflow.
+
+*Note: When replying to the user, briefly explain the parsed command, the assessed complexity level, and the adopted strategy. **IMPORTANT: Always reply to the user in the language they used to communicate with you (e.g., if the user asks in Chinese, reply in Chinese).***
+
+## Special Flow: Project Type Awareness & Adaptive Constraints
+Before starting any development, you must first determine if the current project is a **"Greenfield Project"** or a **"Legacy Project"**, and record it in the `project_type` field of `docs/omnidev-state/00-project-context.md`.
+
+### 1. Legacy Project
+- **Criteria**: The project already has a large amount of non-OmniDev generated business code, or the user explicitly typed `/od onboard`.
+- **Core Constraint (Baseline First)**: **Absolutely prohibit forcing OmniDev's recommended modern conventions (like DDD, TDD, specific test frameworks) into legacy projects.** You must 100% follow the legacy project's directory structure, naming conventions, error handling, and dependencies. If the legacy project doesn't write tests, do not force test creation (unless requested). **"Write code like a sensible veteran employee, not an arrogant parachuted architect."**
+
+### 2. Greenfield Project
+- **Criteria**: The project is empty, or only contains an initialized scaffold (like a fresh `create-react-app`), with no legacy business code.
+- **Core Constraint (Spec-Driven)**: Fully enable OmniDev's modern software engineering conventions. Force OpenSpec / TDD / DDD, mandate high-coverage test cases, and force the generation of complete deployment manifests.
+
+## Special Flow: Legacy Project Onboarding
+When `/od onboard` is triggered:
+1. **Global Scan**: Read project dependencies, directory structure, and core config files.
+2. **Architecture & Convention Extraction**: Analyze the architectural pattern, state management, and code style.
+3. **Context Generation**: Output the "Project Context & Convention Guide" in `docs/omnidev-state/00-project-context.md`, and mark `project_type` as `legacy`. **(Output this document in the user's preferred language)**.
+
+## Special Flow: Self-Learning & Retrospective
+When `/od learn` is triggered or after a large task is completed:
+1. **Error Analysis**: Scan progress docs and archives for errors and user corrections.
+2. **Experience Extraction**: Summarize the pitfalls encountered.
+3. **Solidify Knowledge**: Write the lessons into the `[AI Pitfall Guide]` section of `00-project-context.md`.
+
+## Phase 1: Brainstorming & Blueprint - L/XL Tasks Only
+1. **Mine Potential Needs**: Analyze requirements, think about edge cases, exception handling, and UX.
+2. **Global Blueprint Output**: Output the final state description of the requirement in `docs/omnidev-state/01-blueprint.md`. **(Output this document in the user's preferred language)**.
+3. **Wait for Confirmation**: Show the blueprint summary to the user and explicitly ask: "Please confirm if we should proceed with this blueprint?"
+
+## Phase 2: Planning - M and L/XL Tasks
+1. Break down the requirement into specific features and technical tasks, prioritize them.
+2. Generate a Markdown task list with checkboxes in `docs/omnidev-state/02-plan.md`. **(Output this document in the user's preferred language)**.
+3. **Wait for Confirmation**: Show the plan summary and ask: "Please confirm if we can start the first step of development?"
+
+## Special Flow: Change Management
+When `/od change` is used:
+1. **Impact Assessment**: Assess the complexity of the new requirement, analyze its impact on the current architecture and written code, and output an assessment doc.
+2. **Wait for Confirmation**: Ask the user if they confirm introducing this change.
+3. **Archive & Refactor**: After confirmation, archive the old plan, and regenerate the blueprint and plan.
+
+## Phase 3: Defensive Programming & Spec-Driven Development
+1. **Auto-Checkpointing**: Before modifying code, force execute `git commit -m "chore: auto-checkpoint before omnidev task"`.
+2. **Adaptive Coding**:
+   - If `legacy`: Strictly imitate surrounding old code, reuse existing utilities, prohibit introducing new conventions.
+   - If `greenfield`: Strictly execute TDD/DDD and OmniDev modern conventions.
+3. Update the checkbox status in `02-plan.md` after completing each sub-task.
+
+## Phase 4: Testing & Wrap-up
+1. After development, automatically enter the testing phase (if `legacy` without test infra, only do basic verification, no forced unit tests).
+2. For M and L/XL tasks, generate deployment config docs and an Efficiency Bill (ROI).
+3. **Trigger Self-Learning**: Automatically execute the `/od learn` flow.
