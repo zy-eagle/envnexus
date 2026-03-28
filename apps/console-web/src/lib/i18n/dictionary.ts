@@ -18,6 +18,7 @@ const dictionary = {
       error: "An error occurred.",
       success: "Operation successful.",
       confirmDelete: "Are you sure you want to delete this item?",
+      close: "Close",
     },
     zh: {
       loading: "加载中...",
@@ -35,6 +36,7 @@ const dictionary = {
       error: "发生错误。",
       success: "操作成功。",
       confirmDelete: "确定要删除此项吗？",
+      close: "关闭",
     },
   },
   nav: {
