@@ -25,8 +25,9 @@ When the user triggers `/od`, strictly follow the OmniDev workflow defined in th
 | `/od review` | Code review only (no modifications) |
 | `/od qa` | Write and execute test cases |
 | `/od change [new requirement]` | Handle mid-stream requirement changes |
+| `/od <Issue-URL>` | Parse GitHub/Jira issue into requirement blueprint |
 | `/od learn` | Self-learning from recent errors |
-| `/od update` | Fetch latest rules from remote repo, merge & audit |
+| `/od update` | Fetch remote rules and overwrite local OmniDev files |
 | `/od compress` | Manually trigger context memory compression |
 
 ## Key Behaviors

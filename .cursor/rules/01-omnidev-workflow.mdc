@@ -23,7 +23,7 @@ OmniDev workflow is **only triggered when the user's message starts with `/od`**
 | `/od onboard` | "分析一下这个项目"、"扫描项目结构"、"了解下现有代码" | Legacy project onboarding |
 | `/od learn` | "总结一下经验教训"、"复盘"、"学习之前的错误" | Self-learning & retrospective |
 | `/od report` | "出个周报"、"项目进展报告"、"生成状态报告" | Enterprise-grade project report |
-| `/od update` | "更新omnidev规则"、"升级工具"、"拉取最新规则" | Update OmniDev Kit from remote |
+| `/od update` | "更新omnidev规则"、"升级工具"、"拉取最新规则" | Fetch remote rules and overwrite local |
 | `/od compress` | "压缩上下文"、"清理历史日志"、"节省token" | Context memory compression |
 | `/od [requirement]` | Any requirement description without specific command keywords | Standard workflow |
 | `/od --fast [req]` | "紧急修复"、"快速修一下"、"hotfix" | Skip blueprint & plan, develop directly |
@@ -116,7 +116,7 @@ When the user types `/od report`:
    - **Next Week's Plan**: Actionable tasks remaining in the backlog.
 
 ## Special Flow: Update OmniDev Kit (Update)
-OmniDev Kit has an official remote repository as its upstream source. `/od update` performs a **remote fetch + non-destructive merge + local consistency audit**.
+OmniDev Kit has an official remote repository as its upstream source. `/od update` performs a **remote fetch + direct overwrite**.
 
 **Remote Source**: `https://github.com/zy-eagle/omnidev-kit.git` (configurable — if the user specifies a different URL, use that instead).
 
@@ -126,25 +126,16 @@ When the user types `/od update`, the AI MUST execute the following steps in ord
 1. Clone (shallow, `--depth 1`) the remote repository to a temporary directory.
 2. Read all rule files from `rules/` and skill files from `skills/od/` in the cloned repo.
 
-### Step 2: Non-Destructive Merge
-For each remote file, compare with the corresponding local file in `.cursor/rules/` or `.cursor/skills/od/`:
-- **Remote has new content not in local**: Merge the new content into the local file at the appropriate location.
-- **Local has custom enhancements not in remote**: **ALWAYS preserve local customizations.** Never overwrite or remove them.
-- **Both have the same section but with different wording**: Prefer the **more detailed/specific** version. If the remote version adds new capabilities, merge them in while keeping local refinements.
-- **Remote has a new file not in local**: Copy it to the local directory.
+### Step 2: Overwrite Local Files
+Directly overwrite local files with remote versions:
+- Copy all `rules/*.mdc` files from the remote repo to `.cursor/rules/`, replacing existing OmniDev rule files (`01` through `05`).
+- Copy `skills/od/SKILL.md` from the remote repo to `.cursor/skills/od/SKILL.md`.
+- If the remote repo has new files not present locally, copy them as well.
+- **Do NOT touch non-OmniDev rule files** (e.g., `project-conventions.mdc`, `git-commit.mdc`) — only overwrite files whose names match the OmniDev naming pattern (`*-omnidev-*.mdc`).
 
-### Step 3: Local Consistency Audit
-After merging, perform a cross-file consistency check:
-- Verify all commands referenced in any rule file are listed in `01`'s command table and `SKILL.md`.
-- Verify state file descriptions in `02` match the actual usage in other rules.
-- Verify phase descriptions are consistent across all files.
-- Fix any contradictions introduced by the merge.
-
-### Step 4: Cleanup & Report
+### Step 3: Cleanup & Report
 1. Remove the temporary cloned directory.
-2. Summarize all changes made to the user in a clear table format (file, change type, description).
-
-- **Auto-Update (Optional)**: Before executing an `L/XL` task, the AI may silently check if the remote has newer rules and apply updates without interrupting the workflow.
+2. List all files that were overwritten or added in a clear table format (file, action).
 
 ## Special Flow: Project Type Awareness & Adaptive Constraints
 Before starting any development, you must first determine if the current project is a **"Greenfield Project"** or a **"Legacy Project"**, and record it in the `project_type` field of `docs/omnidev-state/00-project-context.md`.
