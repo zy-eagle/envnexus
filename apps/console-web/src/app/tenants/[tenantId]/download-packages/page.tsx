@@ -221,9 +221,23 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                 <h2 className="text-xl font-semibold text-green-700">{t.activationKey}</h2>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
                   <p className="text-sm text-yellow-800 mb-2">{t.activationKeyWarning}</p>
-                  <code className="block bg-white border rounded px-3 py-2 text-lg font-mono select-all break-all">
-                    {createdKey}
-                  </code>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 block bg-white border rounded px-3 py-2 text-lg font-mono select-all break-all">
+                      {createdKey}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(createdKey);
+                        const btn = document.getElementById('copy-key-btn');
+                        if (btn) { btn.textContent = t.copied || '✓'; setTimeout(() => { btn.textContent = t.copyBtn || 'Copy'; }, 1500); }
+                      }}
+                      id="copy-key-btn"
+                      className="flex-shrink-0 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium transition-colors"
+                    >
+                      {t.copyBtn || 'Copy'}
+                    </button>
+                  </div>
                 </div>
                 <div className="flex justify-end">
                   <button
