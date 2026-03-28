@@ -7,7 +7,6 @@ import { api } from '@/lib/api/client';
 
 interface CapabilityFields {
   local_ui: boolean;
-  repair_enabled: boolean;
 }
 
 function parseCapabilities(json: string): CapabilityFields {
@@ -15,10 +14,9 @@ function parseCapabilities(json: string): CapabilityFields {
     const obj = JSON.parse(json);
     return {
       local_ui: obj.local_ui ?? true,
-      repair_enabled: obj.repair_enabled ?? true,
     };
   } catch {
-    return { local_ui: true, repair_enabled: true };
+    return { local_ui: true };
   }
 }
 
@@ -72,12 +70,12 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
     name: '',
     model_profile_id: '',
     policy_profile_id: '',
-    capabilities_json: toCapabilitiesJSON({ local_ui: true, repair_enabled: true }),
+    capabilities_json: toCapabilitiesJSON({ local_ui: true }),
     update_channel: 'stable',
     status: 'active'
   });
 
-  const [capFields, setCapFields] = useState<CapabilityFields>({ local_ui: true, repair_enabled: true });
+  const [capFields, setCapFields] = useState<CapabilityFields>({ local_ui: true });
 
   const updateCapField = useCallback((field: keyof CapabilityFields, value: boolean) => {
     const next = { ...capFields, [field]: value };
@@ -116,7 +114,7 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
 
   const openCreateModal = () => {
     setEditingId(null);
-    const defaultCap: CapabilityFields = { local_ui: true, repair_enabled: true };
+    const defaultCap: CapabilityFields = { local_ui: true };
     setCapFields(defaultCap);
     setFormData({
       name: '',
@@ -247,12 +245,6 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
                     onChange={v => updateCapField('local_ui', v)}
                     label={t.capLocalUI}
                     description={t.capLocalUIDesc}
-                  />
-                  <ToggleSwitch
-                    checked={capFields.repair_enabled}
-                    onChange={v => updateCapField('repair_enabled', v)}
-                    label={t.capRepair}
-                    description={t.capRepairDesc}
                   />
                 </div>
               </div>
