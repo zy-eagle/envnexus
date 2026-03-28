@@ -25,7 +25,8 @@ When the user triggers `/od`, strictly follow the OmniDev workflow defined in th
 | `/od qa` | Write and execute test cases |
 | `/od change [new requirement]` | Handle mid-stream requirement changes |
 | `/od learn` | Self-learning from recent errors |
-| `/od update` | Update OmniDev Kit rules to latest version |
+| `/od update` | Self-check & optimize OmniDev Kit rules for consistency |
+| `/od compress` | Manually trigger context memory compression |
 
 ## Workflow
 

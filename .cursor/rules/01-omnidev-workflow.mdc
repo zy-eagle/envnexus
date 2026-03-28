@@ -15,7 +15,8 @@ Users can trigger the workflow using the following commands:
 - `/od onboard`: Legacy project onboarding. Actively scan the current project directory, analyze the tech stack, architecture, and conventions, and generate a context document.
 - `/od learn`: Self-learning & retrospective mechanism. Analyze recent errors and user corrections, extract lessons, and update the pitfall guide.
 - `/od report`: **Generate an enterprise-grade project status report**. Ready for management reporting.
-- `/od update`: **Update OmniDev Kit**. Fetch the latest rules from the remote repository and apply them to the current project.
+- `/od update`: **Self-check & optimize OmniDev Kit**. Audit all local OmniDev rule files for consistency, fix cross-file contradictions, fill in missing references, and report a summary of changes.
+- `/od compress`: Manually trigger context memory compression (archive old progress logs to save Tokens).
 - `/od [requirement]`: Standard workflow.
 - `/od --fast [requirement]`: Skip blueprint and planning, enter development directly (for urgent hotfixes).
 - `/od --plan-only [requirement]`: Only output blueprint and plan, do not write code.
@@ -67,10 +68,19 @@ When the user types `/od report`:
    - **Current Blockers & Risks**: Any unresolved issues, technical debt, or dependencies holding up progress.
    - **Next Week's Plan**: Actionable tasks remaining in the backlog.
 
-## Special Flow: Tool Auto-Update (Update)
-OmniDev Kit supports updating its core rules to the latest version.
-- **Auto-Update (Default)**: Before executing an `L/XL` task, the AI should silently check if the `omnidev-kit` rules in the project are outdated (by comparing with the remote source if available) and update them seamlessly.
-- **Manual Update**: When the user types `/od update`, the AI MUST fetch the latest `.mdc` files from the official OmniDev repository (or the user's specified source) and overwrite the local `.cursor/rules/` while preserving user-specific custom rules (Non-Destructive Merge).
+## Special Flow: Self-Check & Optimize (Update)
+OmniDev Kit rules are maintained locally within the project. `/od update` performs a **local consistency audit** rather than fetching from a remote source.
+
+When the user types `/od update`, the AI MUST:
+1. **Read all OmniDev rule files** (`01` through `05` in `.cursor/rules/`) and the Skill file (`.cursor/skills/od/SKILL.md`).
+2. **Cross-file consistency check**:
+   - Verify all commands referenced in any rule file are listed in `01`'s command table and `SKILL.md`.
+   - Verify state file descriptions in `02` match the actual usage in other rules.
+   - Verify phase descriptions are consistent across all files (e.g., Phase 1 blueprint behavior in `01` matches `02`'s description of `01-blueprint.md`).
+3. **Fix contradictions**: Directly update rule files to resolve any inconsistencies found.
+4. **Report**: Summarize all changes made to the user.
+
+- **Auto-Check (Optional)**: Before executing an `L/XL` task, the AI may silently perform a quick consistency check and fix obvious issues without interrupting the workflow.
 
 ## Special Flow: Project Type Awareness & Adaptive Constraints
 Before starting any development, you must first determine if the current project is a **"Greenfield Project"** or a **"Legacy Project"**, and record it in the `project_type` field of `docs/omnidev-state/00-project-context.md`.
