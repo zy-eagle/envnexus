@@ -30,6 +30,7 @@ func (h *PackageHandler) RegisterRoutes(router *gin.RouterGroup) {
 		pkgs.GET("", h.ListPackages)
 
 		pkgs.DELETE("/:packageId", h.DeletePackage)
+		pkgs.GET("/:packageId/download-url", h.GetDownloadURL)
 		pkgs.POST("/:packageId/bind", h.BindDevice)
 		pkgs.DELETE("/:packageId/bindings/:bindingId", h.UnbindDevice)
 		pkgs.GET("/:packageId/bindings", h.ListBindings)
@@ -95,6 +96,23 @@ func (h *PackageHandler) DeletePackage(c *gin.Context) {
 	}
 
 	mw.RespondSuccess(c, http.StatusOK, gin.H{"message": "package deleted"})
+}
+
+func (h *PackageHandler) GetDownloadURL(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	packageID := c.Param("packageId")
+	if tenantID == "" || packageID == "" {
+		mw.RespondValidationError(c, "tenantId and packageId are required")
+		return
+	}
+
+	url, err := h.pkgService.GetPresignedURL(c.Request.Context(), tenantID, packageID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"download_url": url})
 }
 
 func (h *PackageHandler) BindDevice(c *gin.Context) {

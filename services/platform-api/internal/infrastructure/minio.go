@@ -12,8 +12,10 @@ import (
 )
 
 type MinIOClient struct {
-	client     *minio.Client
-	bucketName string
+	client         *minio.Client
+	bucketName     string
+	publicEndpoint string
+	publicUseSSL   bool
 }
 
 func NewMinIOClient(endpoint, accessKey, secretKey, bucketName string, useSSL bool) (*MinIOClient, error) {
@@ -41,6 +43,15 @@ func NewMinIOClient(endpoint, accessKey, secretKey, bucketName string, useSSL bo
 	return &MinIOClient{client: client, bucketName: bucketName}, nil
 }
 
+// SetPublicEndpoint configures an externally-accessible endpoint for presigned URLs.
+// When set, presigned URLs will have their host rewritten from the internal Docker
+// endpoint (e.g. minio:9000) to this public one (e.g. 192.168.1.100:9000).
+func (m *MinIOClient) SetPublicEndpoint(endpoint string, useSSL bool) {
+	m.publicEndpoint = endpoint
+	m.publicUseSSL = useSSL
+	slog.Info("MinIO public endpoint configured", "public_endpoint", endpoint, "ssl", useSSL)
+}
+
 func (m *MinIOClient) Client() *minio.Client {
 	return m.client
 }
@@ -56,5 +67,19 @@ func (m *MinIOClient) Ping(ctx context.Context) error {
 
 func (m *MinIOClient) PresignedGetURL(ctx context.Context, objectName string, expiry time.Duration) (*url.URL, error) {
 	reqParams := make(url.Values)
-	return m.client.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
+	u, err := m.client.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
+	if err != nil {
+		return nil, err
+	}
+
+	if m.publicEndpoint != "" {
+		scheme := "http"
+		if m.publicUseSSL {
+			scheme = "https"
+		}
+		u.Scheme = scheme
+		u.Host = m.publicEndpoint
+	}
+
+	return u, nil
 }

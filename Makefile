@@ -1,4 +1,4 @@
-.PHONY: build run-platform run-gateway run-runner run-agent deploy deploy-web deploy-api stop restart status logs reset
+.PHONY: build build-agents run-platform run-gateway run-runner run-agent deploy deploy-web deploy-api stop restart status logs reset
 
 deploy:
 	@./deploy.sh start
@@ -34,6 +34,22 @@ build:
 	@echo "Building agent-core..."
 	cd apps/agent-core && go build -o ../../bin/enx-agent ./cmd/enx-agent
 	@echo "Build complete. Binaries are in ./bin"
+
+build-agents:
+	@echo "Cross-compiling enx-agent for all platforms..."
+	@mkdir -p bin/agents
+	@for os in linux windows darwin; do \
+		for arch in amd64 arm64; do \
+			ext=""; \
+			if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
+			name="enx-agent-$$os-$$arch$$ext"; \
+			echo "  Building $$name..."; \
+			cd apps/agent-core && CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
+				go build -ldflags="-s -w" -o ../../bin/agents/$$name ./cmd/enx-agent && cd ../..; \
+			echo "  ✓ $$name"; \
+		done; \
+	done
+	@echo "All agent binaries built in ./bin/agents/"
 
 run-platform:
 	cd services/platform-api && go run ./cmd/platform-api

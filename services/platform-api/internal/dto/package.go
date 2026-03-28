@@ -24,6 +24,7 @@ type PackageResponse struct {
 	DownloadURL      string    `json:"download_url"`
 	Checksum         string    `json:"checksum"`
 	SignStatus       string    `json:"sign_status"`
+	Status           string    `json:"status"`
 	ActivationMode   string    `json:"activation_mode"`
 	ActivationKey    string    `json:"activation_key,omitempty"`
 	MaxDevices       int       `json:"max_devices"`

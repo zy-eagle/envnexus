@@ -17,6 +17,7 @@ interface DownloadPackage {
   download_url: string;
   checksum: string;
   sign_status: string;
+  status: string;
   activation_mode: string;
   activation_key?: string;
   max_devices: number;
@@ -53,6 +54,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [createdKey, setCreatedKey] = useState('');
+  const [keyCopied, setKeyCopied] = useState(false);
   const [formData, setFormData] = useState({
     agent_profile_id: '',
     distribution_mode: 'standard',
@@ -102,6 +104,24 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     fetchPackages();
     fetchAgentProfiles();
   }, [fetchPackages, fetchAgentProfiles]);
+
+  useEffect(() => {
+    const hasPending = packages.some(p => p.status === 'pending' || p.status === 'building');
+    if (!hasPending) return;
+    const timer = setInterval(fetchPackages, 5000);
+    return () => clearInterval(timer);
+  }, [packages, fetchPackages]);
+
+  const handleDownload = async (pkg: DownloadPackage) => {
+    try {
+      const resp = await api.get<{ download_url: string }>(`/tenants/${params.tenantId}/download-packages/${pkg.id}/download-url`);
+      if (resp.download_url) {
+        window.open(resp.download_url, '_blank');
+      }
+    } catch (err: any) {
+      alert(err.message || ct.error);
+    }
+  };
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,21 +257,39 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                     </code>
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(createdKey);
-                        const btn = document.getElementById('copy-key-btn');
-                        if (btn) { btn.textContent = t.copied || '✓'; setTimeout(() => { btn.textContent = t.copyBtn || 'Copy'; }, 1500); }
+                      onClick={async () => {
+                        try {
+                          if (navigator.clipboard && window.isSecureContext) {
+                            await navigator.clipboard.writeText(createdKey);
+                          } else {
+                            const textarea = document.createElement('textarea');
+                            textarea.value = createdKey;
+                            textarea.style.position = 'fixed';
+                            textarea.style.left = '-9999px';
+                            document.body.appendChild(textarea);
+                            textarea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textarea);
+                          }
+                          setKeyCopied(true);
+                          setTimeout(() => setKeyCopied(false), 1500);
+                        } catch {
+                          alert('Copy failed, please select and copy manually.');
+                        }
                       }}
-                      id="copy-key-btn"
-                      className="flex-shrink-0 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium transition-colors"
+                      className={`flex-shrink-0 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                        keyCopied
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
                     >
-                      {t.copyBtn || 'Copy'}
+                      {keyCopied ? (t.copied || '✓') : (t.copyBtn || 'Copy')}
                     </button>
                   </div>
                 </div>
                 <div className="flex justify-end">
                   <button
-                    onClick={() => { setIsModalOpen(false); setCreatedKey(''); }}
+                    onClick={() => { setIsModalOpen(false); setCreatedKey(''); setKeyCopied(false); }}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
                   >
                     {ct.close || 'Close'}
@@ -528,7 +566,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                 <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
                 <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.activationMode}</th>
                 <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.boundCount}</th>
-                <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.signStatus}</th>
+                <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.buildStatus}</th>
                 <th className="w-[22%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
               </tr>
             </thead>
@@ -552,9 +590,12 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      pkg.sign_status === 'signed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                      pkg.status === 'ready' ? 'bg-green-100 text-green-800' :
+                      pkg.status === 'building' ? 'bg-blue-100 text-blue-800' :
+                      pkg.status === 'failed' ? 'bg-red-100 text-red-800' :
+                      'bg-yellow-100 text-yellow-800'
                     }`}>
-                      {pkg.sign_status}
+                      {t[`status_${pkg.status}`] || pkg.status}
                     </span>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium space-x-3">
@@ -570,11 +611,16 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                     >
                       {t.auditLogs}
                     </button>
-                    {pkg.download_url && (
-                      <a href={pkg.download_url} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:text-green-900">
-                        Download
-                      </a>
-                    )}
+                    {pkg.status === 'ready' ? (
+                      <button
+                        onClick={() => handleDownload(pkg)}
+                        className="text-green-600 hover:text-green-900"
+                      >
+                        {t.download}
+                      </button>
+                    ) : pkg.status === 'building' || pkg.status === 'pending' ? (
+                      <span className="text-gray-400 cursor-not-allowed">{t.buildingHint}</span>
+                    ) : null}
                     <button
                       onClick={() => handleDeletePackage(pkg)}
                       className="text-red-600 hover:text-red-900"

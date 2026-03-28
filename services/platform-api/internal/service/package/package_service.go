@@ -62,6 +62,7 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 		ArtifactPath:      artifactPath,
 		Checksum:          "",
 		SignStatus:        "pending",
+		Status:            "pending",
 		ActivationMode:    activationMode,
 		ActivationKeyHash: activationKeyHash,
 		MaxDevices:        maxDevices,
@@ -124,6 +125,11 @@ func (s *Service) toResponse(ctx context.Context, pkg *domain.DownloadPackage) *
 		}
 	}
 
+	status := pkg.Status
+	if status == "" {
+		status = "pending"
+	}
+
 	return &dto.PackageResponse{
 		ID:               pkg.ID,
 		TenantID:         pkg.TenantID,
@@ -136,6 +142,7 @@ func (s *Service) toResponse(ctx context.Context, pkg *domain.DownloadPackage) *
 		DownloadURL:      downloadURL,
 		Checksum:         pkg.Checksum,
 		SignStatus:       pkg.SignStatus,
+		Status:           status,
 		ActivationMode:   pkg.ActivationMode,
 		MaxDevices:       pkg.MaxDevices,
 		BoundCount:       pkg.BoundCount,

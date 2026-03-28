@@ -2,6 +2,7 @@ deploy/docker/volumes/
 deploy/docker/.env
 
 # Binaries
+bin/
 *.exe
 *.exe~
 *.dll

@@ -66,6 +66,7 @@ func main() {
 	redisAddr := envOrDefault("ENX_REDIS_ADDR", "localhost:6379")
 	redisPassword := os.Getenv("ENX_REDIS_PASSWORD")
 	minioEndpoint := os.Getenv("ENX_OBJECT_STORAGE_ENDPOINT")
+	minioPublicEndpoint := os.Getenv("ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT")
 	minioAccessKey := envOrDefault("MINIO_ROOT_USER", "minioadmin")
 	minioSecretKey := envOrDefault("MINIO_ROOT_PASSWORD", "minioadmin")
 	minioBucket := envOrDefault("ENX_OBJECT_STORAGE_BUCKET", "envnexus")
@@ -149,6 +150,9 @@ func main() {
 		minioClient, err = infrastructure.NewMinIOClient(minioEndpoint, minioAccessKey, minioSecretKey, minioBucket, false)
 		if err != nil {
 			slog.Warn("MinIO connection failed, running without object storage", "error", err)
+		}
+		if minioClient != nil && minioPublicEndpoint != "" {
+			minioClient.SetPublicEndpoint(minioPublicEndpoint, false)
 		}
 	}
 
