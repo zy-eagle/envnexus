@@ -152,7 +152,7 @@ func main() {
 			slog.Warn("MinIO connection failed, running without object storage", "error", err)
 		}
 		if minioClient != nil && minioPublicEndpoint != "" {
-			minioClient.SetPublicEndpoint(minioPublicEndpoint, false)
+			minioClient.SetPublicEndpoint(minioPublicEndpoint, minioAccessKey, minioSecretKey, false)
 		}
 	}
 

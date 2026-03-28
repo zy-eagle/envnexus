@@ -12,10 +12,9 @@ import (
 )
 
 type MinIOClient struct {
-	client         *minio.Client
-	bucketName     string
-	publicEndpoint string
-	publicUseSSL   bool
+	client       *minio.Client
+	publicClient *minio.Client
+	bucketName   string
 }
 
 func NewMinIOClient(endpoint, accessKey, secretKey, bucketName string, useSSL bool) (*MinIOClient, error) {
@@ -43,13 +42,20 @@ func NewMinIOClient(endpoint, accessKey, secretKey, bucketName string, useSSL bo
 	return &MinIOClient{client: client, bucketName: bucketName}, nil
 }
 
-// SetPublicEndpoint configures an externally-accessible endpoint for presigned URLs.
-// When set, presigned URLs will have their host rewritten from the internal Docker
-// endpoint (e.g. minio:9000) to this public one (e.g. 192.168.1.100:9000).
-func (m *MinIOClient) SetPublicEndpoint(endpoint string, useSSL bool) {
-	m.publicEndpoint = endpoint
-	m.publicUseSSL = useSSL
-	slog.Info("MinIO public endpoint configured", "public_endpoint", endpoint, "ssl", useSSL)
+// SetPublicEndpoint creates a separate MinIO client using the public endpoint
+// for presigned URL generation. The signature is computed against the public host,
+// so browsers can access the URL without SignatureDoesNotMatch errors.
+func (m *MinIOClient) SetPublicEndpoint(endpoint, accessKey, secretKey string, useSSL bool) {
+	publicClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: useSSL,
+	})
+	if err != nil {
+		slog.Warn("failed to create public MinIO client, presigned URLs will use internal endpoint", "error", err)
+		return
+	}
+	m.publicClient = publicClient
+	slog.Info("MinIO public endpoint configured for presigned URLs", "public_endpoint", endpoint)
 }
 
 func (m *MinIOClient) Client() *minio.Client {
@@ -67,19 +73,9 @@ func (m *MinIOClient) Ping(ctx context.Context) error {
 
 func (m *MinIOClient) PresignedGetURL(ctx context.Context, objectName string, expiry time.Duration) (*url.URL, error) {
 	reqParams := make(url.Values)
-	u, err := m.client.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
-	if err != nil {
-		return nil, err
+	c := m.client
+	if m.publicClient != nil {
+		c = m.publicClient
 	}
-
-	if m.publicEndpoint != "" {
-		scheme := "http"
-		if m.publicUseSSL {
-			scheme = "https"
-		}
-		u.Scheme = scheme
-		u.Host = m.publicEndpoint
-	}
-
-	return u, nil
+	return c.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
 }

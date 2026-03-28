@@ -1,0 +1,47 @@
+{
+  "project": "EnvNexus",
+  "generated_at": "2026-03-29T02:30:00+08:00",
+  "project_lifespan": {
+    "first_commit": "2026-03-21",
+    "latest_commit": "2026-03-29",
+    "active_days": 9
+  },
+  "git_stats": {
+    "total_commits": 64,
+    "total_files_changed": 267,
+    "total_insertions": 32925,
+    "breakdown": {
+      "feat": 25,
+      "fix": 9,
+      "refactor": 5,
+      "docs": 15,
+      "chore_build": 8,
+      "other": 2
+    }
+  },
+  "omnidev_stats": {
+    "od_related_commits": 6,
+    "workflows_completed": {
+      "onboard": 1,
+      "standard_workflow": 1,
+      "report": 1,
+      "rule_updates": 4,
+      "dashboard": 1
+    },
+    "state_files_generated": {
+      "project_context": 1,
+      "blueprints": 4,
+      "plans": 1,
+      "weekly_reports": 1,
+      "blueprint_archives": 3
+    }
+  },
+  "roi_estimates": {
+    "architecture_decisions_documented": 4,
+    "blueprint_iterations_saved": 3,
+    "auto_checkpoints": 1,
+    "estimated_hours_saved": 18.5,
+    "estimated_tokens_saved": 85000,
+    "bugs_prevented_by_planning": 5
+  }
+}
