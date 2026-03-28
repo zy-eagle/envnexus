@@ -31,17 +31,17 @@ When the user triggers `/od`, strictly follow the OmniDev workflow defined in th
 
 **ALL interactions with OmniDev MUST start with `/od`** — this includes triggering commands, confirmations, adjustments, and phase navigation. Without `/od`, the message is treated as normal conversation and OmniDev takes NO action.
 
-- `/od 继续` ✅ → proceed to next phase
-- `/od 跳过测试` ✅ → skip testing phase
-- "继续" ❌ → normal chat, OmniDev ignores
-- "下一步" ❌ → normal chat, OmniDev ignores
+## Key Behaviors
+
+- **Proactive phase navigation**: After each phase completes, the AI MUST proactively output a progress summary showing completed/current/upcoming phases, and tell the user what the next step will do — do NOT wait for the user to ask.
+- **Mid-phase adjustments**: At every checkpoint, the user can `/od 调整`, `/od 跳过`, `/od 回到`, etc.
 
 ## Workflow
 
 1. **Read the full OmniDev rules** from `.cursor/rules/01-omnidev-workflow.mdc` before proceeding.
 2. **Parse the command** and identify which flow to execute.
 3. **Assess complexity** (S/M/L/XL) using T-Shirt Sizing.
-4. **Follow the phased workflow** strictly — never write business code before requirements are confirmed.
+4. **Follow the phased workflow** with checkpoints — never write business code before requirements are confirmed.
 5. **Store all state documents** in `docs/omnidev-state/`.
 6. **Reply in the user's language** (Chinese if they write in Chinese).
 
