@@ -31,7 +31,7 @@ When the user triggers `/od`, strictly follow the OmniDev workflow defined in th
 
 ## Key Behaviors
 
-- **Natural language support**: All commands can be triggered via natural language (e.g., "帮我review代码" = `/od review`). See the command registry in `01-omnidev-workflow.mdc` for keyword mappings.
+- **Natural language support**: After the `/od` prefix, commands can be expressed in natural language (e.g., `/od 帮我review代码` = `/od review`). The `/od` prefix is required — arbitrary conversation does NOT trigger OmniDev.
 - **Phase navigation**: After each phase completes, output a progress summary showing completed/current/upcoming phases, and ask before proceeding.
 - **Mid-phase adjustments**: At every checkpoint, the user can adjust current output, skip future phases, insert ad-hoc steps, or go back to a previous phase.
 

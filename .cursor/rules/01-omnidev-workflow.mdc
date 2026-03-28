@@ -4,14 +4,16 @@ alwaysApply: true
 ---
 # OmniDev Core Workflow
 
-As an AI coding assistant, when a user submits a new requirement or types `/od`, you MUST **strictly follow the phases below**.
+> **⚠️ CRITICAL RULE: OmniDev workflow is ONLY activated when the user's message starts with `/od`. Without the `/od` prefix, do NOT invoke any OmniDev workflow, phases, state files, or commands — treat it as a normal conversation.**
+
+When the user types `/od`, you MUST **strictly follow the phases below**.
 **It is strictly prohibited to write business code directly before requirements are clear and confirmed.**
 
 All generated documents must be stored in the `docs/omnidev-state/` directory.
 
 ## Phase 0: Command & Intent Parsing
 
-All OmniDev commands support **both slash-command syntax and natural language**. The AI MUST detect user intent from either form and execute the corresponding flow.
+OmniDev workflow is **only triggered when the user's message starts with `/od`**. After the `/od` prefix, the AI supports both flag syntax and natural language to determine which flow to execute.
 
 ### Command Registry
 
@@ -33,10 +35,15 @@ All OmniDev commands support **both slash-command syntax and natural language**.
 | `/od qa` | "写测试用例"、"帮我测试"、"跑一下测试" | Write & execute test cases |
 
 ### Intent Detection Rules
-1. **Slash commands take priority**: If the user types a `/od` command, parse it literally.
-2. **Natural language fallback**: If no `/od` prefix, scan the user's message for intent keywords from the table above. Match the **most specific** intent (e.g., "帮我review代码" → `/od review`, not standard workflow).
-3. **Ambiguity handling**: If the intent is unclear (e.g., could be standard workflow or review), **ask the user to clarify** with a brief multiple-choice: "您是想让我 (A) 按需求开发，还是 (B) 只做代码审查？"
-4. **Composite intent**: Users may combine intents in one message (e.g., "实现登录功能，跳过测试"). Parse ALL intents and apply them together.
+1. **`/od` prefix is required**: OmniDev workflow is ONLY triggered when the user's message starts with `/od`. The AI must NOT auto-trigger OmniDev from arbitrary conversation.
+2. **After `/od`, natural language is supported**: The text following `/od` is parsed for intent. Both flag syntax (`--fast`, `--skip`) and natural language keywords are recognized. Examples:
+   - `/od 帮我review代码` → `/od review`
+   - `/od 出个周报` → `/od report`
+   - `/od 实现登录功能，跳过测试` → standard workflow + skip test
+   - `/od 紧急修复分页bug` → `/od --fast`
+3. **Ambiguity handling**: If the intent after `/od` is unclear (e.g., could be standard workflow or review), **ask the user to clarify** with a brief multiple-choice: "您是想让我 (A) 按需求开发，还是 (B) 只做代码审查？"
+4. **Composite intent**: Users may combine intents in one `/od` message (e.g., `/od 实现登录功能，跳过测试`). Parse ALL intents and apply them together.
+5. **Without `/od`**: Normal conversation — do NOT trigger any OmniDev workflow.
 
 If no parameters are specified, perform a **Task Complexity Assessment (T-Shirt Sizing)** using the scoring rubric below.
 
