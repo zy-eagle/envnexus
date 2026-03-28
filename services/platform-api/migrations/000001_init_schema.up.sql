@@ -56,10 +56,12 @@ CREATE TABLE model_profiles (
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     deleted_at DATETIME(3) NULL,
-    UNIQUE KEY uk_model_profiles_tenant_name (tenant_id, name),
     KEY idx_model_profiles_tenant_status (tenant_id, status),
     CONSTRAINT fk_model_profiles_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE UNIQUE INDEX uk_model_profiles_tenant_name
+    ON model_profiles (tenant_id, name, (IFNULL(deleted_at, '1970-01-01 00:00:00')));
 
 CREATE TABLE policy_profiles (
     id CHAR(26) PRIMARY KEY,
@@ -71,10 +73,12 @@ CREATE TABLE policy_profiles (
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     deleted_at DATETIME(3) NULL,
-    UNIQUE KEY uk_policy_profiles_tenant_name (tenant_id, name),
     KEY idx_policy_profiles_tenant_status (tenant_id, status),
     CONSTRAINT fk_policy_profiles_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE UNIQUE INDEX uk_policy_profiles_tenant_name
+    ON policy_profiles (tenant_id, name, (IFNULL(deleted_at, '1970-01-01 00:00:00')));
 
 CREATE TABLE agent_profiles (
     id CHAR(26) PRIMARY KEY,
@@ -89,11 +93,13 @@ CREATE TABLE agent_profiles (
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     deleted_at DATETIME(3) NULL,
-    UNIQUE KEY uk_agent_profiles_tenant_name (tenant_id, name),
     KEY idx_agent_profiles_tenant_status (tenant_id, status),
     KEY idx_agent_profiles_model_policy (model_profile_id, policy_profile_id),
     CONSTRAINT fk_agent_profiles_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE UNIQUE INDEX uk_agent_profiles_tenant_name
+    ON agent_profiles (tenant_id, name, (IFNULL(deleted_at, '1970-01-01 00:00:00')));
 
 CREATE TABLE download_packages (
     id CHAR(26) PRIMARY KEY,

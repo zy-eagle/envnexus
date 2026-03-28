@@ -4,9 +4,10 @@ alwaysApply: true
 ---
 # OmniDev Core Workflow
 
-> **⚠️ CRITICAL RULE — `/od` Prefix Mandatory & Strict Execution**
+> **⚠️ CRITICAL RULE — `/od` Prefix Mandatory & Strict Tool Execution**
 > - OmniDev workflow is **ONLY activated** when the user's message starts with `/od`.
-> - **MANDATORY TOOL EXECUTION**: When a message starts with `/od`, you MUST IMMEDIATELY stop chatting and start EXECUTING the corresponding command using tool calls (`Shell`, `Read`, `Write`, etc.). **DO NOT just explain what the command does in plain text.** Act as an automated execution engine.
+> - **MANDATORY TOOL EXECUTION (ABSOLUTE RULE)**: When a message starts with `/od`, you **MUST** call omnidev tools (`Shell`, `Read`, `Write`, `StrReplace`, `Grep`, `SemanticSearch`, `Glob`, etc.) to execute the request. This is **NON-NEGOTIABLE** — regardless of the nature of the request (coding, querying, planning, reviewing, or any other task), you MUST invoke actual tool calls. **DO NOT just reply with conversational text, explanations, or code blocks.** You are an **execution engine**, not a chatbot.
+> - **Ad-hoc Requests**: If the user sends an ad-hoc request like `/od 这里给一个复制的按钮`, you MUST use tools to find the file, edit the code, and apply the changes directly to the codebase. **NEVER just output code blocks in the chat without modifying the actual files.**
 > - **ALL user responses that drive OmniDev actions** (confirmations, adjustments, phase navigation, etc.) **MUST also start with `/od`**.
 > - Without the `/od` prefix, treat the message as normal conversation — do NOT execute any OmniDev action.
 
@@ -48,7 +49,15 @@ If no parameters are specified, perform a **Task Complexity Assessment (T-Shirt 
 
 These are **recommendations, not mandates**. The user can always skip or add phases at any checkpoint.
 
-*Note: When replying to the user, briefly explain the assessed complexity level and the recommended strategy. **IMPORTANT: Do NOT output verbose headings like "Phase 0: 命令解析". Just seamlessly provide the "需求解析" (Requirement Analysis) and "复杂度评估" (Complexity Assessment). Always reply to the user in the language they used to communicate with you.***
+*Note: When replying to the user with the initial assessment, you MUST use the following exact format:*
+
+## OmniDev Phase 0: 需求解析 & 复杂度评估
+
+**需求解析**: [1-2 sentences explaining the requirement]
+**复杂度评估**: [S/M/L/XL] — [Brief reason]
+**推荐策略**: [Recommended phases]
+
+*CRITICAL: NEVER output the words "命令解析" in the heading. Always use "需求解析 & 复杂度评估". Always reply in the user's language.*
 
 ## Special Flow: Enterprise-Grade Project Reporting (Report)
 When the user types `/od report`:
@@ -68,6 +77,9 @@ OmniDev Kit supports updating its core rules to the latest version.
 - **Auto-Update (Default)**: Before executing an `L/XL` task, the AI should silently check if the `omnidev-kit` rules in the project are outdated (by comparing with the remote source if available) and update them seamlessly.
 - **Manual Update**: When the user types `/od update`, the AI MUST execute the following steps:
   1. **Step 0: Confirm with User**: Stop and warn the user: "⚠️ **警告**：从远程仓库更新将**直接覆盖**本地的 `.cursor/rules/` 和 `SKILL.md` 文件，您本地未推送到远程的自定义修改将会丢失。请回复 `/od 确认更新` 继续，或 `/od 取消` 放弃。"
+  
+  **🛑 CRITICAL STOP: You MUST stop executing here and WAIT for the user to reply `/od 确认更新`. DO NOT proceed to Step 1 automatically.**
+
   2. **Step 1: Fetch & Overwrite**: Only after receiving `/od 确认更新`, use the Shell tool to clone `https://github.com/zy-eagle/omnidev-kit.git` to a temporary directory, and forcefully copy its `rules/*.mdc` and `skills/od/SKILL.md` to the current project, overwriting existing files.
   3. **Step 2: Cleanup**: Delete the temporary directory and report success to the user.
 
@@ -119,6 +131,8 @@ After the summary, **always pause and ask** (remind the user to use `/od` prefix
 > - `/od 跳过 [阶段名]` — 跳过后续某个阶段
 > - `/od 回到 [阶段名]` — 重新执行之前的阶段"
 
+**🛑 CRITICAL STOP: You MUST stop executing here and WAIT for the user to reply. DO NOT automatically proceed to the next phase.**
+
 ### 3. Handling Mid-Phase Adjustments
 The user can request adjustments at any checkpoint (all must start with `/od`):
 
@@ -127,7 +141,7 @@ The user can request adjustments at any checkpoint (all must start with `/od`):
 | `/od 继续` | Move to next phase |
 | `/od 调整 [内容]` | Re-enter current phase, apply changes, then re-checkpoint |
 | `/od 跳过 [阶段名]` | Mark specified future phase(s) as skipped, proceed to next |
-| `/od 回到 [阶段名]` | Re-enter a previous phase, then resume from there. **AI MUST ask**: "是否需要执行 `git reset --hard` 回滚代码到该阶段的初始状态？" |
+| `/od 回到 [阶段名]` | Re-enter a previous phase, then resume from there. **AI MUST output this exact suggestion**: "💡 **建议**：我已经为您回退了逻辑状态。如果您希望代码也回到该阶段的初始状态，请您手动执行 `git reset --hard` 或使用 IDE 的版本控制功能进行回滚。" |
 | `/od 全部完成` | Execute all remaining phases without further checkpoints |
 
 ---
@@ -146,6 +160,7 @@ The user can request adjustments at any checkpoint (all must start with `/od`):
 When `/od change` is used:
 1. **Impact Assessment**: Assess the complexity of the new requirement, analyze its impact on the current architecture and written code, and output an assessment doc.
 2. **Wait for Confirmation**: Ask the user: "请回复 `/od 确认` 引入此变更，或 `/od 取消` 放弃。"
+   **🛑 CRITICAL STOP: You MUST stop executing here and WAIT for the user to reply. DO NOT automatically proceed to Step 3.**
 3. **Archive & Refactor**: After confirmation, archive the old plan, and regenerate the blueprint and plan.
 
 ## Phase 3: Defensive Programming & Spec-Driven Development
@@ -190,7 +205,7 @@ If there are unstaged changes, instruct the user:
 > - `/od 已暂存` — 我已手动选择了要提交的文件
 > - `/od 跳过` — 直接提交所有修改（自动执行 `git add .`）"
 
-**Do NOT run `git add` for the user** unless the user explicitly replies `/od 跳过`.
+**🛑 CRITICAL STOP: You MUST stop executing here and WAIT for the user to reply. DO NOT run `git add` yourself. DO NOT proceed to generate a commit message.**
 
 ### Step 3: Wait for User Response
 - If the user replies `/od 已暂存`: Proceed to Step 4 (user has staged files themselves).

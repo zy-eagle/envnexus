@@ -19,6 +19,7 @@ const dictionary = {
       success: "Operation successful.",
       confirmDelete: "Are you sure you want to delete this item?",
       close: "Close",
+      duplicateName: "A record with this name already exists. Please use a different name.",
     },
     zh: {
       loading: "加载中...",
@@ -37,6 +38,7 @@ const dictionary = {
       success: "操作成功。",
       confirmDelete: "确定要删除此项吗？",
       close: "关闭",
+      duplicateName: "该名称已存在，请使用其他名称。",
     },
   },
   nav: {

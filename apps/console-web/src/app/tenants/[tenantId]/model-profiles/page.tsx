@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
-import { api } from '@/lib/api/client';
+import { api, APIError } from '@/lib/api/client';
 
 interface ModelProfile {
   id: string;
@@ -33,6 +33,8 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [formError, setFormError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     name: '',
     provider: 'openai',
@@ -45,6 +47,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
 
   const openCreateModal = () => {
     setEditingId(null);
+    setFormError(null);
     setFormData({
       name: '',
       provider: 'openai',
@@ -59,6 +62,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
 
   const openEditModal = (profile: ModelProfile) => {
     setEditingId(profile.id);
+    setFormError(null);
     setFormData({
       name: profile.name,
       provider: profile.provider,
@@ -88,6 +92,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     try {
       if (editingId) {
         await api.put(`/tenants/${params.tenantId}/model-profiles/${editingId}`, formData);
@@ -97,7 +102,11 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
       setIsModalOpen(false);
       fetchProfiles();
     } catch (error) {
-      console.error('Error saving profile:', error);
+      if (error instanceof APIError && error.status === 409) {
+        setFormError(ct.duplicateName);
+      } else {
+        setFormError(t.saveFailed);
+      }
     }
   };
 
@@ -128,6 +137,12 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
             <h2 className="text-xl font-semibold mb-4">{editingId ? t.editTitle : t.createTitle}</h2>
             <form onSubmit={handleSave} className="space-y-4">
+              {formError && (
+                <div className="flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  <svg className="h-4 w-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd"/></svg>
+                  {formError}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.name}</label>
                 <input 
