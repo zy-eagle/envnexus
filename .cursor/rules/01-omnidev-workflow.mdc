@@ -9,21 +9,34 @@ As an AI coding assistant, when a user submits a new requirement or types `/od`,
 
 All generated documents must be stored in the `docs/omnidev-state/` directory.
 
-## Phase 0: Command & Parameters Parsing
-Users can trigger the workflow using the following commands:
-- `/od help`: View the meanings and usage of all OmniDev commands. Output a beautifully formatted help manual.
-- `/od onboard`: Legacy project onboarding. Actively scan the current project directory, analyze the tech stack, architecture, and conventions, and generate a context document.
-- `/od learn`: Self-learning & retrospective mechanism. Analyze recent errors and user corrections, extract lessons, and update the pitfall guide.
-- `/od report`: **Generate an enterprise-grade project status report**. Ready for management reporting.
-- `/od update`: **Update OmniDev Kit**. Fetch the latest rules from the remote repository (`https://github.com/zy-eagle/omnidev-kit.git`), perform non-destructive merge preserving local customizations, and run a consistency audit.
-- `/od compress`: Manually trigger context memory compression (archive old progress logs to save Tokens).
-- `/od [requirement]`: Standard workflow.
-- `/od --fast [requirement]`: Skip blueprint and planning, enter development directly (for urgent hotfixes).
-- `/od --plan-only [requirement]`: Only output blueprint and plan, do not write code.
-- `/od change [new requirement/adjustment]`: Handle mid-stream requirement changes or additions.
-- `/od <Issue-URL>`: Automatically fetch Issue content (e.g., GitHub/Jira) and convert it into a requirement blueprint.
-- `/od review`: Act as a strict architect, only perform Code Review on the current code, do not modify code.
-- `/od qa`: Act as a QA engineer, only write test cases and execute tests.
+## Phase 0: Command & Intent Parsing
+
+All OmniDev commands support **both slash-command syntax and natural language**. The AI MUST detect user intent from either form and execute the corresponding flow.
+
+### Command Registry
+
+| Slash Command | Natural Language Triggers (zh/en examples) | Action |
+|---------------|---------------------------------------------|--------|
+| `/od help` | "omnidev有哪些命令"、"帮助"、"show od commands" | Show all commands |
+| `/od onboard` | "分析一下这个项目"、"扫描项目结构"、"了解下现有代码" | Legacy project onboarding |
+| `/od learn` | "总结一下经验教训"、"复盘"、"学习之前的错误" | Self-learning & retrospective |
+| `/od report` | "出个周报"、"项目进展报告"、"生成状态报告" | Enterprise-grade project report |
+| `/od update` | "更新omnidev规则"、"升级工具"、"拉取最新规则" | Update OmniDev Kit from remote |
+| `/od compress` | "压缩上下文"、"清理历史日志"、"节省token" | Context memory compression |
+| `/od [requirement]` | Any requirement description without specific command keywords | Standard workflow |
+| `/od --fast [req]` | "紧急修复"、"快速修一下"、"hotfix" | Skip blueprint & plan, develop directly |
+| `/od --skip <phases> [req]` | "跳过蓝图"、"不需要测试"、"直接开发" | Skip specified phases |
+| `/od --plan-only [req]` | "只出计划不写代码"、"先规划一下"、"帮我分析不用写" | Output blueprint & plan only |
+| `/od change [req]` | "需求变了"、"加个新需求"、"调整一下方案" | Mid-stream requirement change |
+| `/od <Issue-URL>` | Paste a GitHub/Jira URL | Parse issue into blueprint |
+| `/od review` | "帮我review代码"、"看看代码有没有问题"、"代码审查" | Code review only |
+| `/od qa` | "写测试用例"、"帮我测试"、"跑一下测试" | Write & execute test cases |
+
+### Intent Detection Rules
+1. **Slash commands take priority**: If the user types a `/od` command, parse it literally.
+2. **Natural language fallback**: If no `/od` prefix, scan the user's message for intent keywords from the table above. Match the **most specific** intent (e.g., "帮我review代码" → `/od review`, not standard workflow).
+3. **Ambiguity handling**: If the intent is unclear (e.g., could be standard workflow or review), **ask the user to clarify** with a brief multiple-choice: "您是想让我 (A) 按需求开发，还是 (B) 只做代码审查？"
+4. **Composite intent**: Users may combine intents in one message (e.g., "实现登录功能，跳过测试"). Parse ALL intents and apply them together.
 
 If no parameters are specified, perform a **Task Complexity Assessment (T-Shirt Sizing)** using the scoring rubric below.
 
@@ -54,6 +67,33 @@ Evaluate the requirement across **5 dimensions**, each scored 1-3:
 - If requirements are vague and need significant clarification or prototyping, lean toward L.
 
 *Note: When replying to the user, briefly show the scoring breakdown (e.g., "Scope: 2, Architecture: 1, Logic: 2, Risk: 1, Unknowns: 1 → Total: 7 → S"), explain the assessed complexity level, and the adopted strategy. **IMPORTANT: Always reply to the user in the language they used to communicate with you (e.g., if the user asks in Chinese, reply in Chinese).***
+
+### Phase Skip (`--skip` or Natural Language)
+
+Users can skip phases in two ways:
+- **Flag syntax**: `/od --skip blueprint,test 实现用户登录`
+- **Natural language**: Include skip intent anywhere in the requirement text. Examples:
+  - "跳过蓝图"、"不需要蓝图"、"不用出蓝图"
+  - "跳过计划"、"不用计划"、"直接开发"
+  - "不需要测试"、"跳过测试"、"skip testing"
+  - "直接写代码"、"不用规划直接开发" (= skip blueprint + plan)
+  - Any combination: "不用蓝图和测试，直接出计划然后开发"
+
+**Phase name mapping** (for both flag and natural language recognition):
+
+| Phase | Flag Value | Natural Language Keywords (zh/en) |
+|-------|-----------|-----------------------------------|
+| Phase 1: Blueprint | `blueprint` | 蓝图、blueprint、设计文档 |
+| Phase 2: Plan | `plan` | 计划、规划、plan、任务分解 |
+| Phase 3: Development | `dev` | 开发、编码、coding、dev、写代码 |
+| Phase 4: Testing | `test` | 测试、验证、test、testing、部署文档 |
+
+**Execution rules**:
+1. **Parse**: Detect skip intent from `--skip` flag OR natural language cues in the requirement. When in doubt about the user's intent, **ask for confirmation** before skipping.
+2. **Announce**: Always clearly state which phases will be skipped and which will be executed. Example: "将跳过 **蓝图** 和 **测试** 阶段，执行 **计划 → 开发**。"
+3. **Execute remaining phases in order**: Skipped phases are simply omitted; the remaining phases execute in their original sequence.
+4. **Interaction with complexity**: `--skip` / natural language skip overrides the default phase selection from T-Shirt Sizing. For example, even if complexity is S (which normally skips blueprint and plan), adding "跳过测试" means: develop directly AND also skip testing.
+5. **Shorthand equivalence**: `/od --fast` = `/od --skip blueprint,plan` = "跳过蓝图和计划".
 
 ## Special Flow: Enterprise-Grade Project Reporting (Report)
 When the user types `/od report`:
@@ -122,19 +162,59 @@ When `/od learn` is triggered or after a large task is completed:
 2. **Experience Extraction**: Summarize the pitfalls encountered.
 3. **Solidify Knowledge**: Write the lessons into the `[AI Pitfall Guide]` section of `00-project-context.md`.
 
+## Phase Execution Protocol (Applies to ALL Phases)
+
+Every time a phase completes, the AI MUST follow this protocol before moving to the next phase:
+
+### 1. Phase Completion Summary
+Output a clear status block in the following format:
+```
+✅ **阶段 N 完成: [Phase Name]**
+   产出: [what was produced, e.g., "蓝图文件 01-blueprint.md"]
+
+📍 **当前进度**: Phase N / Total Phases
+   已完成: Phase 1 (蓝图) ✅, Phase 2 (计划) ✅
+   当前:   Phase 3 (开发) 🔄
+   待执行: Phase 4 (测试) ⏳
+
+🔜 **下一阶段: Phase N+1 — [Phase Name]**
+   将要做: [1-2 sentence description of what the next phase will do]
+```
+
+### 2. Checkpoint — Ask Before Proceeding
+After the summary, **always pause and ask**:
+> "是否继续进入下一阶段？您也可以：
+> - **调整当前产出**（如修改蓝图/计划内容）
+> - **跳过后续某个阶段**（如"跳过测试"）
+> - **插入额外步骤**（如"先做个技术调研"）
+> - **直接继续**（回复"继续"或"下一步"）"
+
+### 3. Handling Mid-Phase Adjustments
+The user can request adjustments at any checkpoint. The AI MUST support:
+
+| User Says (examples) | Action |
+|----------------------|--------|
+| "继续" / "下一步" / "proceed" | Move to next phase |
+| "修改蓝图" / "计划需要调整" / "改一下" | Re-enter current phase, apply changes, then re-checkpoint |
+| "跳过测试" / "不需要后面的XX阶段" | Mark specified future phase(s) as skipped, proceed to next non-skipped phase |
+| "加一个技术调研" / "先做个原型" | Insert a custom ad-hoc step before the next phase, execute it, then resume normal flow |
+| "回到上一步" / "重新做计划" | Re-enter a previous phase (re-generate its output), then resume from there |
+| "直接全部完成" / "后面不用问了" | Disable checkpoints for remaining phases, execute all in sequence |
+
+---
+
 ## Phase 1: Brainstorming & Blueprint - L/XL Tasks Only
 1. **Mine Potential Needs**: Analyze requirements, think about edge cases, exception handling, and UX.
 2. **Global Blueprint Output**: Output the final state description of the requirement in `docs/omnidev-state/01-blueprint.md`. **(Output this document in the user's preferred language)**.
-3. **Wait for Confirmation**: Show the blueprint summary to the user and explicitly ask: "Please confirm if we should proceed with this blueprint?"
-4. **Iterative Refinement**: The user may request adjustments to the blueprint multiple times. On each revision:
+3. **Iterative Refinement**: The user may request adjustments to the blueprint multiple times. On each revision:
    - **Default behavior**: Directly update `01-blueprint.md` in place. Only one copy of the blueprint is maintained — no version history is created.
    - **Versioned mode** (only when the user explicitly requests to keep history, e.g., "保留历史版本" / "keep blueprint history"): Before overwriting, copy the current `01-blueprint.md` to `docs/omnidev-state/archive/01-blueprint-v{N}-{date}.md` (where N is an incrementing version number), then update `01-blueprint.md` with the new content.
-   - After each revision, re-confirm with the user: "Blueprint updated. Please review — shall we proceed, or would you like further adjustments?"
+4. **Checkpoint**: Follow the **Phase Execution Protocol** — output completion summary, show next phase preview (Phase 2: Planning), and ask for confirmation or adjustments.
 
 ## Phase 2: Planning - M and L/XL Tasks
 1. Break down the requirement into specific features and technical tasks, prioritize them.
 2. Generate a Markdown task list with checkboxes in `docs/omnidev-state/02-plan.md`. **(Output this document in the user's preferred language)**.
-3. **Wait for Confirmation**: Show the plan summary and ask: "Please confirm if we can start the first step of development?"
+3. **Checkpoint**: Follow the **Phase Execution Protocol** — output completion summary, show next phase preview (Phase 3: Development), and ask for confirmation or adjustments.
 
 ## Special Flow: Change Management
 When `/od change` is used:
@@ -148,8 +228,18 @@ When `/od change` is used:
    - If `legacy`: Strictly imitate surrounding old code, reuse existing utilities, prohibit introducing new conventions.
    - If `greenfield`: Strictly execute TDD/DDD and OmniDev modern conventions.
 3. Update the checkbox status in `02-plan.md` after completing each sub-task.
+4. **Checkpoint**: Follow the **Phase Execution Protocol** — output completion summary, show next phase preview (Phase 4: Testing & Wrap-up), and ask for confirmation or adjustments.
 
 ## Phase 4: Testing & Wrap-up
 1. After development, automatically enter the testing phase (if `legacy` without test infra, only do basic verification, no forced unit tests).
 2. For M and L/XL tasks, generate deployment config docs and an Efficiency Bill (ROI).
 3. **Trigger Self-Learning**: Automatically execute the `/od learn` flow.
+4. **Final Summary**: Output the full workflow completion summary:
+   ```
+   🎉 **OmniDev 工作流完成**
+      Phase 1 (蓝图): ✅ / ⏭️ 已跳过
+      Phase 2 (计划): ✅ / ⏭️ 已跳过
+      Phase 3 (开发): ✅
+      Phase 4 (测试): ✅ / ⏭️ 已跳过
+      产出文件: [list of generated files]
+   ```
