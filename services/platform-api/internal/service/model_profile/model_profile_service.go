@@ -2,12 +2,19 @@ package model_profile
 
 import (
 	"context"
+	"errors"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/oklog/ulid/v2"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 )
+
+func isDuplicateEntry(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
+}
 
 type Service struct {
 	repo repository.ModelProfileRepository
@@ -63,6 +70,9 @@ func (s *Service) CreateProfile(ctx context.Context, tenantID string, req dto.Cr
 	}
 
 	if err := s.repo.Create(ctx, profile); err != nil {
+		if isDuplicateEntry(err) {
+			return nil, domain.ErrDuplicateName
+		}
 		return nil, err
 	}
 
@@ -119,6 +129,9 @@ func (s *Service) UpdateProfile(ctx context.Context, tenantID, id string, req dt
 	profile.Version++
 
 	if err := s.repo.Update(ctx, profile); err != nil {
+		if isDuplicateEntry(err) {
+			return nil, domain.ErrDuplicateName
+		}
 		return nil, err
 	}
 
