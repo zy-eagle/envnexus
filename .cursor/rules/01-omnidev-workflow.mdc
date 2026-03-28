@@ -15,7 +15,7 @@ Users can trigger the workflow using the following commands:
 - `/od onboard`: Legacy project onboarding. Actively scan the current project directory, analyze the tech stack, architecture, and conventions, and generate a context document.
 - `/od learn`: Self-learning & retrospective mechanism. Analyze recent errors and user corrections, extract lessons, and update the pitfall guide.
 - `/od report`: **Generate an enterprise-grade project status report**. Ready for management reporting.
-- `/od update`: **Self-check & optimize OmniDev Kit**. Audit all local OmniDev rule files for consistency, fix cross-file contradictions, fill in missing references, and report a summary of changes.
+- `/od update`: **Update OmniDev Kit**. Fetch the latest rules from the remote repository (`https://github.com/zy-eagle/omnidev-kit.git`), perform non-destructive merge preserving local customizations, and run a consistency audit.
 - `/od compress`: Manually trigger context memory compression (archive old progress logs to save Tokens).
 - `/od [requirement]`: Standard workflow.
 - `/od --fast [requirement]`: Skip blueprint and planning, enter development directly (for urgent hotfixes).
@@ -68,19 +68,36 @@ When the user types `/od report`:
    - **Current Blockers & Risks**: Any unresolved issues, technical debt, or dependencies holding up progress.
    - **Next Week's Plan**: Actionable tasks remaining in the backlog.
 
-## Special Flow: Self-Check & Optimize (Update)
-OmniDev Kit rules are maintained locally within the project. `/od update` performs a **local consistency audit** rather than fetching from a remote source.
+## Special Flow: Update OmniDev Kit (Update)
+OmniDev Kit has an official remote repository as its upstream source. `/od update` performs a **remote fetch + non-destructive merge + local consistency audit**.
 
-When the user types `/od update`, the AI MUST:
-1. **Read all OmniDev rule files** (`01` through `05` in `.cursor/rules/`) and the Skill file (`.cursor/skills/od/SKILL.md`).
-2. **Cross-file consistency check**:
-   - Verify all commands referenced in any rule file are listed in `01`'s command table and `SKILL.md`.
-   - Verify state file descriptions in `02` match the actual usage in other rules.
-   - Verify phase descriptions are consistent across all files (e.g., Phase 1 blueprint behavior in `01` matches `02`'s description of `01-blueprint.md`).
-3. **Fix contradictions**: Directly update rule files to resolve any inconsistencies found.
-4. **Report**: Summarize all changes made to the user.
+**Remote Source**: `https://github.com/zy-eagle/omnidev-kit.git` (configurable — if the user specifies a different URL, use that instead).
 
-- **Auto-Check (Optional)**: Before executing an `L/XL` task, the AI may silently perform a quick consistency check and fix obvious issues without interrupting the workflow.
+When the user types `/od update`, the AI MUST execute the following steps in order:
+
+### Step 1: Fetch Remote Rules
+1. Clone (shallow, `--depth 1`) the remote repository to a temporary directory.
+2. Read all rule files from `rules/` and skill files from `skills/od/` in the cloned repo.
+
+### Step 2: Non-Destructive Merge
+For each remote file, compare with the corresponding local file in `.cursor/rules/` or `.cursor/skills/od/`:
+- **Remote has new content not in local**: Merge the new content into the local file at the appropriate location.
+- **Local has custom enhancements not in remote**: **ALWAYS preserve local customizations.** Never overwrite or remove them.
+- **Both have the same section but with different wording**: Prefer the **more detailed/specific** version. If the remote version adds new capabilities, merge them in while keeping local refinements.
+- **Remote has a new file not in local**: Copy it to the local directory.
+
+### Step 3: Local Consistency Audit
+After merging, perform a cross-file consistency check:
+- Verify all commands referenced in any rule file are listed in `01`'s command table and `SKILL.md`.
+- Verify state file descriptions in `02` match the actual usage in other rules.
+- Verify phase descriptions are consistent across all files.
+- Fix any contradictions introduced by the merge.
+
+### Step 4: Cleanup & Report
+1. Remove the temporary cloned directory.
+2. Summarize all changes made to the user in a clear table format (file, change type, description).
+
+- **Auto-Update (Optional)**: Before executing an `L/XL` task, the AI may silently check if the remote has newer rules and apply updates without interrupting the workflow.
 
 ## Special Flow: Project Type Awareness & Adaptive Constraints
 Before starting any development, you must first determine if the current project is a **"Greenfield Project"** or a **"Legacy Project"**, and record it in the `project_type` field of `docs/omnidev-state/00-project-context.md`.
