@@ -59,11 +59,27 @@ check_env() {
 
 # ── .env generation ──────────────────────────────────────────────────────────
 
+patch_env() {
+    local env_file="${DEPLOY_DIR}/.env"
+    [ -f "$env_file" ] || return
+
+    local HOST_IP
+    HOST_IP=$(detect_host_ip)
+
+    if ! grep -q "^ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=" "$env_file" 2>/dev/null; then
+        log_info "Patching .env: adding ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=${HOST_IP}:9000"
+        echo "" >> "$env_file"
+        echo "# ===== Auto-patched: MinIO public endpoint for presigned URLs =====" >> "$env_file"
+        echo "ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=${HOST_IP}:9000" >> "$env_file"
+    fi
+}
+
 generate_env() {
     local env_file="${DEPLOY_DIR}/.env"
 
     if [ -f "$env_file" ]; then
         log_info ".env already exists, skipping generation."
+        patch_env
         return
     fi
 
@@ -293,6 +309,12 @@ case "${1:-}" in
     reset)
         cmd_reset
         ;;
+    agents)
+        echo -e "${GREEN}${BOLD}  EnvNexus — Force rebuild agent binaries  ${NC}"
+        cd "$DEPLOY_DIR"
+        FORCE_AGENT_UPLOAD=true docker compose up --build --force-recreate agent-builder
+        log_info "Agent binaries rebuilt and uploaded to MinIO."
+        ;;
     *)
         echo -e "${BOLD}EnvNexus — Deployment Manager${NC}"
         echo ""
@@ -302,6 +324,7 @@ case "${1:-}" in
         echo "  start     Deploy and start all services (one-click)"
         echo "  web       Rebuild and redeploy console-web only"
         echo "  api       Rebuild and redeploy backend services only"
+        echo "  agents    Force rebuild and re-upload agent base packages"
         echo "  stop      Stop all services (data preserved)"
         echo "  restart   Restart all services without rebuild"
         echo "  status    Show running services"

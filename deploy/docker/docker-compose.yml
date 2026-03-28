@@ -71,6 +71,7 @@ services:
       ENX_OBJECT_STORAGE_BUCKET: ${ENX_OBJECT_STORAGE_BUCKET:-envnexus}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      FORCE_UPLOAD: ${FORCE_AGENT_UPLOAD:-false}
     restart: "no"
 
   platform-api:

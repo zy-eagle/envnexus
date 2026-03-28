@@ -1,18 +1,16 @@
 FROM golang:1.25-alpine AS builder
 
-RUN apk --no-cache add curl
-
 WORKDIR /app
 
-COPY go.work go.work.sum ./
-COPY apps/agent-core/go.mod apps/agent-core/go.sum ./apps/agent-core/
-COPY services/platform-api/go.mod services/platform-api/go.sum ./services/platform-api/
-COPY services/session-gateway/go.mod services/session-gateway/go.sum ./services/session-gateway/
-COPY services/job-runner/go.mod services/job-runner/go.sum ./services/job-runner/
+# Layer 1: Dependencies only (cached unless go.mod/go.sum change)
+COPY apps/agent-core/go.mod apps/agent-core/go.sum ./
 RUN go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct && go mod download
 
-COPY . .
+# Layer 2: Source code only (cached unless agent-core source changes)
+# Other services are NOT copied — agent-core has no cross-module imports.
+COPY apps/agent-core/ .
 
+# Layer 3: Cross-compile all platforms (fully cached if layers above unchanged)
 RUN mkdir -p /out && \
     for os in linux windows darwin; do \
         for arch in amd64 arm64; do \
@@ -21,11 +19,12 @@ RUN mkdir -p /out && \
             name="enx-agent-${os}-${arch}${ext}"; \
             echo "Building ${name}..."; \
             CGO_ENABLED=0 GOOS=${os} GOARCH=${arch} \
-                go build -ldflags="-s -w" -o /out/${name} ./apps/agent-core/cmd/enx-agent; \
+                go build -ldflags="-s -w" -o /out/${name} ./cmd/enx-agent; \
             echo "  ✓ ${name} ($(du -h /out/${name} | cut -f1))"; \
         done; \
     done
 
+# Runtime stage: upload to MinIO
 FROM minio/mc:latest
 COPY --from=builder /out/ /agents/
 COPY deploy/docker/upload-agents.sh /upload-agents.sh
