@@ -22,7 +22,7 @@ function OverviewContent() {
     if (!tenantId) return;
 
     api.get<{ items: any[] }>(`/tenants/${tenantId}/devices`)
-      .then(data => setDeviceCount(data.items?.length ?? 0))
+      .then(data => setDeviceCount(Array.isArray(data) ? data.length : 0))
       .catch(() => setDeviceCount(0));
 
     api.get<{ items: any[] }>(`/tenants/${tenantId}/sessions`)

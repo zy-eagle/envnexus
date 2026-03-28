@@ -23,7 +23,7 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
   const fetchProfiles = async () => {
     try {
       const data = await api.get<{ items: any[] }>(`/tenants/${params.tenantId}/policy-profiles`);
-      setProfiles(data.items || []);
+      setProfiles(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch profiles:', error);
     } finally {
@@ -119,7 +119,7 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
               </div>
               {editingId && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.status}</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{ct.status}</label>
                   <select 
                     value={formData.status}
                     onChange={e => setFormData({...formData, status: e.target.value})}
@@ -136,13 +136,13 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50"
                 >
-                  {t.cancel}
+                  {ct.cancel}
                 </button>
                 <button 
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
                 >
-                  {editingId ? t.save : t.create}
+                  {editingId ? ct.save : ct.create}
                 </button>
               </div>
             </form>
@@ -160,8 +160,8 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.name}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.status}</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{t.actions}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{ct.status}</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">{ct.actions}</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -178,13 +178,13 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
                       onClick={() => openEditModal(profile)}
                       className="text-blue-600 hover:text-blue-900 mr-4"
                     >
-                      {t.edit}
+                      {ct.edit}
                     </button>
                     <button 
                       onClick={() => handleDelete(profile.id)}
                       className="text-red-600 hover:text-red-900"
                     >
-                      {t.delete}
+                      {ct.delete}
                     </button>
                   </td>
                 </tr>

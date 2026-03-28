@@ -63,7 +63,7 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
   const fetchProfiles = async () => {
     try {
       const data = await api.get<{ items: ModelProfile[] }>(`/tenants/${params.tenantId}/model-profiles`);
-      setProfiles(data.items || []);
+      setProfiles(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch profiles:', error);
     } finally {
@@ -131,7 +131,14 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.provider}</label>
                 <select 
                   value={formData.provider}
-                  onChange={e => setFormData({...formData, provider: e.target.value})}
+                  onChange={e => {
+                    const newProvider = e.target.value;
+                    let defaultModel = 'gpt-4o';
+                    if (newProvider === 'anthropic') defaultModel = 'claude-3-5-sonnet-20240620';
+                    if (newProvider === 'deepseek') defaultModel = 'deepseek-chat';
+                    if (newProvider === 'local') defaultModel = 'llama3';
+                    setFormData({...formData, provider: newProvider, model_name: defaultModel});
+                  }}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="openai">OpenAI</option>
@@ -152,13 +159,42 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.modelName}</label>
-                <input 
-                  type="text" 
+                <select 
                   required
                   value={formData.model_name}
                   onChange={e => setFormData({...formData, model_name: e.target.value})}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500" 
-                />
+                >
+                  {formData.provider === 'openai' && (
+                    <>
+                      <option value="gpt-4o">gpt-4o</option>
+                      <option value="gpt-4-turbo">gpt-4-turbo</option>
+                      <option value="gpt-4">gpt-4</option>
+                      <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                    </>
+                  )}
+                  {formData.provider === 'anthropic' && (
+                    <>
+                      <option value="claude-3-5-sonnet-20240620">claude-3-5-sonnet</option>
+                      <option value="claude-3-opus-20240229">claude-3-opus</option>
+                      <option value="claude-3-sonnet-20240229">claude-3-sonnet</option>
+                      <option value="claude-3-haiku-20240307">claude-3-haiku</option>
+                    </>
+                  )}
+                  {formData.provider === 'deepseek' && (
+                    <>
+                      <option value="deepseek-chat">deepseek-chat</option>
+                      <option value="deepseek-reasoner">deepseek-reasoner</option>
+                    </>
+                  )}
+                  {formData.provider === 'local' && (
+                    <>
+                      <option value="llama3">llama3</option>
+                      <option value="qwen2">qwen2</option>
+                      <option value="mistral">mistral</option>
+                    </>
+                  )}
+                </select>
               </div>
               <div className="flex justify-end space-x-3 mt-6">
                 <button 

@@ -6,7 +6,7 @@ COPY services/job-runner/go.mod services/job-runner/go.sum ./services/job-runner
 COPY services/platform-api/go.mod services/platform-api/go.sum ./services/platform-api/
 COPY services/session-gateway/go.mod services/session-gateway/go.sum ./services/session-gateway/
 COPY apps/agent-core/go.mod apps/agent-core/go.sum ./apps/agent-core/
-RUN go env -w GOPROXY=https://goproxy.cn,direct && go mod download
+RUN go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct && go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o job-runner ./services/job-runner/cmd/job-runner

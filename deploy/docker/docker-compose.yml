@@ -84,6 +84,9 @@ services:
       dockerfile: deploy/docker/session-gateway.Dockerfile
     env_file:
       - .env
+    environment:
+      # session-gateway uses ENX_HTTP_PORT; shared .env sets it for platform-api (8080).
+      ENX_HTTP_PORT: ${ENX_SESSION_GATEWAY_PORT:-8081}
     depends_on:
       platform-api:
         condition: service_healthy
@@ -92,7 +95,7 @@ services:
     ports:
       - "${ENX_SESSION_GATEWAY_PORT:-8081}:${ENX_SESSION_GATEWAY_PORT:-8081}"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/readyz"]
+      test: ["CMD", "curl", "-f", "http://localhost:${ENX_SESSION_GATEWAY_PORT:-8081}/readyz"]
       interval: 10s
       timeout: 5s
       retries: 5

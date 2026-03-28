@@ -86,7 +86,7 @@ generate_env() {
 # ============================================================
 
 # ===== Database =====
-ENX_DATABASE_DSN=root:${MYSQL_PASS}@tcp(mysql:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local
+ENX_DATABASE_DSN="root:${MYSQL_PASS}@tcp(mysql:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
 MYSQL_ROOT_PASSWORD=${MYSQL_PASS}
 MYSQL_DATABASE=envnexus
 

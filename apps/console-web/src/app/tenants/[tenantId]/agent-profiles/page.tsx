@@ -26,7 +26,7 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
   const fetchProfiles = async () => {
     try {
       const data = await api.get<{ items: any[] }>(`/tenants/${params.tenantId}/agent-profiles`);
-      setProfiles(data.items || []);
+      setProfiles(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch profiles:', error);
     } finally {

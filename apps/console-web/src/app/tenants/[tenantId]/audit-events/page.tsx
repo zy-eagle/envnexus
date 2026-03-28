@@ -41,7 +41,7 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
       const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
 
       const data = await api.get<{ items: AuditEvent[] }>(`/tenants/${params.tenantId}/audit-events${qs}`);
-      setEvents(data.items || []);
+      setEvents(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch audit events:', error);
       setEvents([]);

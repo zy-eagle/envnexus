@@ -29,7 +29,7 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
   const fetchDevices = useCallback(async () => {
     try {
       const data = await api.get<{ items: any[] }>(`/tenants/${tenantId}/devices`);
-      setDevices(data.items || []);
+      setDevices(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch devices:', error);
     } finally {

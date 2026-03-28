@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/infrastructure"
@@ -33,7 +33,7 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 	artifactPath := fmt.Sprintf("packages/%s/%s", tenantID, pkgName)
 
 	pkg := &domain.DownloadPackage{
-		ID:               uuid.New().String(),
+		ID:               ulid.Make().String(),
 		TenantID:         tenantID,
 		AgentProfileID:   req.AgentProfileID,
 		DistributionMode: req.DistributionMode,

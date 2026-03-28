@@ -38,8 +38,8 @@ export default function TenantsPage() {
   const fetchTenants = async () => {
     setLoading(true);
     try {
-      const data = await api.get<{ items: any[] }>('/tenants');
-      setTenants(data.items || []);
+      const data = await api.get<any[]>('/tenants');
+      setTenants(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch tenants', err);
       setTenants([]);

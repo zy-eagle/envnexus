@@ -3,7 +3,7 @@ package tenant
 import (
 	"context"
 
-	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
@@ -29,7 +29,7 @@ func (s *Service) CreateTenant(ctx context.Context, req dto.CreateTenantRequest)
 		return nil, domain.ErrDuplicateSlug
 	}
 
-	id := uuid.New().String()
+	id := ulid.Make().String()
 	tenant := domain.NewTenant(id, req.Name, req.Slug)
 
 	if err := s.repo.Create(ctx, tenant); err != nil {

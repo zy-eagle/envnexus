@@ -17,7 +17,7 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
   const fetchSessions = async () => {
     try {
       const data = await api.get<{ items: any[] }>(`/tenants/${tenantId}/sessions`);
-      setSessions(data.items || []);
+      setSessions(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch sessions:', error);
     } finally {

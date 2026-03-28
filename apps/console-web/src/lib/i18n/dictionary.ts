@@ -439,8 +439,11 @@ const dictionary = {
   },
 } as const;
 
-export function useDict<K extends keyof typeof dictionary>(section: K, lang: Lang) {
-  return dictionary[section][lang];
+export function useDict<K extends keyof typeof dictionary>(
+  section: K,
+  lang: Lang,
+): (typeof dictionary)[K][Lang] {
+  return dictionary[section][lang] as (typeof dictionary)[K][Lang];
 }
 
 export default dictionary;

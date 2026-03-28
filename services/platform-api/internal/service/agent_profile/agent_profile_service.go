@@ -3,7 +3,7 @@ package agent_profile
 import (
 	"context"
 
-	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
@@ -45,7 +45,7 @@ func (s *Service) ListProfiles(ctx context.Context, tenantID string) ([]*dto.Age
 }
 
 func (s *Service) CreateProfile(ctx context.Context, tenantID string, req dto.CreateAgentProfileRequest) (*dto.AgentProfileResponse, error) {
-	id := uuid.New().String()
+	id := ulid.Make().String()
 	profile := &domain.AgentProfile{
 		ID:               id,
 		TenantID:         tenantID,
