@@ -17,6 +17,13 @@ interface ModelProfile {
   secret_mode?: string;
 }
 
+const PROVIDER_DEFAULTS: Record<string, { base_url: string; model_name: string }> = {
+  openai:    { base_url: 'https://api.openai.com/v1',       model_name: 'gpt-4o' },
+  anthropic: { base_url: 'https://api.anthropic.com/v1',    model_name: 'claude-3-5-sonnet-20240620' },
+  deepseek:  { base_url: 'https://api.deepseek.com/v1',    model_name: 'deepseek-chat' },
+  local:     { base_url: 'http://localhost:11434/v1',       model_name: 'llama3' },
+};
+
 export default function ModelProfilesPage({ params }: { params: { tenantId: string } }) {
   const { lang } = useLanguage();
   const t = useDict('modelProfiles', lang);
@@ -29,8 +36,8 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
   const [formData, setFormData] = useState({
     name: '',
     provider: 'openai',
-    base_url: 'https://api.openai.com/v1',
-    model_name: 'gpt-4',
+    base_url: PROVIDER_DEFAULTS.openai.base_url,
+    model_name: PROVIDER_DEFAULTS.openai.model_name,
     api_key: '',
     params_json: '{}',
     secret_mode: 'env'
@@ -41,8 +48,8 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
     setFormData({
       name: '',
       provider: 'openai',
-      base_url: 'https://api.openai.com/v1',
-      model_name: 'gpt-4',
+      base_url: PROVIDER_DEFAULTS.openai.base_url,
+      model_name: PROVIDER_DEFAULTS.openai.model_name,
       api_key: '',
       params_json: '{}',
       secret_mode: 'env'
@@ -137,11 +144,8 @@ export default function ModelProfilesPage({ params }: { params: { tenantId: stri
                   value={formData.provider}
                   onChange={e => {
                     const newProvider = e.target.value;
-                    let defaultModel = 'gpt-4o';
-                    if (newProvider === 'anthropic') defaultModel = 'claude-3-5-sonnet-20240620';
-                    if (newProvider === 'deepseek') defaultModel = 'deepseek-chat';
-                    if (newProvider === 'local') defaultModel = 'llama3';
-                    setFormData({...formData, provider: newProvider, model_name: defaultModel});
+                    const defaults = PROVIDER_DEFAULTS[newProvider] || PROVIDER_DEFAULTS.openai;
+                    setFormData({...formData, provider: newProvider, base_url: defaults.base_url, model_name: defaults.model_name});
                   }}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
                 >

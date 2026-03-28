@@ -1,9 +1,61 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
+
+interface CapabilityFields {
+  local_ui: boolean;
+  repair_enabled: boolean;
+}
+
+function parseCapabilities(json: string): CapabilityFields {
+  try {
+    const obj = JSON.parse(json);
+    return {
+      local_ui: obj.local_ui ?? true,
+      repair_enabled: obj.repair_enabled ?? true,
+    };
+  } catch {
+    return { local_ui: true, repair_enabled: true };
+  }
+}
+
+function toCapabilitiesJSON(fields: CapabilityFields): string {
+  return JSON.stringify(fields);
+}
+
+function ToggleSwitch({ checked, onChange, label, description }: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  description: string;
+}) {
+  return (
+    <div className="flex items-center justify-between py-3">
+      <div className="pr-4">
+        <span className="block text-sm font-medium text-gray-700">{label}</span>
+        <span className="block text-xs text-gray-500 mt-0.5">{description}</span>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+          checked ? 'bg-blue-600' : 'bg-gray-200'
+        }`}
+      >
+        <span
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+            checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 export default function AgentProfilesPage({ params }: { params: { tenantId: string } }) {
   const { lang } = useLanguage();
@@ -13,15 +65,25 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
   const [editingId, setEditingId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modelProfiles, setModelProfiles] = useState<any[]>([]);
+  const [policyProfiles, setPolicyProfiles] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
     name: '',
     model_profile_id: '',
     policy_profile_id: '',
-    capabilities_json: '{\n  "local_ui": true,\n  "repair_enabled": true\n}',
+    capabilities_json: toCapabilitiesJSON({ local_ui: true, repair_enabled: true }),
     update_channel: 'stable',
     status: 'active'
   });
+
+  const [capFields, setCapFields] = useState<CapabilityFields>({ local_ui: true, repair_enabled: true });
+
+  const updateCapField = useCallback((field: keyof CapabilityFields, value: boolean) => {
+    const next = { ...capFields, [field]: value };
+    setCapFields(next);
+    setFormData(prev => ({ ...prev, capabilities_json: toCapabilitiesJSON(next) }));
+  }, [capFields]);
 
   const fetchProfiles = async () => {
     try {
@@ -34,17 +96,33 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
     }
   };
 
+  const fetchRelatedProfiles = async () => {
+    try {
+      const [models, policies] = await Promise.all([
+        api.get<any[]>(`/tenants/${params.tenantId}/model-profiles`),
+        api.get<any[]>(`/tenants/${params.tenantId}/policy-profiles`),
+      ]);
+      setModelProfiles(Array.isArray(models) ? models : []);
+      setPolicyProfiles(Array.isArray(policies) ? policies : []);
+    } catch (error) {
+      console.error('Failed to fetch related profiles:', error);
+    }
+  };
+
   useEffect(() => {
     fetchProfiles();
+    fetchRelatedProfiles();
   }, [params.tenantId]);
 
   const openCreateModal = () => {
     setEditingId(null);
+    const defaultCap: CapabilityFields = { local_ui: true, repair_enabled: true };
+    setCapFields(defaultCap);
     setFormData({
       name: '',
       model_profile_id: '',
       policy_profile_id: '',
-      capabilities_json: '{\n  "local_ui": true,\n  "repair_enabled": true\n}',
+      capabilities_json: toCapabilitiesJSON(defaultCap),
       update_channel: 'stable',
       status: 'active'
     });
@@ -53,6 +131,8 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
 
   const openEditModal = (profile: any) => {
     setEditingId(profile.id);
+    const cap = parseCapabilities(profile.capabilities_json || '{}');
+    setCapFields(cap);
     setFormData({
       name: profile.name,
       model_profile_id: profile.model_profile_id,
@@ -119,23 +199,31 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t.modelProfile}</label>
-                  <input 
-                    type="text" 
+                  <select
                     required
                     value={formData.model_profile_id}
                     onChange={e => setFormData({...formData, model_profile_id: e.target.value})}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500" 
-                  />
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">{t.selectModel}</option>
+                    {modelProfiles.map((mp: any) => (
+                      <option key={mp.id} value={mp.id}>{mp.name} ({mp.provider})</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t.policyProfile}</label>
-                  <input 
-                    type="text" 
+                  <select
                     required
                     value={formData.policy_profile_id}
                     onChange={e => setFormData({...formData, policy_profile_id: e.target.value})}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500" 
-                  />
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">{t.selectPolicy}</option>
+                    {policyProfiles.map((pp: any) => (
+                      <option key={pp.id} value={pp.id}>{pp.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div>
@@ -145,21 +233,30 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
                   onChange={e => setFormData({...formData, update_channel: e.target.value})}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="stable">Stable</option>
-                  <option value="beta">Beta</option>
-                  <option value="dev">Dev</option>
+                  <option value="stable">{t.channelStable}</option>
+                  <option value="beta">{t.channelBeta}</option>
+                  <option value="dev">{t.channelDev}</option>
                 </select>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t.capabilities}</label>
-                <textarea 
-                  required
-                  rows={4}
-                  value={formData.capabilities_json}
-                  onChange={e => setFormData({...formData, capabilities_json: e.target.value})}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:ring-blue-500 focus:border-blue-500" 
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">{t.capabilities}</label>
+                <div className="border border-gray-200 rounded-lg px-4 divide-y divide-gray-100">
+                  <ToggleSwitch
+                    checked={capFields.local_ui}
+                    onChange={v => updateCapField('local_ui', v)}
+                    label={t.capLocalUI}
+                    description={t.capLocalUIDesc}
+                  />
+                  <ToggleSwitch
+                    checked={capFields.repair_enabled}
+                    onChange={v => updateCapField('repair_enabled', v)}
+                    label={t.capRepair}
+                    description={t.capRepairDesc}
+                  />
+                </div>
               </div>
+
               {editingId && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{ct.status}</label>
@@ -168,8 +265,8 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
                     onChange={e => setFormData({...formData, status: e.target.value})}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="active">Active</option>
-                    <option value="archived">Archived</option>
+                    <option value="active">{t.statusActive}</option>
+                    <option value="archived">{t.statusArchived}</option>
                   </select>
                 </div>
               )}
