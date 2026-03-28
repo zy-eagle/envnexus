@@ -1,11 +1,10 @@
 /** @type {import('next').NextConfig} */
+const apiTarget = process.env.API_PROXY_TARGET || 'http://platform-api:8080';
+
 const nextConfig = {
   reactStrictMode: true,
-  // Enable standalone output for smaller Docker images and faster builds
   output: 'standalone',
-  // Disable source maps in production for faster builds
   productionBrowserSourceMaps: false,
-  // Optimize image loading
   images: {
     unoptimized: true,
   },
@@ -13,7 +12,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://platform-api:8080/api/:path*', // Proxy to Backend
+        destination: `${apiTarget}/api/:path*`,
       },
     ]
   },

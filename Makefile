@@ -1,4 +1,4 @@
-.PHONY: build run-platform run-gateway run-runner run-agent deploy deploy-web deploy-api stop restart status
+.PHONY: build run-platform run-gateway run-runner run-agent deploy deploy-web deploy-api stop restart status logs reset
 
 deploy:
 	@./deploy.sh start
@@ -17,6 +17,12 @@ restart:
 
 status:
 	@./deploy.sh status
+
+logs:
+	@./deploy.sh logs
+
+reset:
+	@./deploy.sh reset
 
 build:
 	@echo "Building platform-api..."
@@ -45,4 +51,4 @@ run-desktop:
 	cd apps/agent-desktop && npm start
 
 run-web:
-	cd apps/console-web && npm run dev
+	cd apps/console-web && pnpm run dev

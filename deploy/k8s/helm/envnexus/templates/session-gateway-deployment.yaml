@@ -26,24 +26,37 @@ spec:
             - name: http
               containerPort: {{ .Values.service.sessionGateway.port }}
           env:
-            - name: ENX_SESSION_SECRET
+            - name: ENX_SESSION_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
-                  key: session-secret
+                  key: session-token-secret
+            - name: ENX_HTTP_PORT
+              value: {{ .Values.service.sessionGateway.port | quote }}
             - name: ENX_REDIS_ADDR
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: redis-addr
-            - name: ENX_LOG_LEVEL
-              value: {{ .Values.env.ENX_LOG_LEVEL | quote }}
+            - name: ENX_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: redis-password
+            - name: ENX_CORS_ALLOWED_ORIGINS
+              value: {{ .Values.env.ENX_CORS_ALLOWED_ORIGINS | quote }}
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
             initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
           resources:
             {{- toYaml .Values.resources.sessionGateway | nindent 12 }}
 ---

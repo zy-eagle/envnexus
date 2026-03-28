@@ -17,6 +17,7 @@ database:
 
 redis:
   addr: ${ENX_REDIS_ADDR}
+  password: ${ENX_REDIS_PASSWORD}
 
 object_storage:
   endpoint: ${ENX_OBJECT_STORAGE_ENDPOINT}
@@ -25,4 +26,4 @@ object_storage:
 security:
   jwt_secret: ${ENX_JWT_SECRET}
   device_token_secret: ${ENX_DEVICE_TOKEN_SECRET}
-  enroll_signing_secret: ${ENX_ENROLL_SIGNING_SECRET}
+  session_token_secret: ${ENX_SESSION_TOKEN_SECRET}

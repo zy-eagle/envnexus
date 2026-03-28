@@ -29,26 +29,24 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
-          - path: /api
-            pathType: Prefix
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
             backend:
               service:
+                {{- if eq .backend "platform-api" }}
                 name: {{ $.Release.Name }}-platform-api
                 port:
                   number: {{ $.Values.service.platformApi.port }}
-          - path: /ws
-            pathType: Prefix
-            backend:
-              service:
+                {{- else if eq .backend "session-gateway" }}
                 name: {{ $.Release.Name }}-session-gateway
                 port:
                   number: {{ $.Values.service.sessionGateway.port }}
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
+                {{- else if eq .backend "console-web" }}
                 name: {{ $.Release.Name }}-console-web
                 port:
                   number: {{ $.Values.service.consoleWeb.port }}
+                {{- end }}
+          {{- end }}
     {{- end }}
 {{- end }}

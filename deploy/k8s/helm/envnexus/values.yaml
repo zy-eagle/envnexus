@@ -3,21 +3,21 @@ global:
   imageRegistry: ""
   imagePullSecrets: []
 
-## ── Image ────────────────────────────────────────────────────────────────────
+## -- Image ────────────────────────────────────────────────────────────────────
 image:
   registry: ghcr.io
   repository: zy-eagle/envnexus
   tag: "0.2.0"
   pullPolicy: IfNotPresent
 
-## ── Replica counts ────────────────────────────────────────────────────────────
+## -- Replica counts ────────────────────────────────────────────────────────────
 replicaCount:
   platformApi: 2
   sessionGateway: 2
   jobRunner: 1
   consoleWeb: 2
 
-## ── Service ports ─────────────────────────────────────────────────────────────
+## -- Service ports ─────────────────────────────────────────────────────────────
 service:
   platformApi:
     port: 8080
@@ -32,7 +32,7 @@ service:
     port: 3000
     type: ClusterIP
 
-## ── Ingress ───────────────────────────────────────────────────────────────────
+## -- Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: true
   className: nginx
@@ -56,17 +56,18 @@ ingress:
       hosts:
         - envnexus.example.com
 
-## ── Environment variables ─────────────────────────────────────────────────────
+## -- Environment variables (must match Go code os.Getenv keys) ─────────────────
 env:
   ENX_JWT_SECRET: "CHANGE_ME_IN_PRODUCTION"
-  ENX_DEVICE_SECRET: "CHANGE_ME_IN_PRODUCTION"
-  ENX_SESSION_SECRET: "CHANGE_ME_IN_PRODUCTION"
+  ENX_DEVICE_TOKEN_SECRET: "CHANGE_ME_IN_PRODUCTION"
+  ENX_SESSION_TOKEN_SECRET: "CHANGE_ME_IN_PRODUCTION"
+  ENX_CORS_ALLOWED_ORIGINS: "https://envnexus.example.com"
   ENX_LOG_LEVEL: "info"
 
-## ── Existing secrets ──────────────────────────────────────────────────────────
-existingSecret: ""  # Name of existing Kubernetes secret with credentials
+## -- Existing secrets ──────────────────────────────────────────────────────────
+existingSecret: ""
 
-## ── MySQL ─────────────────────────────────────────────────────────────────────
+## -- MySQL ─────────────────────────────────────────────────────────────────────
 mysql:
   enabled: true
   auth:
@@ -79,7 +80,7 @@ mysql:
       enabled: true
       size: 20Gi
 
-## ── Redis ─────────────────────────────────────────────────────────────────────
+## -- Redis ─────────────────────────────────────────────────────────────────────
 redis:
   enabled: true
   auth:
@@ -90,7 +91,7 @@ redis:
       enabled: true
       size: 5Gi
 
-## ── MinIO ─────────────────────────────────────────────────────────────────────
+## -- MinIO ─────────────────────────────────────────────────────────────────────
 minio:
   enabled: true
   endpoint: "minio:9000"
@@ -98,8 +99,11 @@ minio:
   secretKey: "minioadmin"
   bucket: "envnexus"
   useSSL: false
+  persistence:
+    enabled: true
+    size: 10Gi
 
-## ── Resources ─────────────────────────────────────────────────────────────────
+## -- Resources ─────────────────────────────────────────────────────────────────
 resources:
   platformApi:
     requests:
@@ -130,21 +134,14 @@ resources:
       cpu: 200m
       memory: 128Mi
 
-## ── Autoscaling ───────────────────────────────────────────────────────────────
+## -- Autoscaling ───────────────────────────────────────────────────────────────
 autoscaling:
   enabled: false
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
-## ── Persistence ───────────────────────────────────────────────────────────────
-persistence:
-  enabled: true
-  storageClass: ""
-  accessMode: ReadWriteOnce
-  size: 10Gi
-
-## ── Health checks ─────────────────────────────────────────────────────────────
+## -- Health checks ─────────────────────────────────────────────────────────────
 livenessProbe:
   enabled: true
   initialDelaySeconds: 30
@@ -157,17 +154,17 @@ readinessProbe:
   periodSeconds: 5
   failureThreshold: 3
 
-## ── Pod disruption budget ─────────────────────────────────────────────────────
+## -- Pod disruption budget ─────────────────────────────────────────────────────
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
-## ── Service account ───────────────────────────────────────────────────────────
+## -- Service account ───────────────────────────────────────────────────────────
 serviceAccount:
   create: true
   name: ""
   annotations: {}
 
-## ── Network policy ────────────────────────────────────────────────────────────
+## -- Network policy ────────────────────────────────────────────────────────────
 networkPolicy:
   enabled: false

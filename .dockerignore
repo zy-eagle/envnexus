@@ -1,0 +1,13 @@
+.git
+.github
+.cursor
+.vscode
+docs
+deploy/docker/volumes
+deploy/k8s
+apps/agent-desktop/node_modules
+apps/agent-desktop/dist
+apps/console-web/node_modules
+apps/console-web/.next
+*.md
+!README.md

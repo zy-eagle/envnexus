@@ -1,4 +1,5 @@
 deploy/docker/volumes/
+deploy/docker/.env
 
 # Binaries
 *.exe

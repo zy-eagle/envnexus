@@ -31,18 +31,38 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: database-dsn
+            - name: ENX_HEALTH_PORT
+              value: {{ .Values.service.jobRunner.port | quote }}
             - name: ENX_OBJECT_STORAGE_ENDPOINT
-              value: {{ .Values.minio.endpoint | quote }}
+              value: "{{ .Release.Name }}-minio:9000"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: minio-access-key
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: minio-secret-key
             - name: ENX_OBJECT_STORAGE_BUCKET
               value: {{ .Values.minio.bucket | quote }}
-            - name: ENX_LOG_LEVEL
-              value: {{ .Values.env.ENX_LOG_LEVEL | quote }}
+            - name: ENX_PLATFORM_URL
+              value: "http://{{ .Release.Name }}-platform-api:{{ .Values.service.platformApi.port }}"
+            - name: ENX_WS_URL
+              value: "ws://{{ .Release.Name }}-session-gateway:{{ .Values.service.sessionGateway.port }}/ws/v1/sessions"
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
             initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
           resources:
             {{- toYaml .Values.resources.jobRunner | nindent 12 }}
 ---
@@ -50,6 +70,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Release.Name }}-job-runner
+  labels:
+    app.kubernetes.io/name: job-runner
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   type: {{ .Values.service.jobRunner.type }}
   ports:

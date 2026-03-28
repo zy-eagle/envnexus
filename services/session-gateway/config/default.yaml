@@ -10,7 +10,7 @@ server:
 
 redis:
   addr: ${ENX_REDIS_ADDR}
+  password: ${ENX_REDIS_PASSWORD}
 
-platform_api:
-  base_url: http://platform-api:8080
-  internal_token: ${ENX_INTERNAL_TOKEN}
+security:
+  session_token_secret: ${ENX_SESSION_TOKEN_SECRET}

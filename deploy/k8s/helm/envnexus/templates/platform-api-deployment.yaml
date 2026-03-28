@@ -32,32 +32,51 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: database-dsn
-            - name: ENX_REDIS_ADDR
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: redis-addr
             - name: ENX_JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: jwt-secret
-            - name: ENX_DEVICE_SECRET
+            - name: ENX_DEVICE_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
-                  key: device-secret
-            - name: ENX_SESSION_SECRET
+                  key: device-token-secret
+            - name: ENX_SESSION_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
-                  key: session-secret
+                  key: session-token-secret
+            - name: ENX_HTTP_PORT
+              value: {{ .Values.service.platformApi.port | quote }}
+            - name: ENX_REDIS_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: redis-addr
+            - name: ENX_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: redis-password
             - name: ENX_OBJECT_STORAGE_ENDPOINT
-              value: {{ .Values.minio.endpoint | quote }}
+              value: "{{ .Release.Name }}-minio:9000"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: minio-access-key
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: minio-secret-key
             - name: ENX_OBJECT_STORAGE_BUCKET
               value: {{ .Values.minio.bucket | quote }}
-            - name: ENX_LOG_LEVEL
-              value: {{ .Values.env.ENX_LOG_LEVEL | quote }}
+            - name: ENX_GATEWAY_URL
+              value: "http://{{ .Release.Name }}-session-gateway:{{ .Values.service.sessionGateway.port }}"
+            - name: ENX_CORS_ALLOWED_ORIGINS
+              value: {{ .Values.env.ENX_CORS_ALLOWED_ORIGINS | quote }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -66,7 +85,7 @@ spec:
             periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
