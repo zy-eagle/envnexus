@@ -44,7 +44,7 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 
 	var activationKey string
 	var activationKeyHash string
-	if activationMode == domain.ActivationModeAuto {
+	if activationMode == domain.ActivationModeAuto || activationMode == domain.ActivationModeBoth {
 		activationKey = device_binding.GenerateActivationKey()
 		activationKeyHash = device_binding.HashActivationKey(activationKey)
 	}

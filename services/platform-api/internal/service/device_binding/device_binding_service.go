@@ -83,7 +83,7 @@ func (s *Service) ActivateAuto(ctx context.Context, req dto.ActivateDeviceReques
 	if pkg == nil {
 		return &dto.ActivateDeviceResponse{Error: domain.ErrActivationKeyInvalid.Message}, domain.ErrActivationKeyInvalid
 	}
-	if pkg.ActivationMode != domain.ActivationModeAuto {
+	if !pkg.SupportsAutoActivation() {
 		return &dto.ActivateDeviceResponse{Error: "package requires manual activation"}, domain.ErrActivationKeyInvalid
 	}
 
@@ -280,7 +280,7 @@ func (s *Service) bindDevice(ctx context.Context, pkg *domain.DownloadPackage, d
 	_ = s.bindingRepo.DeletePending(ctx, deviceCode)
 
 	action := domain.AuditActionActivate
-	if pkg.ActivationMode == domain.ActivationModeManual {
+	if actor != "system" {
 		action = domain.AuditActionBind
 	}
 	s.logAudit(ctx, pkg.TenantID, pkg.ID, deviceCode, action, actor, nil)

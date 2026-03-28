@@ -2,7 +2,7 @@
 
 -- Extend download_packages with activation fields
 ALTER TABLE download_packages
-  ADD COLUMN activation_mode VARCHAR(16) NOT NULL DEFAULT 'auto' COMMENT 'auto or manual' AFTER sign_metadata_json,
+  ADD COLUMN activation_mode VARCHAR(16) NOT NULL DEFAULT 'auto' COMMENT 'auto, manual, or both' AFTER sign_metadata_json,
   ADD COLUMN activation_key_hash VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'SHA-256 of activation key (auto mode only)' AFTER activation_mode,
   ADD COLUMN max_devices INT NOT NULL DEFAULT 1 COMMENT 'Max bindable devices' AFTER activation_key_hash,
   ADD COLUMN bound_count INT NOT NULL DEFAULT 0 COMMENT 'Currently bound device count' AFTER max_devices;

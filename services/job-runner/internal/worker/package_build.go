@@ -187,7 +187,7 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 		if p.ActivationMode != "" {
 			configPayload["activation_mode"] = p.ActivationMode
 		}
-		if p.ActivationMode == "auto" && p.ActivationKey != "" {
+		if (p.ActivationMode == "auto" || p.ActivationMode == "both") && p.ActivationKey != "" {
 			configPayload["activation_key"] = p.ActivationKey
 		}
 		payloadBytes, _ := json.Marshal(configPayload)

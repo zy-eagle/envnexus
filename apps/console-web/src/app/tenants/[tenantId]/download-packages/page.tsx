@@ -59,7 +59,8 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     platform: 'linux',
     arch: 'amd64',
     version: '0.1.0',
-    activation_mode: 'auto',
+    activation_auto: true,
+    activation_manual: false,
     max_devices: 1,
   });
 
@@ -104,10 +105,16 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.activation_auto && !formData.activation_manual) return;
     setSubmitting(true);
     setCreatedKey('');
     try {
-      const resp = await api.post<DownloadPackage>(`/tenants/${params.tenantId}/download-packages`, formData);
+      const activationMode = formData.activation_auto && formData.activation_manual
+        ? 'both'
+        : formData.activation_auto ? 'auto' : 'manual';
+      const { activation_auto, activation_manual, ...rest } = formData;
+      const payload = { ...rest, activation_mode: activationMode };
+      const resp = await api.post<DownloadPackage>(`/tenants/${params.tenantId}/download-packages`, payload);
       if (resp.activation_key) {
         setCreatedKey(resp.activation_key);
       } else {
@@ -177,8 +184,10 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     return ap ? ap.name : profileId || '-';
   };
 
-  const modeLabel = (mode: string) =>
-    mode === 'manual' ? t.activationModeManual : t.activationModeAuto;
+  const modeLabel = (mode: string) => {
+    if (mode === 'both') return t.activationModeBoth || 'Auto + Manual';
+    return mode === 'manual' ? t.activationModeManual : t.activationModeAuto;
+  };
 
   const actionBadge = (action: string) => {
     const colors: Record<string, string> = {
@@ -244,36 +253,49 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                     </select>
                   </div>
 
-                  {/* Activation Mode */}
+                  {/* Activation Mode — multi-select */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{t.activationMode}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t.activationMode}
+                      <span className="text-xs text-gray-400 font-normal ml-2">{t.activationModeBothHint || '(can select both)'}</span>
+                    </label>
                     <div className="grid grid-cols-2 gap-3">
-                      {(['auto', 'manual'] as const).map(mode => (
-                        <label
-                          key={mode}
-                          className={`relative flex flex-col p-3 border-2 rounded-lg cursor-pointer transition-colors ${
-                            formData.activation_mode === mode
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="activation_mode"
-                            value={mode}
-                            checked={formData.activation_mode === mode}
-                            onChange={() => setFormData({ ...formData, activation_mode: mode })}
-                            className="sr-only"
-                          />
-                          <span className="text-sm font-medium text-gray-900">
-                            {mode === 'auto' ? t.activationModeAuto : t.activationModeManual}
-                          </span>
-                          <span className="text-xs text-gray-500 mt-1">
-                            {mode === 'auto' ? t.activationModeAutoDesc : t.activationModeManualDesc}
-                          </span>
-                        </label>
-                      ))}
+                      <label
+                        className={`relative flex flex-col p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                          formData.activation_auto
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.activation_auto}
+                          onChange={e => setFormData({ ...formData, activation_auto: e.target.checked })}
+                          className="sr-only"
+                        />
+                        <span className="text-sm font-medium text-gray-900">{t.activationModeAuto}</span>
+                        <span className="text-xs text-gray-500 mt-1">{t.activationModeAutoDesc}</span>
+                      </label>
+                      <label
+                        className={`relative flex flex-col p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                          formData.activation_manual
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.activation_manual}
+                          onChange={e => setFormData({ ...formData, activation_manual: e.target.checked })}
+                          className="sr-only"
+                        />
+                        <span className="text-sm font-medium text-gray-900">{t.activationModeManual}</span>
+                        <span className="text-xs text-gray-500 mt-1">{t.activationModeManualDesc}</span>
+                      </label>
                     </div>
+                    {!formData.activation_auto && !formData.activation_manual && (
+                      <p className="text-xs text-red-500 mt-1">{t.activationModeRequired || 'Please select at least one activation mode'}</p>
+                    )}
                   </div>
 
                   {/* Max Devices */}
@@ -357,7 +379,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
               <button onClick={() => setBindingPkg(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
             </div>
 
-            {bindingPkg.activation_mode === 'manual' && (
+            {(bindingPkg.activation_mode === 'manual' || bindingPkg.activation_mode === 'both') && (
               <div className="flex space-x-2 mb-4">
                 <input
                   type="text"
@@ -495,6 +517,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{pkg.version}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      pkg.activation_mode === 'both' ? 'bg-indigo-100 text-indigo-800' :
                       pkg.activation_mode === 'manual' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
                     }`}>
                       {modeLabel(pkg.activation_mode)}

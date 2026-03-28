@@ -83,6 +83,15 @@ func (m *Manager) Activate(ctx context.Context) error {
 		return m.activateAuto(ctx, deviceCode, compInfos)
 	case "manual":
 		return m.registerDevice(ctx, deviceCode, compInfos)
+	case "both":
+		if m.activationKey != "" {
+			err := m.activateAuto(ctx, deviceCode, compInfos)
+			if err == nil {
+				return nil
+			}
+			slog.Warn("[activation] Auto-activation failed in both mode, falling back to manual", "error", err)
+		}
+		return m.registerDevice(ctx, deviceCode, compInfos)
 	default:
 		return fmt.Errorf("unknown activation mode: %s", m.activationMode)
 	}

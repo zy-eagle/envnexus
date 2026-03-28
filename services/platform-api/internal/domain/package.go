@@ -33,6 +33,15 @@ type DownloadPackage struct {
 const (
 	ActivationModeAuto   = "auto"
 	ActivationModeManual = "manual"
+	ActivationModeBoth   = "both"
 )
+
+func (p *DownloadPackage) SupportsAutoActivation() bool {
+	return p.ActivationMode == ActivationModeAuto || p.ActivationMode == ActivationModeBoth
+}
+
+func (p *DownloadPackage) SupportsManualBinding() bool {
+	return p.ActivationMode == ActivationModeManual || p.ActivationMode == ActivationModeBoth
+}
 
 func (p *DownloadPackage) TableName() string { return "download_packages" }
