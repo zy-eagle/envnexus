@@ -52,6 +52,10 @@ func NewBootstrapper() *Bootstrapper {
 	}
 }
 
+func (b *Bootstrapper) ApplyCLIOverrides(o config.CLIOverrides) {
+	b.configManager.ApplyCLIOverrides(o)
+}
+
 func (b *Bootstrapper) Run(ctx context.Context) error {
 	slog.Info("[boot] Starting agent bootstrap sequence...")
 	cfg := b.configManager.Get()

@@ -26,11 +26,7 @@ func NewService(pkgRepo repository.PackageRepository, minioClient *infrastructur
 }
 
 func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.CreatePackageRequest) (*dto.PackageResponse, error) {
-	ext := ""
-	if req.Platform == "windows" {
-		ext = ".exe"
-	}
-	pkgName := fmt.Sprintf("envnexus-agent-%s-%s-%s%s", req.Platform, req.Arch, req.Version, ext)
+	pkgName := fmt.Sprintf("EnvNexus-Agent-%s-%s-%s.zip", req.Platform, req.Arch, req.Version)
 	artifactPath := fmt.Sprintf("packages/%s/%s", tenantID, pkgName)
 
 	activationMode := req.ActivationMode

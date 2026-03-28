@@ -1,24 +1,194 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/bootstrap"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/config"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/setup"
 )
 
+var version = "0.3.0"
+
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "setup":
+			handleSetup()
+			return
+		case "version":
+			fmt.Printf("enx-agent %s\n", version)
+			return
+		case "help", "-h", "--help":
+			printUsage()
+			return
+		}
+	}
+
+	// On Windows, if double-clicked (no existing config), launch GUI setup automatically
+	if runtime.GOOS == "windows" && len(os.Args) == 1 && !hasExistingConfig() {
+		setup.RunGUI(getConfigDir())
+		return
+	}
+
+	runAgent()
+}
+
+func printUsage() {
+	fmt.Printf(`enx-agent %s — EnvNexus Agent Core
+
+Usage:
+  enx-agent                  Start the agent (default)
+  enx-agent setup            Interactive setup wizard (CLI)
+  enx-agent setup --gui      Graphical setup wizard (opens browser)
+  enx-agent version          Show version
+  enx-agent help             Show this help
+
+Flags (for default run mode):
+  --platform-url <url>       Platform API URL (overrides config)
+  --ws-url <url>             WebSocket gateway URL (overrides config)
+  --activation-mode <mode>   Activation mode: auto, manual, both
+  --activation-key <key>     Activation key (for auto/both mode)
+
+Config priority (highest to lowest):
+  1. CLI flags (--platform-url, etc.)
+  2. Saved config (~/.envnexus/agent/agent_config.json)
+  3. Bundled config.json (from download package)
+  4. Injected config (binary-embedded)
+  5. Environment variables (ENX_PLATFORM_URL, etc.)
+  6. Default values
+
+`, version)
+}
+
+func getConfigDir() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".envnexus", "agent")
+}
+
+func hasExistingConfig() bool {
+	configPath := filepath.Join(getConfigDir(), "agent_config.json")
+	_, err := os.Stat(configPath)
+	return err == nil
+}
+
+func handleSetup() {
+	useGUI := false
+	if len(os.Args) > 2 {
+		for _, arg := range os.Args[2:] {
+			if arg == "--gui" || arg == "-gui" {
+				useGUI = true
+			}
+		}
+	}
+
+	// On Windows, default to GUI mode for setup
+	if runtime.GOOS == "windows" && !useGUI {
+		for _, arg := range os.Args[2:] {
+			if arg == "--cli" || arg == "-cli" {
+				useGUI = false
+				break
+			}
+		}
+		if len(os.Args) == 2 {
+			useGUI = true
+		}
+	}
+
+	if useGUI {
+		setup.RunGUI(getConfigDir())
+	} else {
+		runCLISetup()
+	}
+}
+
+func runCLISetup() {
+	configDir := getConfigDir()
+	mgr := config.NewManager(configDir)
+	cfg := mgr.Get()
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("╔══════════════════════════════════════════════╗")
+	fmt.Println("║         EnvNexus Agent Setup Wizard          ║")
+	fmt.Println("╚══════════════════════════════════════════════╝")
+	fmt.Println()
+
+	cfg.PlatformURL = prompt(reader, "Platform API URL", cfg.PlatformURL)
+	cfg.WSURL = prompt(reader, "WebSocket Gateway URL", cfg.WSURL)
+	cfg.ActivationMode = prompt(reader, "Activation Mode (auto/manual/both, empty to skip)", cfg.ActivationMode)
+	if cfg.ActivationMode == "auto" || cfg.ActivationMode == "both" {
+		cfg.ActivationKey = prompt(reader, "Activation Key", cfg.ActivationKey)
+	}
+	cfg.EnrollmentToken = prompt(reader, "Enrollment Token (optional)", cfg.EnrollmentToken)
+
+	mgr.Update(func(c *config.AgentConfig) {
+		c.PlatformURL = cfg.PlatformURL
+		c.WSURL = cfg.WSURL
+		c.ActivationMode = cfg.ActivationMode
+		c.ActivationKey = cfg.ActivationKey
+		c.EnrollmentToken = cfg.EnrollmentToken
+	})
+
+	fmt.Println()
+	fmt.Printf("Configuration saved to: %s\n", filepath.Join(configDir, "agent_config.json"))
+	fmt.Println()
+	fmt.Println("You can now start the agent with:")
+	fmt.Println("  enx-agent")
+	fmt.Println()
+	fmt.Println("Or override any setting at runtime:")
+	fmt.Println("  enx-agent --platform-url http://192.168.1.100:8080")
+}
+
+func prompt(reader *bufio.Reader, label, defaultVal string) string {
+	if defaultVal != "" {
+		fmt.Printf("  %s [%s]: ", label, defaultVal)
+	} else {
+		fmt.Printf("  %s: ", label)
+	}
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return defaultVal
+	}
+	return input
+}
+
+func runAgent() {
+	fs := flag.NewFlagSet("enx-agent", flag.ExitOnError)
+	platformURL := fs.String("platform-url", "", "Platform API URL")
+	wsURL := fs.String("ws-url", "", "WebSocket gateway URL")
+	activationMode := fs.String("activation-mode", "", "Activation mode: auto, manual, both")
+	activationKey := fs.String("activation-key", "", "Activation key")
+	_ = fs.Parse(os.Args[1:])
+
+	overrides := config.CLIOverrides{
+		PlatformURL:    *platformURL,
+		WSURL:          *wsURL,
+		ActivationMode: *activationMode,
+		ActivationKey:  *activationKey,
+	}
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
-	slog.Info("Starting enx-agent core...")
+	slog.Info("Starting enx-agent core...", "version", version)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	bootstrapper := bootstrap.NewBootstrapper()
+	bootstrapper.ApplyCLIOverrides(overrides)
+
 	if err := bootstrapper.Run(ctx); err != nil {
 		slog.Error("Bootstrap failed", "error", err)
 		os.Exit(1)

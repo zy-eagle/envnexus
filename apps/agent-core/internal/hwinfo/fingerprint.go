@@ -3,6 +3,7 @@ package hwinfo
 import (
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -29,6 +30,7 @@ func CollectComponents() []Component {
 	for _, c := range collectors {
 		raw := c.fn()
 		if raw == "" {
+			slog.Debug("[hwinfo] collector returned empty", "type", c.ctype)
 			continue
 		}
 		h := sha256.Sum256([]byte(raw))
@@ -37,7 +39,24 @@ func CollectComponents() []Component {
 			Hash: fmt.Sprintf("%x", h),
 		})
 	}
+	if len(components) == 0 {
+		slog.Warn("[hwinfo] all collectors returned empty, trying hostname fallback")
+		if hostname := shellCmd(hostnameCmd()); hostname != "" {
+			h := sha256.Sum256([]byte(hostname))
+			components = append(components, Component{
+				Type: "hostname",
+				Hash: fmt.Sprintf("%x", h),
+			})
+		}
+	}
 	return components
+}
+
+func hostnameCmd() string {
+	if runtime.GOOS == "windows" {
+		return "hostname"
+	}
+	return "hostname"
 }
 
 func CompositeHash(components []Component) string {
@@ -52,7 +71,7 @@ func CompositeHash(components []Component) string {
 func collectCPU() string {
 	switch runtime.GOOS {
 	case "windows":
-		return wmicQuery("cpu", "ProcessorId")
+		return psQuery("(Get-CimInstance Win32_Processor).ProcessorId")
 	case "linux":
 		return shellCmd("cat /proc/cpuinfo | grep 'model name' | head -1 | awk -F: '{print $2}'")
 	case "darwin":
@@ -64,7 +83,7 @@ func collectCPU() string {
 func collectBoard() string {
 	switch runtime.GOOS {
 	case "windows":
-		return wmicQuery("baseboard", "SerialNumber")
+		return psQuery("(Get-CimInstance Win32_BaseBoard).SerialNumber")
 	case "linux":
 		return shellCmd("cat /sys/class/dmi/id/board_serial 2>/dev/null || echo unknown")
 	case "darwin":
@@ -76,7 +95,7 @@ func collectBoard() string {
 func collectMAC() string {
 	switch runtime.GOOS {
 	case "windows":
-		return wmicQuery("nic where NetEnabled=true", "MACAddress")
+		return psQuery("(Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object {$_.MACAddress -ne $null} | Select-Object -First 1).MACAddress")
 	case "linux":
 		return shellCmd("ip link show | grep ether | head -1 | awk '{print $2}'")
 	case "darwin":
@@ -88,7 +107,7 @@ func collectMAC() string {
 func collectDisk() string {
 	switch runtime.GOOS {
 	case "windows":
-		return wmicQuery("diskdrive", "SerialNumber")
+		return psQuery("(Get-CimInstance Win32_DiskDrive | Select-Object -First 1).SerialNumber")
 	case "linux":
 		return shellCmd("lsblk -dno SERIAL /dev/sda 2>/dev/null || echo unknown")
 	case "darwin":
@@ -100,7 +119,7 @@ func collectDisk() string {
 func collectGPU() string {
 	switch runtime.GOOS {
 	case "windows":
-		return wmicQuery("path win32_videocontroller", "PNPDeviceID")
+		return psQuery("(Get-CimInstance Win32_VideoController | Select-Object -First 1).PNPDeviceID")
 	case "linux":
 		return shellCmd("lspci | grep VGA | head -1")
 	case "darwin":
@@ -109,18 +128,18 @@ func collectGPU() string {
 	return ""
 }
 
-func wmicQuery(class, field string) string {
-	out, err := exec.Command("wmic", class, "get", field, "/value").Output()
+// psQuery runs a PowerShell command (preferred on modern Windows where wmic is deprecated)
+func psQuery(command string) string {
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", command).Output()
 	if err != nil {
+		slog.Debug("[hwinfo] powershell query failed", "command", command, "error", err)
 		return ""
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, field+"=") {
-			return strings.TrimPrefix(line, field+"=")
-		}
+	result := strings.TrimSpace(string(out))
+	if result == "" || strings.EqualFold(result, "null") {
+		return ""
 	}
-	return ""
+	return result
 }
 
 func shellCmd(cmd string) string {

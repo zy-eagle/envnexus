@@ -149,10 +149,23 @@ function spawnAgentCore(): void {
 
   console.log('Spawning agent-core:', binaryPath);
 
-  agentCoreProcess = child_process.spawn(binaryPath, [], {
+  const agentEnv: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    ENX_LOG_LEVEL: settings.logLevel,
+  };
+  if (settings.platformURL) {
+    agentEnv.ENX_PLATFORM_URL = settings.platformURL;
+  }
+
+  const args: string[] = [];
+  if (settings.platformURL) {
+    args.push('--platform-url', settings.platformURL);
+  }
+
+  agentCoreProcess = child_process.spawn(binaryPath, args, {
     detached: false,
     stdio: 'pipe',
-    env: { ...process.env, ENX_LOG_LEVEL: settings.logLevel },
+    env: agentEnv,
   });
 
   agentCoreProcess.stdout?.on('data', (data) => {
@@ -178,12 +191,26 @@ function spawnAgentCore(): void {
 }
 
 function findAgentCoreBinary(): string {
+  const isWin = process.platform === 'win32';
+  const binaryName = isWin ? 'enx-agent.exe' : 'enx-agent';
+
   const candidates = [
-    path.join(app.getAppPath(), '..', '..', 'bin', 'enx-agent'),
-    path.join(app.getAppPath(), '..', '..', 'bin', 'enx-agent.exe'),
-    path.join(process.cwd(), 'bin', 'enx-agent'),
-    '/usr/local/bin/enx-agent',
+    // Electron packaged app: extraResources/bin/
+    path.join(process.resourcesPath || '', 'bin', binaryName),
+    // Development: project root bin/
+    path.join(app.getAppPath(), '..', '..', 'bin', binaryName),
+    // Same directory as the desktop app
+    path.join(path.dirname(app.getPath('exe')), binaryName),
+    // Current working directory
+    path.join(process.cwd(), binaryName),
+    path.join(process.cwd(), 'bin', binaryName),
   ];
+
+  if (!isWin) {
+    candidates.push('/usr/local/bin/enx-agent');
+    candidates.push(path.join(process.env.HOME || '', '.local', 'bin', 'enx-agent'));
+  }
+
   return candidates.find((p) => fs.existsSync(p)) || '';
 }
 
@@ -427,9 +454,48 @@ function initAutoUpdate(): void {
   }
 }
 
+// ── First-launch config import ────────────────────────────────────────────────
+
+function importBundledConfig(): void {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  const agentConfigDir = path.join(homeDir, '.envnexus', 'agent');
+  const targetPath = path.join(agentConfigDir, 'agent_config.json');
+
+  if (fs.existsSync(targetPath)) return;
+
+  const searchPaths = [
+    path.join(path.dirname(app.getPath('exe')), 'config.json'),
+    path.join(process.resourcesPath || '', 'config.json'),
+    path.join(app.getAppPath(), 'config.json'),
+    path.join(app.getPath('downloads'), 'config.json'),
+  ];
+
+  for (const src of searchPaths) {
+    try {
+      if (fs.existsSync(src)) {
+        fs.mkdirSync(agentConfigDir, { recursive: true });
+        fs.copyFileSync(src, targetPath);
+        console.log('[config] Imported bundled config from:', src);
+
+        const cfg = JSON.parse(fs.readFileSync(src, 'utf-8'));
+        if (cfg.platform_url) {
+          const settings = loadSettings();
+          settings.platformURL = cfg.platform_url;
+          saveSettings(settings);
+          console.log('[config] Updated desktop settings with platform URL:', cfg.platform_url);
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn('[config] Failed to import from', src, e);
+    }
+  }
+}
+
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  importBundledConfig();
   registerIPC();
   createTray();
   createWindow();

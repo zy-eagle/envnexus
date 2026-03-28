@@ -20,6 +20,14 @@ type AgentConfig struct {
 	ActivationKey    string `json:"activation_key,omitempty"`
 }
 
+// CLIOverrides holds values from command-line flags (highest priority).
+type CLIOverrides struct {
+	PlatformURL    string
+	WSURL          string
+	ActivationMode string
+	ActivationKey  string
+}
+
 type Manager struct {
 	mu        sync.RWMutex
 	config    *AgentConfig
@@ -38,8 +46,9 @@ func NewManager(configDir string) *Manager {
 			AgentVersion:     "0.1.0",
 		},
 	}
-	m.loadFromDisk()
+	m.loadFromBundledConfig()
 	m.loadFromExecutable()
+	m.loadFromDisk()
 	return m
 }
 
@@ -50,11 +59,50 @@ func (m *Manager) Get() *AgentConfig {
 	return &copy
 }
 
+// ApplyCLIOverrides applies command-line flag values (highest priority, overrides everything).
+func (m *Manager) ApplyCLIOverrides(o CLIOverrides) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if o.PlatformURL != "" {
+		m.config.PlatformURL = o.PlatformURL
+	}
+	if o.WSURL != "" {
+		m.config.WSURL = o.WSURL
+	}
+	if o.ActivationMode != "" {
+		m.config.ActivationMode = o.ActivationMode
+	}
+	if o.ActivationKey != "" {
+		m.config.ActivationKey = o.ActivationKey
+	}
+}
+
 func (m *Manager) Update(fn func(c *AgentConfig)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	fn(m.config)
 	m.saveToDisk()
+}
+
+// loadFromBundledConfig reads config.json from the same directory as the executable.
+// This is the config injected by the download package build system (ZIP bundle).
+func (m *Manager) loadFromBundledConfig() {
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	configPath := filepath.Join(filepath.Dir(exePath), "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	var bundled AgentConfig
+	if err := json.Unmarshal(data, &bundled); err != nil {
+		slog.Warn("[config] Found bundled config.json but failed to parse", "error", err)
+		return
+	}
+	slog.Info("[config] Loaded bundled config.json from package directory")
+	m.applyPartial(&bundled)
 }
 
 func (m *Manager) loadFromDisk() {
@@ -68,12 +116,7 @@ func (m *Manager) loadFromDisk() {
 		slog.Error("[config] Failed to parse config file", "error", err)
 		return
 	}
-	if diskConfig.PlatformURL != "" {
-		m.config.PlatformURL = diskConfig.PlatformURL
-	}
-	if diskConfig.WSURL != "" {
-		m.config.WSURL = diskConfig.WSURL
-	}
+	m.applyPartial(&diskConfig)
 	if diskConfig.ConfigVersion > 0 {
 		m.config.ConfigVersion = diskConfig.ConfigVersion
 	}
@@ -130,17 +173,25 @@ func (m *Manager) loadFromExecutable() {
 	}
 
 	slog.Info("[config] Successfully loaded injected config from executable")
-	if injectedConfig.PlatformURL != "" {
-		m.config.PlatformURL = injectedConfig.PlatformURL
+	m.applyPartial(&injectedConfig)
+}
+
+// applyPartial merges non-empty fields from src into the current config.
+func (m *Manager) applyPartial(src *AgentConfig) {
+	if src.PlatformURL != "" {
+		m.config.PlatformURL = src.PlatformURL
 	}
-	if injectedConfig.EnrollmentToken != "" {
-		m.config.EnrollmentToken = injectedConfig.EnrollmentToken
+	if src.WSURL != "" {
+		m.config.WSURL = src.WSURL
 	}
-	if injectedConfig.ActivationMode != "" {
-		m.config.ActivationMode = injectedConfig.ActivationMode
+	if src.EnrollmentToken != "" {
+		m.config.EnrollmentToken = src.EnrollmentToken
 	}
-	if injectedConfig.ActivationKey != "" {
-		m.config.ActivationKey = injectedConfig.ActivationKey
+	if src.ActivationMode != "" {
+		m.config.ActivationMode = src.ActivationMode
+	}
+	if src.ActivationKey != "" {
+		m.config.ActivationKey = src.ActivationKey
 	}
 }
 

@@ -1,4 +1,4 @@
-.PHONY: build build-agents run-platform run-gateway run-runner run-agent deploy deploy-web deploy-api stop restart status logs reset
+.PHONY: build build-agents build-desktop run-platform run-gateway run-runner run-agent deploy deploy-web deploy-api stop restart status logs reset
 
 deploy:
 	@./deploy.sh start
@@ -50,6 +50,21 @@ build-agents:
 		done; \
 	done
 	@echo "All agent binaries built in ./bin/agents/"
+
+build-desktop: build-agents
+	@echo "Building Agent Desktop installers (requires Node.js + npm)..."
+	@echo "Step 1: Copying agent binaries to bin/ for electron-builder..."
+	@mkdir -p bin
+	@cp bin/agents/enx-agent-linux-amd64 bin/enx-agent 2>/dev/null || true
+	@cp bin/agents/enx-agent-windows-amd64.exe bin/enx-agent.exe 2>/dev/null || true
+	@cp bin/agents/enx-agent-darwin-amd64 bin/enx-agent-darwin 2>/dev/null || true
+	@echo "Step 2: Installing dependencies..."
+	cd apps/agent-desktop && npm install
+	@echo "Step 3: Compiling TypeScript..."
+	cd apps/agent-desktop && npm run build
+	@echo "Step 4: Building installers..."
+	cd apps/agent-desktop && npm run dist
+	@echo "Desktop installers built in apps/agent-desktop/release/"
 
 run-platform:
 	cd services/platform-api && go run ./cmd/platform-api

@@ -350,6 +350,7 @@ const dictionary = {
       status_failed: "Failed",
       download: "Download",
       buildingHint: "Building...",
+      downloadDesc: "Includes installer (GUI + Agent Core) and pre-configured connection settings",
     },
     zh: {
       title: "下载包管理",
@@ -405,6 +406,7 @@ const dictionary = {
       status_failed: "失败",
       download: "下载",
       buildingHint: "构建中...",
+      downloadDesc: "包含安装程序（GUI 界面 + Agent Core 后台服务）及预配置的连接信息",
     },
   },
   modelProfiles: {

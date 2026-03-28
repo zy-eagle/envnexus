@@ -16,31 +16,53 @@ mc mb --ignore-existing "enx/${BUCKET}"
 uploaded=0
 skipped=0
 
-for f in /agents/enx-agent-*; do
-    name=$(basename "$f")
-    remote="enx/${BUCKET}/base-packages/${name}"
-    local_size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null)
+upload_file() {
+    local file="$1"
+    local name=$(basename "$file")
+    local remote="enx/${BUCKET}/base-packages/${name}"
+    local local_size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
 
     if [ "$FORCE" != "true" ]; then
         remote_size=$(mc stat "$remote" 2>/dev/null | grep "Size" | awk '{print $3}' || echo "")
         if [ -n "$remote_size" ] && [ "$remote_size" = "$local_size" ]; then
-            echo "  ⏭ ${name} (already exists, same size ${local_size}B)"
+            echo "  ⏭ ${name} (already exists, same size)"
             skipped=$((skipped + 1))
-            continue
+            return
         fi
     fi
 
-    echo "  Uploading ${name} (${local_size}B)..."
-    mc cp "$f" "$remote"
+    echo "  ⬆ Uploading ${name} ($(du -h "$file" | cut -f1))..."
+    mc cp "$file" "$remote"
     echo "  ✓ ${name}"
     uploaded=$((uploaded + 1))
+}
+
+# ── Priority 1: Desktop Installers (NSIS .exe, AppImage, DMG) ──────────────
+echo ""
+echo "=== Desktop Installers (GUI + Agent Core bundled) ==="
+installer_count=0
+for f in /installers/*; do
+    if [ -f "$f" ]; then
+        upload_file "$f"
+        installer_count=$((installer_count + 1))
+    fi
+done
+if [ "$installer_count" -eq 0 ]; then
+    echo "  (none found — electron-builder may have failed, falling back to raw binaries)"
+fi
+
+# ── Priority 2: Raw Agent Core binaries (fallback / headless servers) ──────
+echo ""
+echo "=== Raw Agent Core Binaries (CLI-only, for servers) ==="
+for f in /binaries/enx-agent-*; do
+    [ -f "$f" ] && upload_file "$f"
 done
 
 echo ""
-echo "Done: ${uploaded} uploaded, ${skipped} skipped (already up-to-date)"
+echo "════════════════════════════════════════════════════"
+echo "  Done: ${uploaded} uploaded, ${skipped} skipped"
+echo "════════════════════════════════════════════════════"
 
-if [ "$uploaded" -gt 0 ] || [ "$skipped" -eq 0 ]; then
-    echo ""
-    echo "Base packages in MinIO:"
-    mc ls "enx/${BUCKET}/base-packages/"
-fi
+echo ""
+echo "Base packages in MinIO:"
+mc ls "enx/${BUCKET}/base-packages/" 2>/dev/null || echo "(empty)"
