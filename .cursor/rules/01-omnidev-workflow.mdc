@@ -122,20 +122,26 @@ OmniDev Kit has an official remote repository as its upstream source. `/od updat
 
 When the user types `/od update`, the AI MUST execute the following steps in order:
 
+### Step 0: Confirm with User
+Before fetching, warn the user:
+> "⚠️ **更新提醒**：执行 `/od update` 会从远程仓库拉取最新规则文件，**直接覆盖本地的所有 OmniDev 规则和 Skill 文件**。如果你对本地规则做过自定义修改，这些修改将会丢失。是否继续？"
+
+Only proceed after the user confirms (e.g., "继续"、"确认"、"yes").
+
 ### Step 1: Fetch Remote Rules
 1. Clone (shallow, `--depth 1`) the remote repository to a temporary directory.
 2. Read all rule files from `rules/` and skill files from `skills/od/` in the cloned repo.
 
 ### Step 2: Overwrite Local Files
-Directly overwrite local files with remote versions:
-- Copy all `rules/*.mdc` files from the remote repo to `.cursor/rules/`, replacing existing OmniDev rule files (`01` through `05`).
-- Copy `skills/od/SKILL.md` from the remote repo to `.cursor/skills/od/SKILL.md`.
+Directly overwrite local files with remote versions to keep them fully in sync:
+- Copy **all** files from remote `rules/` to local `.cursor/rules/`, overwriting any existing files with the same name.
+- Copy **all** files from remote `skills/od/` to local `.cursor/skills/od/`, overwriting any existing files with the same name.
 - If the remote repo has new files not present locally, copy them as well.
-- **Do NOT touch non-OmniDev rule files** (e.g., `project-conventions.mdc`, `git-commit.mdc`) — only overwrite files whose names match the OmniDev naming pattern (`*-omnidev-*.mdc`).
+- If a local file exists in `.cursor/rules/` or `.cursor/skills/od/` but does NOT exist in the remote repo, **delete it** to keep local fully in sync with remote.
 
 ### Step 3: Cleanup & Report
 1. Remove the temporary cloned directory.
-2. List all files that were overwritten or added in a clear table format (file, action).
+2. List all files that were overwritten, added, or deleted in a clear table format (file, action).
 
 ## Special Flow: Project Type Awareness & Adaptive Constraints
 Before starting any development, you must first determine if the current project is a **"Greenfield Project"** or a **"Legacy Project"**, and record it in the `project_type` field of `docs/omnidev-state/00-project-context.md`.
