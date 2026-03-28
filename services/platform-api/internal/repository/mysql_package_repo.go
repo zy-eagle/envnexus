@@ -17,6 +17,7 @@ type PackageRepository interface {
 	ListByTenant(ctx context.Context, tenantID string) ([]*domain.DownloadPackage, error)
 	GetByActivationKeyHash(ctx context.Context, keyHash string) (*domain.DownloadPackage, error)
 	UpdateMaxDevices(ctx context.Context, packageID string, maxDevices int) error
+	Delete(ctx context.Context, id, tenantID string) error
 }
 
 type MySQLPackageRepository struct {
@@ -96,4 +97,15 @@ func (r *MySQLPackageRepository) GetByActivationKeyHash(ctx context.Context, key
 
 func (r *MySQLPackageRepository) UpdateMaxDevices(ctx context.Context, packageID string, maxDevices int) error {
 	return r.db.WithContext(ctx).Model(&domain.DownloadPackage{}).Where("id = ?", packageID).Update("max_devices", maxDevices).Error
+}
+
+func (r *MySQLPackageRepository) Delete(ctx context.Context, id, tenantID string) error {
+	result := r.db.WithContext(ctx).Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&domain.DownloadPackage{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

@@ -29,6 +29,7 @@ func (h *PackageHandler) RegisterRoutes(router *gin.RouterGroup) {
 		pkgs.POST("", h.CreatePackage)
 		pkgs.GET("", h.ListPackages)
 
+		pkgs.DELETE("/:packageId", h.DeletePackage)
 		pkgs.POST("/:packageId/bind", h.BindDevice)
 		pkgs.DELETE("/:packageId/bindings/:bindingId", h.UnbindDevice)
 		pkgs.GET("/:packageId/bindings", h.ListBindings)
@@ -78,6 +79,22 @@ func (h *PackageHandler) ListPackages(c *gin.Context) {
 	}
 
 	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *PackageHandler) DeletePackage(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	packageID := c.Param("packageId")
+	if tenantID == "" || packageID == "" {
+		mw.RespondValidationError(c, "tenantId and packageId are required")
+		return
+	}
+
+	if err := h.pkgService.DeletePackage(c.Request.Context(), tenantID, packageID); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"message": "package deleted"})
 }
 
 func (h *PackageHandler) BindDevice(c *gin.Context) {

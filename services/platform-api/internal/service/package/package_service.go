@@ -93,6 +93,10 @@ func (s *Service) ListPackages(ctx context.Context, tenantID string) ([]*dto.Pac
 	return res, nil
 }
 
+func (s *Service) DeletePackage(ctx context.Context, tenantID, packageID string) error {
+	return s.pkgRepo.Delete(ctx, packageID, tenantID)
+}
+
 func (s *Service) GetPresignedURL(ctx context.Context, tenantID, packageID string) (string, error) {
 	pkg, err := s.pkgRepo.GetByID(ctx, packageID)
 	if err != nil {

@@ -341,6 +341,8 @@ const dictionary = {
       noBindings: "No devices bound to this package.",
       noAuditLogs: "No audit logs yet.",
       updateMaxDevices: "Update Max Devices",
+      deletePackage: "Delete",
+      deletePackageConfirm: "Are you sure you want to delete this package? This action cannot be undone.",
     },
     zh: {
       title: "下载包管理",
@@ -387,6 +389,8 @@ const dictionary = {
       noBindings: "暂无绑定设备。",
       noAuditLogs: "暂无审计日志。",
       updateMaxDevices: "修改最大设备数",
+      deletePackage: "删除",
+      deletePackageConfirm: "确定要删除此下载包吗？此操作不可撤销。",
     },
   },
   modelProfiles: {

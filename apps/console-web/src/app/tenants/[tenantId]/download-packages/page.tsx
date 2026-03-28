@@ -179,6 +179,16 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     }
   };
 
+  const handleDeletePackage = async (pkg: DownloadPackage) => {
+    if (!confirm(t.deletePackageConfirm)) return;
+    try {
+      await api.delete(`/tenants/${params.tenantId}/download-packages/${pkg.id}`);
+      fetchPackages();
+    } catch (err: any) {
+      alert(err.message || ct.error);
+    }
+  };
+
   const agentProfileName = (profileId: string) => {
     const ap = agentProfiles.find(p => p.id === profileId);
     return ap ? ap.name : profileId || '-';
@@ -503,33 +513,33 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
       )}
 
       {/* Package List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
         {loading ? (
           <div className="p-8 text-center text-gray-500">{ct.loading}</div>
         ) : packages.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noPackages}</div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="w-full divide-y divide-gray-200 table-fixed" style={{ minWidth: '900px' }}>
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.packageName}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.agentProfileId}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.platform}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.activationMode}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.boundCount}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.signStatus}</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
+                <th className="w-[22%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.packageName}</th>
+                <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.agentProfileId}</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.platform}</th>
+                <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.activationMode}</th>
+                <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.boundCount}</th>
+                <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.signStatus}</th>
+                <th className="w-[22%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {packages.map((pkg) => (
                 <tr key={pkg.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{pkg.package_name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{agentProfileName(pkg.agent_profile_id)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{pkg.platform}/{pkg.arch}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{pkg.version}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 truncate" title={pkg.package_name}>{pkg.package_name}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500 truncate" title={agentProfileName(pkg.agent_profile_id)}>{agentProfileName(pkg.agent_profile_id)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{pkg.platform}/{pkg.arch}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{pkg.version}</td>
+                  <td className="px-4 py-3 text-sm">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                       pkg.activation_mode === 'both' ? 'bg-indigo-100 text-indigo-800' :
                       pkg.activation_mode === 'manual' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
@@ -537,17 +547,17 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                       {modeLabel(pkg.activation_mode)}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-4 py-3 text-sm text-gray-500">
                     {pkg.bound_count} / {pkg.max_devices}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <td className="px-4 py-3 text-sm">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       pkg.sign_status === 'signed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                     }`}>
                       {pkg.sign_status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium space-x-3">
                     <button
                       onClick={() => fetchBindings(pkg)}
                       className="text-blue-600 hover:text-blue-900"
@@ -565,6 +575,12 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                         Download
                       </a>
                     )}
+                    <button
+                      onClick={() => handleDeletePackage(pkg)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      {t.deletePackage}
+                    </button>
                   </td>
                 </tr>
               ))}
