@@ -195,7 +195,7 @@ func (m *Manager) SendHeartbeat(ctx context.Context) error {
 		"components":  compInfos,
 	}
 
-	resp, err := m.postJSON(ctx, "/agent/v1/heartbeat", body)
+	resp, err := m.postJSON(ctx, "/agent/v1/activation-heartbeat", body)
 	if err != nil {
 		return err
 	}

@@ -426,7 +426,7 @@ func (m *SessionManager) forwardActivationHeartbeat(dc *DeviceConnection, evt Ev
 	}
 
 	body, _ := json.Marshal(evt.Payload)
-	url := m.platformURL + "/agent/v1/heartbeat"
+	url := m.platformURL + "/agent/v1/activation-heartbeat"
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		slog.Warn("Failed to forward activation heartbeat", "device_id", dc.DeviceID, "error", err)

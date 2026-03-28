@@ -24,7 +24,7 @@ func (h *ActivateHandler) RegisterRoutes(router *gin.RouterGroup) {
 		agentGroup.POST("/register-device", h.RegisterDevice)
 		agentGroup.POST("/activate", h.Activate)
 		agentGroup.GET("/activation-status/:deviceCode", h.GetActivationStatus)
-		agentGroup.POST("/heartbeat", h.Heartbeat)
+		agentGroup.POST("/activation-heartbeat", h.Heartbeat)
 	}
 }
 
