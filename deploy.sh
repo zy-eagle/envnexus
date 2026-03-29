@@ -337,30 +337,62 @@ cmd_smart_deploy() {
     # ── Build & deploy changed services ──
     local all_to_build="$services_to_build"
     if [ -n "$services_to_build" ]; then
-        # Trim leading space
         services_to_build=$(echo "$services_to_build" | xargs)
 
         echo ""
         log_info "Rebuilding: ${BOLD}${services_to_build}${NC}"
         echo ""
 
-        # If agent-builder needs rebuild, do it first (uploads base packages to MinIO)
+        local agent_needs_build=false
+        local other_services=""
         if echo "$services_to_build" | grep -q "agent-builder"; then
+            agent_needs_build=true
+            other_services=$(echo "$services_to_build" | sed 's/agent-builder//g' | xargs)
+        else
+            other_services="$services_to_build"
+        fi
+
+        if $agent_needs_build && [ -n "$other_services" ]; then
+            # ── PARALLEL: agent-builder + other services build simultaneously ──
+            log_info "Parallel build: agent-builder ║ ${other_services}"
+            log_info "  Track A: agent-builder (Go cross-compile + Electron + upload to MinIO)"
+            log_info "  Track B: ${other_services} (image builds)"
+            echo ""
+
+            # Track A: agent-builder in background (build + run upload)
+            (
+                DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder 2>&1 \
+                    | sed 's/^/  [agent-builder] /'
+            ) &
+            local agent_pid=$!
+
+            # Track B: other service images build + start (parallel via Compose)
+            docker compose up -d --build $other_services 2>&1 \
+                | sed 's/^/  [services]      /'
+
+            # Wait for agent-builder to finish uploading
+            log_info "Waiting for agent-builder upload to complete..."
+            if wait $agent_pid; then
+                save_hash "agent-builder" "$ab_hash"
+                log_info "agent-builder: ${GREEN}build + upload complete${NC}"
+            else
+                log_warn "agent-builder: build or upload failed (other services unaffected)"
+            fi
+
+        elif $agent_needs_build; then
+            # Only agent-builder needs rebuild, no other services
             log_info "Building agent-builder (Go cross-compile + Electron installers + upload)..."
             log_info "  (BuildKit cache mounts enabled — npm/electron downloads cached across builds)"
             DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder
             save_hash "agent-builder" "$ab_hash"
-            # Remove agent-builder from the remaining list
-            services_to_build=$(echo "$services_to_build" | sed 's/agent-builder//g' | xargs)
+
+        elif [ -n "$other_services" ]; then
+            # Only app services need rebuild (agent unchanged)
+            docker compose up -d --build $other_services
         fi
 
-        # Build remaining services in parallel
-        if [ -n "$services_to_build" ]; then
-            docker compose up -d --build $services_to_build
-        fi
-
-        # Save hashes for successfully built services
-        echo "$services_to_build" | tr ' ' '\n' | while read -r svc; do
+        # Save hashes for successfully built app services
+        echo "$other_services" | tr ' ' '\n' | while read -r svc; do
             [ -z "$svc" ] && continue
             case "$svc" in
                 platform-api)     save_hash "platform-api" "$pa_hash" ;;
@@ -408,23 +440,44 @@ cmd_deploy_full() {
     # Clear all build hashes to force rebuild
     rm -f "${HASH_DIR}"/*.hash
 
-    log_info "Building and starting all services (including agent-builder)..."
-    DOCKER_BUILDKIT=1 docker compose --profile agent-build up -d --build
+    log_info "Starting infrastructure..."
+    docker compose up -d mysql redis minio minio-init
 
-    if [ $? -eq 0 ]; then
-        # Save all hashes after successful full build
-        local go_ws_hash
-        go_ws_hash=$(compute_go_workspace_hash)
-        save_hash "platform-api" "$(echo "$(compute_hash services/platform-api)${go_ws_hash}" | sha256sum | awk '{print $1}')"
-        save_hash "session-gateway" "$(echo "$(compute_hash services/session-gateway)${go_ws_hash}" | sha256sum | awk '{print $1}')"
-        save_hash "job-runner" "$(echo "$(compute_hash services/job-runner)${go_ws_hash}" | sha256sum | awk '{print $1}')"
-        save_hash "console-web" "$(compute_hash apps/console-web)"
-        save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
-        print_urls
+    log_info "Full parallel rebuild: agent-builder ║ all app services"
+    echo ""
+
+    # Track A: agent-builder (background — build + upload to MinIO)
+    (
+        DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder 2>&1 \
+            | sed 's/^/  [agent-builder] /'
+    ) &
+    local agent_pid=$!
+
+    # Track B: all app services (parallel image builds via Compose)
+    docker compose up -d --build platform-api session-gateway job-runner console-web 2>&1 \
+        | sed 's/^/  [services]      /'
+
+    # Wait for agent-builder upload to finish
+    log_info "Waiting for agent-builder upload to complete..."
+    if wait $agent_pid; then
+        log_info "agent-builder: ${GREEN}build + upload complete${NC}"
     else
-        log_error "Deployment failed. Check logs: ./deploy.sh logs"
-        exit 1
+        log_warn "agent-builder: build or upload had issues (check logs)"
     fi
+
+    # Ensure everything is up
+    docker compose up -d
+
+    # Save all hashes after successful full build
+    local go_ws_hash
+    go_ws_hash=$(compute_go_workspace_hash)
+    save_hash "platform-api" "$(echo "$(compute_hash services/platform-api)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+    save_hash "session-gateway" "$(echo "$(compute_hash services/session-gateway)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+    save_hash "job-runner" "$(echo "$(compute_hash services/job-runner)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+    save_hash "console-web" "$(compute_hash apps/console-web)"
+    save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
+
+    print_urls
 }
 
 cmd_deploy_web() {
