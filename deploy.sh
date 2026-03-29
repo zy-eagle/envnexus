@@ -621,6 +621,8 @@ cmd_smart_deploy() {
     fi
 
     # ── Ensure all services are running (start any that are stopped) ──
+    # build_agent_with_fallback may cd to SCRIPT_DIR (host build path); compose file lives in DEPLOY_DIR
+    cd "$DEPLOY_DIR"
     log_info "Ensuring all services are up..."
     docker compose up -d
 
