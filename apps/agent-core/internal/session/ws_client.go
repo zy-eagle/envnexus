@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -150,6 +151,8 @@ func (c *WSClient) buildDialURL() string {
 
 	if u.Path == "" || u.Path == "/" {
 		u.Path = "/ws/v1/sessions/" + c.deviceID
+	} else if !strings.HasSuffix(u.Path, "/"+c.deviceID) {
+		u.Path = strings.TrimRight(u.Path, "/") + "/" + c.deviceID
 	}
 
 	q := u.Query()
