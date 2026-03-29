@@ -9,6 +9,9 @@ RUN pnpm install --frozen-lockfile
 
 COPY apps/console-web/ ./
 
+# Next may omit public/; runner stage COPY requires the path to exist
+RUN mkdir -p public
+
 ARG API_PROXY_TARGET=http://platform-api:8080
 ENV API_PROXY_TARGET=${API_PROXY_TARGET}
 ENV NEXT_TELEMETRY_DISABLED=1

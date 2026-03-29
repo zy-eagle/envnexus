@@ -3,7 +3,8 @@ WORKDIR /app
 
 # Layer 1: dependencies only (cached unless go.mod/go.sum change)
 COPY services/platform-api/go.mod services/platform-api/go.sum ./
-RUN go env -w GOWORK=off GOPROXY=https://mirrors.aliyun.com/goproxy/,direct && go mod download
+ENV GOWORK=off GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+RUN go mod download
 
 # Layer 2: service source only
 COPY services/platform-api/ .
