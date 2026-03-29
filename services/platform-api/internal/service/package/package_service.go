@@ -2,6 +2,7 @@ package package_svc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,12 +16,14 @@ import (
 
 type Service struct {
 	pkgRepo     repository.PackageRepository
+	bindingRepo repository.DeviceBindingRepository
 	minioClient *infrastructure.MinIOClient
 }
 
-func NewService(pkgRepo repository.PackageRepository, minioClient *infrastructure.MinIOClient) *Service {
+func NewService(pkgRepo repository.PackageRepository, bindingRepo repository.DeviceBindingRepository, minioClient *infrastructure.MinIOClient) *Service {
 	return &Service{
 		pkgRepo:     pkgRepo,
+		bindingRepo: bindingRepo,
 		minioClient: minioClient,
 	}
 }
@@ -91,6 +94,29 @@ func (s *Service) ListPackages(ctx context.Context, tenantID string) ([]*dto.Pac
 }
 
 func (s *Service) DeletePackage(ctx context.Context, tenantID, packageID string) error {
+	// 1. Check if there are any active bindings
+	bindings, err := s.bindingRepo.ListByPackage(ctx, packageID)
+	if err != nil {
+		return err
+	}
+	
+	for _, b := range bindings {
+		if b.Status == domain.BindingStatusActive {
+			return errors.New("cannot delete package: there are active device bindings")
+		}
+	}
+
+	// 2. Delete all bindings (even revoked ones) to satisfy foreign key constraints
+	if err := s.bindingRepo.DeleteByPackage(ctx, packageID); err != nil {
+		return err
+	}
+
+	// 3. Delete all audit logs for this package to satisfy foreign key constraints (if any)
+	if err := s.bindingRepo.DeleteAuditLogsByPackage(ctx, packageID); err != nil {
+		return err
+	}
+
+	// 4. Delete the package
 	return s.pkgRepo.Delete(ctx, packageID, tenantID)
 }
 

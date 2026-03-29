@@ -27,9 +27,11 @@ type DeviceBindingRepository interface {
 	CreateAuditLog(ctx context.Context, log *domain.ActivationAuditLog) error
 	ListAuditLogs(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ActivationAuditLog, int64, error)
 	ListAuditLogsByPackage(ctx context.Context, packageID string, limit, offset int) ([]*domain.ActivationAuditLog, int64, error)
+	DeleteAuditLogsByPackage(ctx context.Context, packageID string) error
 
 	IncrementBoundCount(ctx context.Context, packageID string) error
 	DecrementBoundCount(ctx context.Context, packageID string) error
+	DeleteByPackage(ctx context.Context, packageID string) error
 }
 
 type MySQLDeviceBindingRepository struct {
@@ -153,6 +155,10 @@ func (r *MySQLDeviceBindingRepository) ListAuditLogsByPackage(ctx context.Contex
 	return logs, total, err
 }
 
+func (r *MySQLDeviceBindingRepository) DeleteAuditLogsByPackage(ctx context.Context, packageID string) error {
+	return r.db.WithContext(ctx).Where("package_id = ?", packageID).Delete(&domain.ActivationAuditLog{}).Error
+}
+
 // --- Package bound_count ---
 
 func (r *MySQLDeviceBindingRepository) IncrementBoundCount(ctx context.Context, packageID string) error {
@@ -165,4 +171,8 @@ func (r *MySQLDeviceBindingRepository) DecrementBoundCount(ctx context.Context, 
 	return r.db.WithContext(ctx).Model(&domain.DownloadPackage{}).
 		Where("id = ? AND bound_count > 0", packageID).
 		Update("bound_count", gorm.Expr("bound_count - 1")).Error
+}
+
+func (r *MySQLDeviceBindingRepository) DeleteByPackage(ctx context.Context, packageID string) error {
+	return r.db.WithContext(ctx).Where("package_id = ?", packageID).Delete(&domain.DeviceBinding{}).Error
 }
