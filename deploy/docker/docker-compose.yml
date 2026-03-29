@@ -60,6 +60,7 @@ services:
     restart: "no"
 
   agent-builder:
+    profiles: ["agent-build"]
     build:
       context: ../..
       dockerfile: deploy/docker/agent-builder.Dockerfile
@@ -134,8 +135,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      agent-builder:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${ENX_HEALTH_PORT:-8082}/healthz"]
       interval: 10s

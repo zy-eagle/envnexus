@@ -10,8 +10,8 @@ export default function LoginPage() {
   const router = useRouter();
   const { lang } = useLanguage();
   const t = useDict('login', lang);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('admin@gmail.com');
+  const [password, setPassword] = useState('admin123');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 

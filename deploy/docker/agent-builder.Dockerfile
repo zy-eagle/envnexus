@@ -1,13 +1,16 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Stage 1: Cross-compile Agent Core (Go)
+# Cache: invalidated only when apps/agent-core/ source changes
 # ══════════════════════════════════════════════════════════════════════════════
 FROM golang:1.25-alpine AS go-builder
 
 WORKDIR /app
 
+# Layer 1: dependency download (rarely changes)
 COPY apps/agent-core/go.mod apps/agent-core/go.sum ./
 RUN go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct && go mod download
 
+# Layer 2: source code (only agent-core)
 COPY apps/agent-core/ .
 
 RUN mkdir -p /out && \
@@ -24,17 +27,25 @@ RUN mkdir -p /out && \
     done
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Stage 2: Build Electron Desktop Installers (NSIS for Windows, AppImage for Linux)
+# Stage 2: Build Electron Desktop Installers
+# Cache: invalidated only when apps/agent-desktop/ source changes
 # ══════════════════════════════════════════════════════════════════════════════
 FROM electronuserland/builder:wine AS desktop-builder
 
 WORKDIR /project
 
-# Copy the full agent-desktop source
-COPY apps/agent-desktop/package.json apps/agent-desktop/package-lock.json* apps/agent-desktop/tsconfig.json ./apps/agent-desktop/
+# Layer 1: npm dependency install (only when package.json changes)
+COPY apps/agent-desktop/package.json apps/agent-desktop/package-lock.json* ./apps/agent-desktop/
+WORKDIR /project/apps/agent-desktop
+RUN npm install --prefer-offline --no-audit 2>&1 | tail -5
+
+WORKDIR /project
+
+# Layer 2: source + config
+COPY apps/agent-desktop/tsconfig.json ./apps/agent-desktop/
 COPY apps/agent-desktop/src/ ./apps/agent-desktop/src/
 
-# Copy icon assets (or generate placeholder if missing)
+# Layer 3: icon assets (generate placeholder if missing)
 COPY apps/agent-desktop/assets/ ./apps/agent-desktop/assets/
 RUN if [ ! -f apps/agent-desktop/assets/icon.png ]; then \
         apt-get update -qq && apt-get install -y -qq imagemagick > /dev/null 2>&1 || true; \
@@ -49,18 +60,17 @@ RUN if [ ! -f apps/agent-desktop/assets/icon.png ]; then \
         fi; \
     fi
 
-# Copy Agent Core binaries into bin/ (electron-builder extraResources reads from ../../bin/)
+# Copy Agent Core binaries from go-builder
 COPY --from=go-builder /out/ ./bin/
 RUN cp bin/enx-agent-linux-amd64 bin/enx-agent && \
     cp bin/enx-agent-windows-amd64.exe bin/enx-agent.exe && \
     chmod +x bin/enx-agent
 
-# Install dependencies and build TypeScript
+# Compile TypeScript
 WORKDIR /project/apps/agent-desktop
-RUN npm install --prefer-offline --no-audit 2>&1 | tail -5
 RUN npx tsc
 
-# Build Windows NSIS installer (cross-compiled via wine)
+# Build Windows NSIS installer
 RUN npx electron-builder --win --x64 \
         --config.directories.output=/installers/win \
         --config.extraResources.0.from=../../bin/ \
@@ -76,7 +86,7 @@ RUN npx electron-builder --linux --x64 \
         --config.extraResources.0.filter[0]=enx-agent \
     2>&1 | tail -20 || echo "Linux build completed (check logs above)"
 
-# Normalize output filenames for predictable upload
+# Normalize output filenames
 RUN mkdir -p /out/installers && \
     for f in /installers/win/*.exe; do \
         [ -f "$f" ] && cp "$f" /out/installers/EnvNexus-Agent-Setup-windows-amd64.exe && break; \
@@ -91,10 +101,7 @@ RUN mkdir -p /out/installers && \
 # ══════════════════════════════════════════════════════════════════════════════
 FROM minio/mc:latest
 
-# Installers from electron-builder
 COPY --from=desktop-builder /out/installers/ /installers/
-
-# Raw binaries (backward compatibility + fallback)
 COPY --from=go-builder /out/ /binaries/
 
 COPY deploy/docker/upload-agents.sh /upload-agents.sh

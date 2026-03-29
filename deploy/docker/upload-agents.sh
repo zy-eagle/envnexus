@@ -23,11 +23,26 @@ upload_file() {
     local local_size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
 
     if [ "$FORCE" != "true" ]; then
-        remote_size=$(mc stat "$remote" 2>/dev/null | grep "Size" | awk '{print $3}' || echo "")
-        if [ -n "$remote_size" ] && [ "$remote_size" = "$local_size" ]; then
-            echo "  ⏭ ${name} (already exists, same size)"
-            skipped=$((skipped + 1))
-            return
+        # Check if remote file exists and has the same size
+        remote_info=$(mc stat "$remote" 2>/dev/null || echo "")
+        if [ -n "$remote_info" ]; then
+            remote_size=$(echo "$remote_info" | grep "Size" | awk '{print $3}' || echo "")
+            if [ -n "$remote_size" ] && [ "$remote_size" = "$local_size" ]; then
+                # Same size — compute local hash for deeper check
+                local_hash=$(md5sum "$file" 2>/dev/null | awk '{print $1}' || md5 -q "$file" 2>/dev/null || echo "")
+                remote_etag=$(echo "$remote_info" | grep -i "ETag" | awk '{print $NF}' | tr -d '"' || echo "")
+                if [ -n "$local_hash" ] && [ -n "$remote_etag" ] && [ "$local_hash" = "$remote_etag" ]; then
+                    echo "  ⏭ ${name} (identical, skipped)"
+                    skipped=$((skipped + 1))
+                    return
+                fi
+                # If we can't compare hashes, size match is good enough
+                if [ -z "$local_hash" ] || [ -z "$remote_etag" ]; then
+                    echo "  ⏭ ${name} (same size, skipped)"
+                    skipped=$((skipped + 1))
+                    return
+                fi
+            fi
         fi
     fi
 

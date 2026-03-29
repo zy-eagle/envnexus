@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/activation"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/device"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
@@ -20,6 +21,7 @@ type LocalServer struct {
 	identityManager *device.IdentityManager
 	policyEngine    *policy.Engine
 	diagEngine      *diagnosis.Engine
+	activationMgr   *activation.Manager
 	startTime       time.Time
 }
 
@@ -31,6 +33,10 @@ func NewLocalServer(port int, identityManager *device.IdentityManager, policyEng
 		diagEngine:      diagEngine,
 		startTime:       time.Now(),
 	}
+}
+
+func (s *LocalServer) SetActivationManager(mgr *activation.Manager) {
+	s.activationMgr = mgr
 }
 
 func (s *LocalServer) Start() error {
@@ -72,11 +78,31 @@ func (s *LocalServer) Stop(ctx context.Context) error {
 }
 
 func (s *LocalServer) handleRuntimeStatus(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"status":    "running",
 		"uptime_ms": time.Since(s.startTime).Milliseconds(),
 		"started":   s.startTime.Format(time.RFC3339),
-	})
+	}
+
+	if s.activationMgr != nil {
+		st := s.activationMgr.GetStatus()
+		resp["activation"] = gin.H{
+			"activated":   st.Activated,
+			"device_code": st.DeviceCode,
+			"mode":        st.ActivationMode,
+			"package_id":  st.PackageID,
+			"tenant_id":   st.TenantID,
+		}
+		resp["device_code"] = st.DeviceCode
+	}
+
+	if id, err := s.identityManager.GetOrCreateDeviceID(); err == nil {
+		resp["device_id"] = id
+	}
+
+	resp["pending_approvals"] = len(s.policyEngine.GetPending())
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (s *LocalServer) handleDevice(c *gin.Context) {

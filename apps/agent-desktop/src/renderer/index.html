@@ -276,9 +276,9 @@
         <div class="card-sub" id="dash-device-id">—</div>
       </div>
       <div class="card">
-        <div class="card-title">运行工具数</div>
-        <div class="card-value" id="dash-tools">—</div>
-        <div class="card-sub">只读 / 写入</div>
+        <div class="card-title">激活状态</div>
+        <div class="card-value" id="dash-activation" style="font-size:16px">—</div>
+        <div class="card-sub" id="dash-activation-mode">—</div>
       </div>
       <div class="card">
         <div class="card-title">待审批</div>
@@ -290,6 +290,17 @@
         <div class="card-value" id="dash-baseline" style="font-size:14px">—</div>
         <div class="card-sub" id="dash-drift">—</div>
       </div>
+    </div>
+
+    <div id="device-code-section" class="card" style="display:none; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="card-title" style="margin-bottom:4px;">设备码 (Device Code)</div>
+          <div style="font-size:11px; color:var(--text-muted);">手动激活时需提供此设备码给管理员绑定</div>
+        </div>
+        <button class="btn btn-outline" id="copy-device-code-btn" onclick="copyDeviceCode()" style="flex-shrink:0;">复制</button>
+      </div>
+      <div id="dash-device-code" style="margin-top:10px; font-family:'Consolas','Monaco',monospace; font-size:18px; font-weight:700; letter-spacing:0.05em; padding:12px 16px; background:#f1f5f9; border-radius:6px; word-break:break-all; user-select:all;">—</div>
     </div>
 
     <div class="grid-2">
@@ -459,11 +470,28 @@ async function loadDashboard() {
     document.getElementById('dash-status').textContent = status.status || 'running';
     document.getElementById('dash-device-id').textContent = 'ID: ' + (status.device_id || '—');
 
-    const tools = status.tools || {};
-    const ro = tools.read_only_count ?? '—';
-    const rw = (tools.total_count ?? 0) - (tools.read_only_count ?? 0);
-    document.getElementById('dash-tools').textContent = (tools.total_count || '—');
-    document.querySelector('#dash-tools + .card-sub').textContent = `${ro} 只读 / ${rw} 写入`;
+    // Activation & device code
+    const act = status.activation || {};
+    const deviceCode = status.device_code || act.device_code || '';
+    const activated = act.activated;
+    const actMode = act.mode || '';
+
+    if (activated === true) {
+      document.getElementById('dash-activation').innerHTML = '<span class="badge badge-green">已激活</span>';
+    } else if (activated === false) {
+      document.getElementById('dash-activation').innerHTML = '<span class="badge badge-yellow">未激活</span>';
+    } else {
+      document.getElementById('dash-activation').textContent = '—';
+    }
+    document.getElementById('dash-activation-mode').textContent = actMode ? '模式: ' + actMode : '—';
+
+    const codeSection = document.getElementById('device-code-section');
+    if (deviceCode) {
+      codeSection.style.display = 'block';
+      document.getElementById('dash-device-code').textContent = deviceCode;
+    } else {
+      codeSection.style.display = 'none';
+    }
 
     document.getElementById('dash-baseline').textContent = status.governance?.has_baseline ? '已采集' : '未采集';
     document.getElementById('dash-drift').textContent = status.governance?.drift_count
@@ -474,7 +502,9 @@ async function loadDashboard() {
     const sd = document.getElementById('status-detail');
     sd.innerHTML = `
       <div class="info-row"><span class="info-key">Platform 连接</span><span class="info-value">${status.platform_connected ? '✅ 已连接' : '⚠ 未连接'}</span></div>
-      <div class="info-row"><span class="info-key">LLM Provider</span><span class="info-value">${fmt(status.llm_provider)}</span></div>
+      <div class="info-row"><span class="info-key">设备码</span><span class="info-value" style="font-family:monospace;">${deviceCode || '—'}</span></div>
+      <div class="info-row"><span class="info-key">激活状态</span><span class="info-value">${activated === true ? '✅ 已激活' : activated === false ? '⏳ 未激活' : '—'}</span></div>
+      <div class="info-row"><span class="info-key">激活模式</span><span class="info-value">${fmt(actMode)}</span></div>
       <div class="info-row"><span class="info-key">当前会话</span><span class="info-value">${fmt(status.active_session_id)}</span></div>
       <div class="info-row"><span class="info-key">待审批</span><span class="info-value">${fmt(status.pending_approvals)}</span></div>
     `;
@@ -741,6 +771,30 @@ async function exportDiagnostics() {
 
 function openExternal(url) {
   api.openExternal(url);
+}
+
+// ── Device code copy ──────────────────────────────────────────────────────
+function copyDeviceCode() {
+  const code = document.getElementById('dash-device-code').textContent;
+  if (!code || code === '—') return;
+  const btn = document.getElementById('copy-device-code-btn');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(code).then(() => {
+      btn.textContent = '已复制 ✓';
+      setTimeout(() => { btn.textContent = '复制'; }, 2000);
+    });
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = code;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = '已复制 ✓';
+    setTimeout(() => { btn.textContent = '复制'; }, 2000);
+  }
 }
 
 // ── Init & polling ────────────────────────────────────────────────────────────

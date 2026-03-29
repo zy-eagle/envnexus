@@ -1,5 +1,6 @@
 deploy/docker/volumes/
 deploy/docker/.env
+deploy/docker/.build-hashes/
 
 # Binaries
 bin/

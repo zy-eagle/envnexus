@@ -191,6 +191,9 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 
 	// Step 7: Start local API
 	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine, diagnosisEngine)
+	if activationMgr != nil {
+		localServer.SetActivationManager(activationMgr)
+	}
 	if err := localServer.Start(); err != nil {
 		slog.Error("[boot] Failed to start local API", "error", err)
 	}

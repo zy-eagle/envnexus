@@ -1,25 +1,29 @@
 #!/bin/bash
 set -euo pipefail
 
-# EnvNexus — One-click local deployment script
+# EnvNexus — Smart Deployment Script
+# Detects which services actually changed and only rebuilds those.
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="${SCRIPT_DIR}/deploy/docker"
+HASH_DIR="${DEPLOY_DIR}/.build-hashes"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+log_skip()  { echo -e "${DIM}[SKIP]${NC}  $*"; }
 
 gen_secret() {
-    # Generate a 32-char random hex string; works on Linux/macOS
     if command -v openssl &>/dev/null; then
         openssl rand -hex 16
     elif [ -f /dev/urandom ]; then
@@ -31,15 +35,12 @@ gen_secret() {
 
 detect_host_ip() {
     local ip=""
-    # Linux
     if command -v hostname &>/dev/null && hostname -I &>/dev/null 2>&1; then
         ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     fi
-    # macOS
     if [ -z "$ip" ] && command -v ipconfig &>/dev/null; then
         ip=$(ipconfig getifaddr en0 2>/dev/null || true)
     fi
-    # Fallback
     if [ -z "$ip" ]; then
         ip="127.0.0.1"
     fi
@@ -55,6 +56,65 @@ check_env() {
         log_error "Docker Compose V2 not found. Please upgrade Docker."
         exit 1
     fi
+}
+
+# ── Content hash for change detection ────────────────────────────────────────
+# Computes a hash of the source files relevant to a service.
+# If the hash matches the last successful build, the service is skipped.
+
+mkdir -p "$HASH_DIR"
+
+compute_hash() {
+    local dir="$1"
+    if [ -d "${SCRIPT_DIR}/${dir}" ]; then
+        find "${SCRIPT_DIR}/${dir}" -type f \
+            -not -path '*/node_modules/*' \
+            -not -path '*/.next/*' \
+            -not -path '*/dist/*' \
+            -not -path '*/release/*' \
+            -not -path '*/__pycache__/*' \
+            -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
+    else
+        echo "missing"
+    fi
+}
+
+# Also hash workspace-level Go files that affect all Go services
+compute_go_workspace_hash() {
+    local files=""
+    for f in go.work go.work.sum; do
+        if [ -f "${SCRIPT_DIR}/${f}" ]; then
+            files="${files} ${SCRIPT_DIR}/${f}"
+        fi
+    done
+    if [ -n "$files" ]; then
+        sha256sum $files 2>/dev/null | sha256sum | awk '{print $1}'
+    else
+        echo "none"
+    fi
+}
+
+has_changed() {
+    local service="$1"
+    local current_hash="$2"
+    local hash_file="${HASH_DIR}/${service}.hash"
+
+    if [ ! -f "$hash_file" ]; then
+        return 0  # No previous hash = needs build
+    fi
+
+    local prev_hash
+    prev_hash=$(cat "$hash_file")
+    if [ "$prev_hash" = "$current_hash" ]; then
+        return 1  # Same hash = no change
+    fi
+    return 0  # Different hash = changed
+}
+
+save_hash() {
+    local service="$1"
+    local hash="$2"
+    echo "$hash" > "${HASH_DIR}/${service}.hash"
 }
 
 # ── .env generation ──────────────────────────────────────────────────────────
@@ -157,7 +217,7 @@ EOF
 ensure_gitignore() {
     local gitignore="${SCRIPT_DIR}/.gitignore"
     if [ -f "$gitignore" ]; then
-        for pattern in "deploy/docker/volumes/" "deploy/docker/.env"; do
+        for pattern in "deploy/docker/volumes/" "deploy/docker/.env" "deploy/docker/.build-hashes/"; do
             if ! grep -q "^${pattern}$" "$gitignore" 2>/dev/null; then
                 echo "$pattern" >> "$gitignore"
             fi
@@ -186,27 +246,179 @@ print_urls() {
     echo ""
 }
 
-# ── Commands ─────────────────────────────────────────────────────────────────
+# ── Smart deploy: detect changes and only rebuild what's needed ──────────────
 
-cmd_deploy() {
+cmd_smart_deploy() {
     echo -e "${GREEN}${BOLD}========================================${NC}"
-    echo -e "${GREEN}${BOLD}   EnvNexus — One-click Local Deploy    ${NC}"
+    echo -e "${GREEN}${BOLD}   EnvNexus — Smart Deploy              ${NC}"
     echo -e "${GREEN}${BOLD}========================================${NC}"
     echo ""
 
     generate_env
     ensure_gitignore
 
-    # Source .env so we can use port variables in print_urls
     set -a
     source "${DEPLOY_DIR}/.env"
     set +a
 
     cd "$DEPLOY_DIR"
-    log_info "Building and starting all services..."
-    docker compose up -d --build
+
+    local go_ws_hash
+    go_ws_hash=$(compute_go_workspace_hash)
+
+    # Define service -> source directory mapping
+    # Each service hash = service source hash + go workspace hash (for Go services)
+    local services_to_build=""
+    local services_to_skip=""
+
+    # ── Check each service ──
+
+    # 1. platform-api
+    local pa_hash
+    pa_hash=$(echo "$(compute_hash services/platform-api)${go_ws_hash}" | sha256sum | awk '{print $1}')
+    if has_changed "platform-api" "$pa_hash"; then
+        services_to_build="${services_to_build} platform-api"
+        log_info "platform-api: ${YELLOW}source changed, will rebuild${NC}"
+    else
+        services_to_skip="${services_to_skip} platform-api"
+        log_skip "platform-api: no changes detected"
+    fi
+
+    # 2. session-gateway
+    local sg_hash
+    sg_hash=$(echo "$(compute_hash services/session-gateway)${go_ws_hash}" | sha256sum | awk '{print $1}')
+    if has_changed "session-gateway" "$sg_hash"; then
+        services_to_build="${services_to_build} session-gateway"
+        log_info "session-gateway: ${YELLOW}source changed, will rebuild${NC}"
+    else
+        services_to_skip="${services_to_skip} session-gateway"
+        log_skip "session-gateway: no changes detected"
+    fi
+
+    # 3. job-runner
+    local jr_hash
+    jr_hash=$(echo "$(compute_hash services/job-runner)${go_ws_hash}" | sha256sum | awk '{print $1}')
+    if has_changed "job-runner" "$jr_hash"; then
+        services_to_build="${services_to_build} job-runner"
+        log_info "job-runner: ${YELLOW}source changed, will rebuild${NC}"
+    else
+        services_to_skip="${services_to_skip} job-runner"
+        log_skip "job-runner: no changes detected"
+    fi
+
+    # 4. console-web
+    local cw_hash
+    cw_hash=$(compute_hash apps/console-web)
+    if has_changed "console-web" "$cw_hash"; then
+        services_to_build="${services_to_build} console-web"
+        log_info "console-web: ${YELLOW}source changed, will rebuild${NC}"
+    else
+        services_to_skip="${services_to_skip} console-web"
+        log_skip "console-web: no changes detected"
+    fi
+
+    # 5. agent-builder (agent-core + agent-desktop)
+    local ab_hash
+    ab_hash=$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')
+    if has_changed "agent-builder" "$ab_hash"; then
+        services_to_build="${services_to_build} agent-builder"
+        log_info "agent-builder: ${YELLOW}source changed, will rebuild & upload${NC}"
+    else
+        services_to_skip="${services_to_skip} agent-builder"
+        log_skip "agent-builder: no changes detected (agent-core + agent-desktop unchanged)"
+    fi
+
+    echo ""
+
+    # ── Infrastructure services (always ensure running, never rebuild) ──
+    log_info "Ensuring infrastructure services are running (mysql, redis, minio)..."
+    docker compose up -d mysql redis minio minio-init
+
+    # ── Build & deploy changed services ──
+    local all_to_build="$services_to_build"
+    if [ -n "$services_to_build" ]; then
+        # Trim leading space
+        services_to_build=$(echo "$services_to_build" | xargs)
+
+        echo ""
+        log_info "Rebuilding: ${BOLD}${services_to_build}${NC}"
+        echo ""
+
+        # If agent-builder needs rebuild, do it first (uploads base packages to MinIO)
+        if echo "$services_to_build" | grep -q "agent-builder"; then
+            log_info "Building agent-builder (Go cross-compile + Electron installers + upload)..."
+            docker compose --profile agent-build up --build agent-builder
+            save_hash "agent-builder" "$ab_hash"
+            # Remove agent-builder from the remaining list
+            services_to_build=$(echo "$services_to_build" | sed 's/agent-builder//g' | xargs)
+        fi
+
+        # Build remaining services in parallel
+        if [ -n "$services_to_build" ]; then
+            docker compose up -d --build $services_to_build
+        fi
+
+        # Save hashes for successfully built services
+        echo "$services_to_build" | tr ' ' '\n' | while read -r svc; do
+            [ -z "$svc" ] && continue
+            case "$svc" in
+                platform-api)     save_hash "platform-api" "$pa_hash" ;;
+                session-gateway)  save_hash "session-gateway" "$sg_hash" ;;
+                job-runner)       save_hash "job-runner" "$jr_hash" ;;
+                console-web)      save_hash "console-web" "$cw_hash" ;;
+            esac
+        done
+    else
+        log_info "No service code changes detected."
+    fi
+
+    # ── Ensure all services are running (start any that are stopped) ──
+    log_info "Ensuring all services are up..."
+    docker compose up -d
+
+    echo ""
+    local built_count=$(echo "$all_to_build" | xargs | wc -w | xargs)
+    local skipped_count=$(echo "$services_to_skip" | xargs | wc -w | xargs)
+    echo -e "${GREEN}${BOLD}════════════════════════════════════════${NC}"
+    echo -e "${GREEN}  Smart Deploy Complete${NC}"
+    echo -e "  ${CYAN}Rebuilt:${NC} ${built_count} service(s)   ${DIM}Skipped:${NC} ${skipped_count} service(s)"
+    echo -e "${GREEN}${BOLD}════════════════════════════════════════${NC}"
+
+    print_urls
+}
+
+# ── Full rebuild (force all) ─────────────────────────────────────────────────
+
+cmd_deploy_full() {
+    echo -e "${GREEN}${BOLD}========================================${NC}"
+    echo -e "${GREEN}${BOLD}   EnvNexus — Full Rebuild (no cache)   ${NC}"
+    echo -e "${GREEN}${BOLD}========================================${NC}"
+    echo ""
+
+    generate_env
+    ensure_gitignore
+
+    set -a
+    source "${DEPLOY_DIR}/.env"
+    set +a
+
+    cd "$DEPLOY_DIR"
+
+    # Clear all build hashes to force rebuild
+    rm -f "${HASH_DIR}"/*.hash
+
+    log_info "Building and starting all services (including agent-builder)..."
+    docker compose --profile agent-build up -d --build
 
     if [ $? -eq 0 ]; then
+        # Save all hashes after successful full build
+        local go_ws_hash
+        go_ws_hash=$(compute_go_workspace_hash)
+        save_hash "platform-api" "$(echo "$(compute_hash services/platform-api)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+        save_hash "session-gateway" "$(echo "$(compute_hash services/session-gateway)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+        save_hash "job-runner" "$(echo "$(compute_hash services/job-runner)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+        save_hash "console-web" "$(compute_hash apps/console-web)"
+        save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
         print_urls
     else
         log_error "Deployment failed. Check logs: ./deploy.sh logs"
@@ -218,6 +430,7 @@ cmd_deploy_web() {
     echo -e "${GREEN}${BOLD}  EnvNexus — Rebuild Console Web only   ${NC}"
     cd "$DEPLOY_DIR"
     docker compose up -d --build console-web
+    save_hash "console-web" "$(compute_hash apps/console-web)"
     log_info "Console Web redeployed."
 }
 
@@ -225,6 +438,11 @@ cmd_deploy_api() {
     echo -e "${GREEN}${BOLD}  EnvNexus — Rebuild Backend only       ${NC}"
     cd "$DEPLOY_DIR"
     docker compose up -d --build platform-api session-gateway job-runner
+    local go_ws_hash
+    go_ws_hash=$(compute_go_workspace_hash)
+    save_hash "platform-api" "$(echo "$(compute_hash services/platform-api)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+    save_hash "session-gateway" "$(echo "$(compute_hash services/session-gateway)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+    save_hash "job-runner" "$(echo "$(compute_hash services/job-runner)${go_ws_hash}" | sha256sum | awk '{print $1}')"
     log_info "Backend services redeployed."
 }
 
@@ -254,6 +472,18 @@ cmd_restart() {
 cmd_status() {
     cd "$DEPLOY_DIR"
     docker compose ps
+
+    echo ""
+    echo -e "${BOLD}Build hash status:${NC}"
+    if [ -d "$HASH_DIR" ] && ls "$HASH_DIR"/*.hash &>/dev/null; then
+        for f in "$HASH_DIR"/*.hash; do
+            local svc=$(basename "$f" .hash)
+            local hash=$(cat "$f" | head -c 12)
+            echo -e "  ${svc}: ${DIM}${hash}...${NC}"
+        done
+    else
+        echo "  (no build hashes recorded yet — run 'deploy.sh start' first)"
+    fi
 }
 
 cmd_logs() {
@@ -273,7 +503,7 @@ cmd_reset() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         cd "$DEPLOY_DIR"
         docker compose down -v 2>/dev/null || true
-        rm -rf "${DEPLOY_DIR}/volumes" "${DEPLOY_DIR}/.env"
+        rm -rf "${DEPLOY_DIR}/volumes" "${DEPLOY_DIR}/.env" "${HASH_DIR}"
         log_info "All data and config removed. Run './deploy.sh start' to redeploy."
     else
         log_info "Cancelled."
@@ -286,7 +516,10 @@ check_env
 
 case "${1:-}" in
     start|deploy|up)
-        cmd_deploy
+        cmd_smart_deploy
+        ;;
+    full|rebuild)
+        cmd_deploy_full
         ;;
     web)
         cmd_deploy_web
@@ -312,24 +545,29 @@ case "${1:-}" in
     agents)
         echo -e "${GREEN}${BOLD}  EnvNexus — Force rebuild agent binaries  ${NC}"
         cd "$DEPLOY_DIR"
-        FORCE_AGENT_UPLOAD=true docker compose up --build --force-recreate agent-builder
+        FORCE_AGENT_UPLOAD=true docker compose --profile agent-build up --build --force-recreate agent-builder
+        save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
         log_info "Agent binaries rebuilt and uploaded to MinIO."
         ;;
     *)
-        echo -e "${BOLD}EnvNexus — Deployment Manager${NC}"
+        echo -e "${BOLD}EnvNexus — Smart Deployment Manager${NC}"
         echo ""
         echo "Usage: $0 <command>"
         echo ""
         echo -e "${BOLD}Commands:${NC}"
-        echo "  start     Deploy and start all services (one-click)"
+        echo "  start     Smart deploy — only rebuild services with code changes"
+        echo "  full      Force rebuild all services (ignore cache)"
         echo "  web       Rebuild and redeploy console-web only"
         echo "  api       Rebuild and redeploy backend services only"
         echo "  agents    Force rebuild and re-upload agent base packages"
         echo "  stop      Stop all services (data preserved)"
         echo "  restart   Restart all services without rebuild"
-        echo "  status    Show running services"
+        echo "  status    Show running services and build hash status"
         echo "  logs      Tail logs (optionally: logs <service>)"
         echo "  reset     Delete all data and config, start fresh"
+        echo ""
+        echo -e "${DIM}Smart deploy computes content hashes of each service's source code."
+        echo -e "If the hash matches the last successful build, the service is skipped.${NC}"
         exit 1
         ;;
 esac
