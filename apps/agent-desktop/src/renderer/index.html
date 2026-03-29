@@ -770,6 +770,7 @@ const i18n = {
     diag_error: '⚠ 诊断服务返回错误',
     diag_conn_error: '⚠ 无法连接到 agent-core 诊断服务。请确保 agent-core 正在运行。',
     diag_finding: '发现', diag_recommend: '建议：',
+    diag_type: '问题类型', diag_confidence: '置信度',
     approvals_title: '待审批操作', approvals_refresh: '↻ 刷新',
     approvals_empty: '暂无待审批操作', approvals_risk: '风险',
     approvals_approve: '✓ 批准', approvals_reject: '✗ 拒绝',
@@ -835,6 +836,7 @@ const i18n = {
     diag_error: '⚠ Diagnosis service returned an error',
     diag_conn_error: '⚠ Cannot connect to agent-core diagnosis service. Make sure agent-core is running.',
     diag_finding: 'Finding', diag_recommend: 'Suggestion: ',
+    diag_type: 'Problem Type', diag_confidence: 'Confidence',
     approvals_title: 'Pending Approvals', approvals_refresh: '↻ Refresh',
     approvals_empty: 'No pending approvals', approvals_risk: 'Risk',
     approvals_approve: '✓ Approve', approvals_reject: '✗ Reject',
@@ -984,6 +986,7 @@ function riskBadge(level) {
 async function loadDashboard() {
   try {
     const status = await api.getAgentStatus();
+    if (status && status.error) throw new Error(status.error);
     setStatus('online');
 
     document.getElementById('dash-status').textContent = status.status || 'running';
@@ -1032,10 +1035,14 @@ async function loadDashboard() {
     badge.textContent = count;
     badge.style.display = count > 0 ? 'inline-block' : 'none';
 
+    if (typeof renderDashboardFindings === 'function' && latestFindings.length > 0) {
+      renderDashboardFindings(latestFindings);
+    }
+
   } catch (e) {
     setStatus('offline');
     document.getElementById('dash-status').textContent = t('dash_not_connected');
-    document.getElementById('status-detail').innerHTML = `<div class="alert alert-error">${t('dash_conn_error')}${e.details || e.message || t('unknown_error')}</div>`;
+    document.getElementById('status-detail').innerHTML = `<div class="alert alert-error">${t('dash_conn_error')}${e.message || t('unknown_error')}</div>`;
   }
 }
 
@@ -1067,28 +1074,72 @@ async function sendDiagnosisRequest() {
 
   try {
     const data = await api.sendDiagnose(text, chatHistory);
-    thinkingMsg.innerHTML = `<div>${data.response || data.message || t('diag_done')}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
-    chatHistory.push({ role: 'assistant', content: data.response || '' });
-    if (data.findings && data.findings.length > 0) renderFindings(data.findings);
+    if (data && data.error) throw new Error(data.error);
+    const diag = data.diagnosis || data;
+    const findings = diag.findings || [];
+    const actions = diag.recommended_actions || [];
+    const summary = diag.problem_type
+      ? `${t('diag_type')}: ${diag.problem_type} (${t('diag_confidence')}: ${Math.round((diag.confidence || 0) * 100)}%)`
+      : '';
+    let responseText = summary;
+    if (findings.length > 0) {
+      responseText += (responseText ? '\n\n' : '') + findings.map(f => `• ${f.summary || f.source || ''}`).join('\n');
+    }
+    if (actions.length > 0) {
+      responseText += '\n\n' + t('diag_recommend') + actions.map(a => `${a.description} (${a.risk_level || 'L0'})`).join('; ');
+    }
+    if (diag.next_step) {
+      responseText += '\n\n📋 ' + diag.next_step;
+    }
+    thinkingMsg.innerHTML = `<div style="white-space:pre-wrap;">${responseText || diag.response || diag.message || t('diag_done')}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+    chatHistory.push({ role: 'assistant', content: responseText || '' });
+    if (findings.length > 0) renderFindings(findings);
   } catch (e) {
     thinkingMsg.innerHTML = `<div>${t('diag_conn_error')}<br><small style="color:var(--slate-400)">${e.message || ''}</small></div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
   }
 }
 
+let latestFindings = [];
+
 function renderFindings(findings) {
+  latestFindings = findings;
   const section = document.getElementById('findings-section');
   const list = document.getElementById('findings-list');
   section.style.display = 'block';
   list.innerHTML = '';
   findings.forEach(f => {
     const div = document.createElement('div');
-    div.className = `finding ${f.severity === 'critical' ? 'critical' : f.severity === 'ok' ? 'ok' : ''}`;
+    const level = f.level || f.severity || 'info';
+    const levelClass = level === 'error' || level === 'critical' ? 'critical' : level === 'ok' ? 'ok' : '';
+    div.className = `finding ${levelClass}`;
     div.innerHTML = `
-      <div class="finding-title">${f.title || f.check_name || t('diag_finding')}</div>
-      <div class="finding-detail">${f.description || f.detail || ''}</div>
+      <div class="finding-title">${f.title || f.check_name || f.source || t('diag_finding')}</div>
+      <div class="finding-detail">${f.description || f.detail || f.summary || ''}</div>
       ${f.recommended_action ? `<div style="font-size:12px; margin-top:6px; color:var(--indigo-600)">${t('diag_recommend')}${f.recommended_action}</div>` : ''}
     `;
     list.appendChild(div);
+  });
+  renderDashboardFindings(findings);
+}
+
+function renderDashboardFindings(findings) {
+  const container = document.getElementById('latest-findings');
+  if (!container) return;
+  if (!findings || findings.length === 0) {
+    container.innerHTML = `<div class="empty"><div class="empty-text" id="empty-findings-text">${t('dash_no_findings')}</div></div>`;
+    return;
+  }
+  container.innerHTML = '';
+  findings.slice(0, 5).forEach(f => {
+    const level = f.severity || f.level || 'info';
+    const colorMap = { critical: 'var(--red-600)', error: 'var(--red-600)', warning: 'var(--amber-600)', ok: 'var(--emerald-600)', info: 'var(--slate-500)' };
+    const color = colorMap[level] || colorMap.info;
+    const iconMap = { critical: '🔴', error: '🔴', warning: '🟡', ok: '🟢', info: 'ℹ️' };
+    const icon = iconMap[level] || iconMap.info;
+    const div = document.createElement('div');
+    div.style.cssText = 'padding:8px 0; border-bottom:1px solid var(--slate-100); font-size:13px;';
+    div.innerHTML = `<span>${icon}</span> <span style="color:${color}; font-weight:500;">${f.title || f.check_name || f.source || t('diag_finding')}</span><div style="font-size:12px; color:var(--slate-500); margin-top:2px;">${f.description || f.detail || f.summary || ''}</div>`;
+    container.appendChild(div);
   });
 }
 
@@ -1099,6 +1150,7 @@ async function loadApprovals() {
 
   try {
     const data = await api.getPendingApprovals();
+    if (data && data.error) throw new Error(data.error);
     const pending = data.pending_approvals || [];
 
     const badge = document.getElementById('approval-count');
@@ -1167,6 +1219,7 @@ async function loadHistory() {
   const container = document.getElementById('history-list');
   try {
     const data = await api.getRecentSessions();
+    if (data && data.error) throw new Error(data.error);
     const raw = data.sessions || data;
     const sessions = Array.isArray(raw) ? raw : [];
 
@@ -1362,6 +1415,7 @@ async function init() {
 setInterval(async () => {
   try {
     const status = await api.getAgentStatus();
+    if (status && status.error) throw new Error(status.error);
     setStatus('online');
     const count = parseInt(status.pending_approvals) || 0;
     const badge = document.getElementById('approval-count');

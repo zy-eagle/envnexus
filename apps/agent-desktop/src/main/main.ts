@@ -114,10 +114,10 @@ function localAPIRequest(method: string, path: string, body?: object): Promise<a
       });
     });
 
-    req.on('error', (e) => reject({ error: 'agent-core not reachable', details: e.message }));
+    req.on('error', (e) => reject(new Error(`agent-core not reachable: ${e.message}`)));
     req.setTimeout(5000, () => {
       req.destroy();
-      reject({ error: 'timeout', details: 'agent-core did not respond in 5s' });
+      reject(new Error('agent-core did not respond in 5s'));
     });
 
     if (postData) req.write(postData);
@@ -581,25 +581,31 @@ function createWindow(): void {
 
 // ── IPC Handlers ──────────────────────────────────────────────────────────────
 
+function safeLocalAPI(method: string, path: string, body?: object): Promise<any> {
+  return localAPIRequest(method, path, body).catch((err: Error) => ({
+    error: err.message || 'agent-core not reachable',
+  }));
+}
+
 function registerIPC(): void {
   ipcMain.handle('get-agent-status', () =>
-    localAPIRequest('GET', '/local/v1/runtime/status')
+    safeLocalAPI('GET', '/local/v1/runtime/status')
   );
 
   ipcMain.handle('get-pending-approvals', () =>
-    localAPIRequest('GET', '/local/v1/approvals/pending')
+    safeLocalAPI('GET', '/local/v1/approvals/pending')
   );
 
   ipcMain.handle('resolve-approval', (_e, id: string, approved: boolean) =>
-    localAPIRequest('POST', `/local/v1/approvals/${id}/resolve`, { approved })
+    safeLocalAPI('POST', `/local/v1/approvals/${id}/resolve`, { approved })
   );
 
   ipcMain.handle('export-diagnostics', () =>
-    localAPIRequest('POST', '/local/v1/diagnostics/export', {})
+    safeLocalAPI('POST', '/local/v1/diagnostics/export', {})
   );
 
   ipcMain.handle('send-diagnose', (_e, query: string, history: any[]) =>
-    localAPIRequest('POST', '/local/v1/diagnose', { query, history })
+    safeLocalAPI('POST', '/local/v1/diagnose', { intent: query, history })
   );
 
   ipcMain.handle('get-settings', () => loadSettings());
@@ -637,7 +643,7 @@ function registerIPC(): void {
   ipcMain.handle('get-app-version', () => app.getVersion());
 
   ipcMain.handle('get-recent-sessions', () =>
-    localAPIRequest('GET', '/local/v1/sessions/recent')
+    safeLocalAPI('GET', '/local/v1/sessions/recent')
   );
 
   ipcMain.handle('get-agent-core-logs', () => agentCoreLogs.join('\n'));

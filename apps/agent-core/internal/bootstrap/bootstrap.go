@@ -163,6 +163,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	// Step 3: Initialize tool registry
 	registry := tools.NewRegistry()
 	registry.Register(network.NewReadNetworkConfigTool())
+	registry.Register(network.NewReadProxyConfigTool())
 	registry.Register(network.NewFlushDNSTool())
 	registry.Register(system.NewReadSystemInfoTool())
 	registry.Register(system.NewReadDiskUsageTool())

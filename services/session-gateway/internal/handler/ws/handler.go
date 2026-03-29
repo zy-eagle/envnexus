@@ -23,10 +23,10 @@ func newUpgrader(allowedOrigins []string) websocket.Upgrader {
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
 		CheckOrigin: func(r *http.Request) bool {
-			if len(allowed) == 0 {
-				return false
-			}
 			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true
+			}
 			return allowed[origin]
 		},
 		HandshakeTimeout: 10 * time.Second,

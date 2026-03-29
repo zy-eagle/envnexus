@@ -151,13 +151,13 @@ Respond ONLY with the JSON object, no other text.`, input)
 // Step 2: EvidencePlan — select read-only tools based on problem type
 func (e *Engine) stepEvidencePlan(plan *DiagnosisPlan) []string {
 	toolMapping := map[string][]string{
-		"network":     {"read_network_config", "read_system_info"},
+		"network":     {"read_network_config", "read_proxy_config", "read_system_info"},
 		"dns":         {"read_network_config", "read_system_info"},
 		"service":     {"read_system_info"},
 		"performance": {"read_system_info"},
-		"disk":        {"read_system_info"},
+		"disk":        {"read_system_info", "read_disk_usage"},
 		"auth":        {"read_system_info"},
-		"general":     {"read_system_info", "read_network_config"},
+		"general":     {"read_system_info", "read_network_config", "read_proxy_config"},
 	}
 
 	candidates := toolMapping[plan.ProblemType]
@@ -284,28 +284,59 @@ func (e *Engine) heuristicPlan(input string) *DiagnosisPlan {
 	case strings.Contains(lower, "dns") || strings.Contains(lower, "resolve") || strings.Contains(lower, "域名"):
 		plan.ProblemType = "dns"
 		plan.Scope = "network"
-	case strings.Contains(lower, "network") || strings.Contains(lower, "网络") || strings.Contains(lower, "connect"):
+	case strings.Contains(lower, "proxy") || strings.Contains(lower, "代理") ||
+		strings.Contains(lower, "network") || strings.Contains(lower, "网络") ||
+		strings.Contains(lower, "connect") || strings.Contains(lower, "连接") ||
+		strings.Contains(lower, "ping") || strings.Contains(lower, "延迟") ||
+		strings.Contains(lower, "timeout") || strings.Contains(lower, "超时") ||
+		strings.Contains(lower, "vpn") || strings.Contains(lower, "防火墙") || strings.Contains(lower, "firewall"):
 		plan.ProblemType = "network"
 		plan.Scope = "network"
-	case strings.Contains(lower, "service") || strings.Contains(lower, "服务") || strings.Contains(lower, "restart"):
+	case strings.Contains(lower, "service") || strings.Contains(lower, "服务") || strings.Contains(lower, "restart") || strings.Contains(lower, "重启"):
 		plan.ProblemType = "service"
-	case strings.Contains(lower, "slow") || strings.Contains(lower, "慢") || strings.Contains(lower, "performance"):
+	case strings.Contains(lower, "slow") || strings.Contains(lower, "慢") || strings.Contains(lower, "performance") ||
+		strings.Contains(lower, "cpu") || strings.Contains(lower, "内存") || strings.Contains(lower, "memory") || strings.Contains(lower, "卡"):
 		plan.ProblemType = "performance"
-	case strings.Contains(lower, "disk") || strings.Contains(lower, "磁盘") || strings.Contains(lower, "space"):
+	case strings.Contains(lower, "disk") || strings.Contains(lower, "磁盘") || strings.Contains(lower, "space") ||
+		strings.Contains(lower, "存储") || strings.Contains(lower, "容量"):
 		plan.ProblemType = "disk"
+	case strings.Contains(lower, "auth") || strings.Contains(lower, "认证") || strings.Contains(lower, "登录") ||
+		strings.Contains(lower, "password") || strings.Contains(lower, "密码") || strings.Contains(lower, "权限"):
+		plan.ProblemType = "auth"
 	}
 	return plan
 }
 
 func (e *Engine) localReasoning(plan *DiagnosisPlan, evidence map[string]interface{}) *DiagnosisResult {
 	findings := make([]Finding, 0)
+
 	for source, data := range evidence {
-		findings = append(findings, Finding{
-			Source:  source,
-			Summary: fmt.Sprintf("Data collected from %s", source),
-			Level:   "info",
-		})
-		_ = data
+		if dataMap, ok := data.(map[string]interface{}); ok {
+			if errMsg, exists := dataMap["error"]; exists {
+				findings = append(findings, Finding{Source: source, Summary: fmt.Sprintf("Collection failed: %v", errMsg), Level: "error"})
+				continue
+			}
+		}
+
+		switch source {
+		case "read_proxy_config":
+			if dataMap, ok := data.(map[string]interface{}); ok {
+				findings = append(findings, e.analyzeProxyEvidence(dataMap)...)
+			}
+		case "read_network_config":
+			findings = append(findings, e.analyzeNetworkEvidence(data)...)
+		case "read_system_info":
+			if dataMap, ok := data.(map[string]interface{}); ok {
+				findings = append(findings, e.analyzeSystemEvidence(dataMap)...)
+			}
+		default:
+			raw, _ := json.MarshalIndent(data, "", "  ")
+			findings = append(findings, Finding{Source: source, Summary: string(raw), Level: "info"})
+		}
+	}
+
+	if len(findings) == 0 {
+		findings = append(findings, Finding{Source: "diagnosis", Summary: "No evidence could be collected", Level: "warning"})
 	}
 
 	var actions []ActionDraft
@@ -334,4 +365,116 @@ func (e *Engine) localReasoning(plan *DiagnosisPlan, evidence map[string]interfa
 		ApprovalRequired:   len(actions) > 0,
 		NextStep:           "Review findings and approve recommended actions if appropriate",
 	}
+}
+
+func (e *Engine) analyzeProxyEvidence(data map[string]interface{}) []Finding {
+	var findings []Finding
+	hasProxy, _ := data["has_proxy"].(bool)
+
+	if hasProxy {
+		findings = append(findings, Finding{Source: "read_proxy_config", Summary: "Proxy is configured on this system", Level: "info"})
+		switch envProxies := data["env_proxies"].(type) {
+		case map[string]string:
+			for k, v := range envProxies {
+				findings = append(findings, Finding{Source: "read_proxy_config", Summary: fmt.Sprintf("Environment variable %s = %s", k, v), Level: "info"})
+			}
+		case map[string]interface{}:
+			for k, v := range envProxies {
+				findings = append(findings, Finding{Source: "read_proxy_config", Summary: fmt.Sprintf("Environment variable %s = %v", k, v), Level: "info"})
+			}
+		}
+		if goProxy, ok := data["go_http_proxy"].(string); ok && goProxy != "" {
+			findings = append(findings, Finding{Source: "read_proxy_config", Summary: fmt.Sprintf("Go HTTP transport proxy: %s", goProxy), Level: "info"})
+		}
+		if sysProxy, ok := data["system_proxy"].(string); ok && sysProxy != "" {
+			findings = append(findings, Finding{Source: "read_proxy_config", Summary: fmt.Sprintf("System proxy: %s", sysProxy), Level: "info"})
+		}
+	} else {
+		findings = append(findings, Finding{Source: "read_proxy_config", Summary: "No proxy detected — no HTTP_PROXY/HTTPS_PROXY environment variables set, no system proxy configured", Level: "info"})
+	}
+	return findings
+}
+
+func (e *Engine) analyzeNetworkEvidence(data interface{}) []Finding {
+	var findings []Finding
+
+	var interfaces []interface{}
+	switch v := data.(type) {
+	case []interface{}:
+		interfaces = v
+	case []map[string]interface{}:
+		for _, m := range v {
+			interfaces = append(interfaces, m)
+		}
+	default:
+		raw, _ := json.Marshal(data)
+		findings = append(findings, Finding{Source: "read_network_config", Summary: string(raw), Level: "info"})
+		return findings
+	}
+
+	activeCount := 0
+	for _, iface := range interfaces {
+		ifMap, ok := iface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := ifMap["name"].(string)
+		flags, _ := ifMap["flags"].(string)
+		ips, _ := ifMap["ip_addresses"].([]interface{})
+
+		if len(ips) == 0 {
+			continue
+		}
+
+		var ipStrs []string
+		for _, ip := range ips {
+			ipStrs = append(ipStrs, fmt.Sprintf("%v", ip))
+		}
+
+		if strings.Contains(flags, "up") {
+			activeCount++
+			findings = append(findings, Finding{
+				Source:  "read_network_config",
+				Summary: fmt.Sprintf("Interface %s (UP): %s", name, strings.Join(ipStrs, ", ")),
+				Level:   "info",
+			})
+		}
+	}
+
+	if activeCount == 0 {
+		findings = append(findings, Finding{Source: "read_network_config", Summary: "No active network interfaces found", Level: "warning"})
+	} else {
+		findings = append(findings, Finding{
+			Source:  "read_network_config",
+			Summary: fmt.Sprintf("Found %d active network interface(s)", activeCount),
+			Level:   "info",
+		})
+	}
+	return findings
+}
+
+func (e *Engine) analyzeSystemEvidence(data map[string]interface{}) []Finding {
+	osName, _ := data["os"].(string)
+	arch, _ := data["architecture"].(string)
+	hostname, _ := data["hostname"].(string)
+	numCPU := 0
+	switch n := data["num_cpu"].(type) {
+	case int:
+		numCPU = n
+	case float64:
+		numCPU = int(n)
+	}
+
+	return []Finding{
+		{
+			Source:  "read_system_info",
+			Summary: fmt.Sprintf("System: %s/%s, Hostname: %s, CPUs: %d", osName, arch, hostname, numCPU),
+			Level:   "info",
+		},
+	}
+}
+
+func (e *Engine) analyzeSliceEvidence(source string, data []interface{}) []Finding {
+	raw, _ := json.MarshalIndent(data, "", "  ")
+	return []Finding{{Source: source, Summary: string(raw), Level: "info"}}
 }
