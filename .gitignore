@@ -50,6 +50,7 @@ yarn-error.log*
 .next/
 out/
 build/
+!apps/agent-desktop/build/
 .env.local
 .env.development.local
 .env.test.local
