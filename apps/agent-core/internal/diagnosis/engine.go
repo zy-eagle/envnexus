@@ -213,13 +213,13 @@ You MUST respond with ONLY a JSON object. No explanation, no markdown, no thinki
 // Step 2: EvidencePlan — select read-only tools based on problem type
 func (e *Engine) stepEvidencePlan(plan *DiagnosisPlan) []string {
 	toolMapping := map[string][]string{
-		"network":     {"read_network_config", "read_proxy_config", "read_system_info", "ping_host"},
-		"dns":         {"read_network_config", "read_system_info"},
-		"service":     {"read_system_info"},
-		"performance": {"read_system_info"},
+		"network":     {"read_network_config", "read_proxy_config", "read_system_info", "ping_host", "dns_lookup", "read_route_table", "read_env_vars"},
+		"dns":         {"read_network_config", "read_system_info", "dns_lookup", "read_env_vars"},
+		"service":     {"read_system_info", "read_process_list", "read_env_vars", "http_check"},
+		"performance": {"read_system_info", "read_process_list", "read_disk_usage"},
 		"disk":        {"read_system_info", "read_disk_usage"},
-		"auth":        {"read_system_info"},
-		"general":     {"read_system_info", "read_network_config", "read_proxy_config"},
+		"auth":        {"read_system_info", "read_env_vars", "check_tls_cert"},
+		"general":     {"read_system_info", "read_network_config", "read_proxy_config", "read_env_vars"},
 	}
 
 	candidates := toolMapping[plan.ProblemType]
@@ -278,6 +278,11 @@ func (e *Engine) stepReasoning(ctx context.Context, plan *DiagnosisPlan, evidenc
 
 	evidenceJSON, _ := json.MarshalIndent(evidence, "", "  ")
 
+	var toolList strings.Builder
+	for _, t := range e.registry.List() {
+		toolList.WriteString(fmt.Sprintf("- %s: %s (read_only=%v, risk=%s)\n", t.Name(), t.Description(), t.IsReadOnly(), t.RiskLevel()))
+	}
+
 	prompt := fmt.Sprintf(`You are an IT diagnostic engine. Given the problem type and collected evidence, produce a diagnosis.
 
 Problem type: %s
@@ -286,15 +291,18 @@ Scope: %s
 Evidence collected:
 %s
 
+Available tools (ONLY use these tool_name values in recommended_actions):
+%s
+
 Return a JSON object with:
 - "problem_type": string
 - "confidence": float between 0.0 and 1.0
 - "findings": array of {"source": string, "summary": string, "level": "info"|"warning"|"error"}
-- "recommended_actions": array of {"tool_name": string, "description": string, "risk_level": "L0"|"L1"|"L2"|"L3", "params": {}}
+- "recommended_actions": array of {"tool_name": string, "description": string, "risk_level": "L0"|"L1"|"L2"|"L3", "params": {}}. IMPORTANT: tool_name MUST be one of the available tools listed above. Do NOT invent tool names.
 - "approval_required": boolean (true if any action is L1 or above)
 - "next_step": string describing what to do next
 
-You MUST respond with ONLY a JSON object. No explanation, no markdown, no thinking process. Just the raw JSON object starting with { and ending with }.`, plan.ProblemType, plan.Scope, string(evidenceJSON))
+You MUST respond with ONLY a JSON object. No explanation, no markdown, no thinking process. Just the raw JSON object starting with { and ending with }.`, plan.ProblemType, plan.Scope, string(evidenceJSON), toolList.String())
 
 	resp, err := e.llmRouter.Complete(ctx, &router.CompletionRequest{
 		Messages: []router.Message{
