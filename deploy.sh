@@ -347,7 +347,8 @@ cmd_smart_deploy() {
         # If agent-builder needs rebuild, do it first (uploads base packages to MinIO)
         if echo "$services_to_build" | grep -q "agent-builder"; then
             log_info "Building agent-builder (Go cross-compile + Electron installers + upload)..."
-            docker compose --profile agent-build up --build agent-builder
+            log_info "  (BuildKit cache mounts enabled — npm/electron downloads cached across builds)"
+            DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder
             save_hash "agent-builder" "$ab_hash"
             # Remove agent-builder from the remaining list
             services_to_build=$(echo "$services_to_build" | sed 's/agent-builder//g' | xargs)
@@ -408,7 +409,7 @@ cmd_deploy_full() {
     rm -f "${HASH_DIR}"/*.hash
 
     log_info "Building and starting all services (including agent-builder)..."
-    docker compose --profile agent-build up -d --build
+    DOCKER_BUILDKIT=1 docker compose --profile agent-build up -d --build
 
     if [ $? -eq 0 ]; then
         # Save all hashes after successful full build
@@ -545,7 +546,7 @@ case "${1:-}" in
     agents)
         echo -e "${GREEN}${BOLD}  EnvNexus — Force rebuild agent binaries  ${NC}"
         cd "$DEPLOY_DIR"
-        FORCE_AGENT_UPLOAD=true docker compose --profile agent-build up --build --force-recreate agent-builder
+        DOCKER_BUILDKIT=1 FORCE_AGENT_UPLOAD=true docker compose --profile agent-build up --build --force-recreate agent-builder
         save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
         log_info "Agent binaries rebuilt and uploaded to MinIO."
         ;;
