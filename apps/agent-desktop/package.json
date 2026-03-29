@@ -5,6 +5,7 @@
   "main": "dist/main/main.js",
   "author": "EnvNexus <team@envnexus.io>",
   "description": "EnvNexus Agent Desktop — secure local diagnosis and guided repair",
+  "homepage": "https://github.com/zy-eagle/envnexus",
   "scripts": {
     "build": "tsc",
     "start": "electron .",
@@ -23,6 +24,7 @@
     "@types/node": "^20.0.0",
     "electron": "^30.0.0",
     "electron-builder": "^25.1.0",
+    "electron-icon-builder": "^2.0.1",
     "typescript": "^5.0.0"
   },
   "build": {
@@ -41,26 +43,49 @@
       {
         "from": "../../bin/",
         "to": "bin",
-        "filter": ["enx-agent*"]
+        "filter": [
+          "enx-agent*"
+        ]
       }
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.ico"
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "icon": "assets/icon.icns",
       "category": "public.app-category.utilities"
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.png",
       "category": "Utility"

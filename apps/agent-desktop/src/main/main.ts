@@ -5,6 +5,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  NativeImage,
   dialog,
   shell,
 } from 'electron';
@@ -245,7 +246,7 @@ type ConnectionStatus = 'online' | 'offline' | 'connecting';
 
 let currentStatus: ConnectionStatus = 'connecting';
 
-function createTrayIcon(status: ConnectionStatus): nativeImage {
+function createTrayIcon(status: ConnectionStatus): NativeImage {
   const colors: Record<ConnectionStatus, string> = {
     online: '#10b981',
     offline: '#9ca3af',
