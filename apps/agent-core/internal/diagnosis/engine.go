@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -14,10 +15,11 @@ import (
 )
 
 type DiagnosisPlan struct {
-	ProblemType string   `json:"problem_type"`
-	Scope       string   `json:"scope"`
-	RiskBias    string   `json:"risk_bias"`
-	ToolNames   []string `json:"tool_names"`
+	ProblemType string                            `json:"problem_type"`
+	Scope       string                            `json:"scope"`
+	RiskBias    string                            `json:"risk_bias"`
+	ToolNames   []string                          `json:"tool_names"`
+	ToolParams  map[string]map[string]interface{} `json:"tool_params,omitempty"`
 }
 
 type DiagnosisResult struct {
@@ -74,7 +76,7 @@ func (e *Engine) Execute(ctx context.Context, sessionID string, plan *DiagnosisP
 	start := time.Now()
 	slog.Info("[diagnosis] Executing plan", "session_id", sessionID, "problem_type", plan.ProblemType)
 
-	evidence := e.stepEvidenceCollect(ctx, plan.ToolNames)
+	evidence := e.stepEvidenceCollect(ctx, plan)
 
 	reasoning, err := e.stepReasoning(ctx, plan, evidence)
 	if err != nil {
@@ -151,7 +153,7 @@ Respond ONLY with the JSON object, no other text.`, input)
 // Step 2: EvidencePlan — select read-only tools based on problem type
 func (e *Engine) stepEvidencePlan(plan *DiagnosisPlan) []string {
 	toolMapping := map[string][]string{
-		"network":     {"read_network_config", "read_proxy_config", "read_system_info"},
+		"network":     {"read_network_config", "read_proxy_config", "read_system_info", "ping_host"},
 		"dns":         {"read_network_config", "read_system_info"},
 		"service":     {"read_system_info"},
 		"performance": {"read_system_info"},
@@ -175,20 +177,24 @@ func (e *Engine) stepEvidencePlan(plan *DiagnosisPlan) []string {
 }
 
 // Step 3: EvidenceCollect — execute read-only tools in parallel
-func (e *Engine) stepEvidenceCollect(ctx context.Context, toolNames []string) map[string]interface{} {
+func (e *Engine) stepEvidenceCollect(ctx context.Context, plan *DiagnosisPlan) map[string]interface{} {
 	evidence := make(map[string]interface{})
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	for _, name := range toolNames {
+	for _, name := range plan.ToolNames {
 		t, ok := e.registry.Get(name)
 		if !ok {
 			continue
 		}
+		var params map[string]interface{}
+		if plan.ToolParams != nil {
+			params = plan.ToolParams[name]
+		}
 		wg.Add(1)
-		go func(tool tools.Tool, toolName string) {
+		go func(tool tools.Tool, toolName string, toolParams map[string]interface{}) {
 			defer wg.Done()
-			result, err := tool.Execute(ctx, nil)
+			result, err := tool.Execute(ctx, toolParams)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -198,7 +204,7 @@ func (e *Engine) stepEvidenceCollect(ctx context.Context, toolNames []string) ma
 				evidence[toolName] = result.Output
 				slog.Info("[diagnosis] Tool collected", "tool", toolName, "summary", result.Summary)
 			}
-		}(t, name)
+		}(t, name, params)
 	}
 	wg.Wait()
 	return evidence
@@ -273,6 +279,8 @@ func (e *Engine) stepActionDraft(result *DiagnosisResult) {
 	result.RecommendedActions = validated
 }
 
+var ipOrHostRe = regexp.MustCompile(`(?:(?:\d{1,3}\.){3}\d{1,3})|(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z]{2,})+)`)
+
 func (e *Engine) heuristicPlan(input string) *DiagnosisPlan {
 	lower := strings.ToLower(input)
 	plan := &DiagnosisPlan{
@@ -304,6 +312,13 @@ func (e *Engine) heuristicPlan(input string) *DiagnosisPlan {
 		strings.Contains(lower, "password") || strings.Contains(lower, "密码") || strings.Contains(lower, "权限"):
 		plan.ProblemType = "auth"
 	}
+
+	if host := ipOrHostRe.FindString(input); host != "" {
+		plan.ToolParams = map[string]map[string]interface{}{
+			"ping_host": {"host": host},
+		}
+	}
+
 	return plan
 }
 
@@ -328,6 +343,10 @@ func (e *Engine) localReasoning(plan *DiagnosisPlan, evidence map[string]interfa
 		case "read_system_info":
 			if dataMap, ok := data.(map[string]interface{}); ok {
 				findings = append(findings, e.analyzeSystemEvidence(dataMap)...)
+			}
+		case "ping_host":
+			if dataMap, ok := data.(map[string]interface{}); ok {
+				findings = append(findings, e.analyzePingEvidence(dataMap)...)
 			}
 		default:
 			raw, _ := json.MarshalIndent(data, "", "  ")
@@ -420,15 +439,19 @@ func (e *Engine) analyzeNetworkEvidence(data interface{}) []Finding {
 		}
 		name, _ := ifMap["name"].(string)
 		flags, _ := ifMap["flags"].(string)
-		ips, _ := ifMap["ip_addresses"].([]interface{})
-
-		if len(ips) == 0 {
-			continue
-		}
 
 		var ipStrs []string
-		for _, ip := range ips {
-			ipStrs = append(ipStrs, fmt.Sprintf("%v", ip))
+		switch v := ifMap["ip_addresses"].(type) {
+		case []string:
+			ipStrs = v
+		case []interface{}:
+			for _, ip := range v {
+				ipStrs = append(ipStrs, fmt.Sprintf("%v", ip))
+			}
+		}
+
+		if len(ipStrs) == 0 {
+			continue
 		}
 
 		if strings.Contains(flags, "up") {
@@ -472,6 +495,35 @@ func (e *Engine) analyzeSystemEvidence(data map[string]interface{}) []Finding {
 			Level:   "info",
 		},
 	}
+}
+
+func (e *Engine) analyzePingEvidence(data map[string]interface{}) []Finding {
+	host, _ := data["host"].(string)
+	port, _ := data["port"].(string)
+	reachable, _ := data["reachable"].(bool)
+
+	var latency int64
+	switch v := data["latency_ms"].(type) {
+	case float64:
+		latency = int64(v)
+	case int64:
+		latency = v
+	}
+
+	if reachable {
+		return []Finding{{
+			Source:  "ping_host",
+			Summary: fmt.Sprintf("Host %s:%s is reachable (latency: %dms)", host, port, latency),
+			Level:   "info",
+		}}
+	}
+
+	errMsg, _ := data["error"].(string)
+	return []Finding{{
+		Source:  "ping_host",
+		Summary: fmt.Sprintf("Host %s:%s is NOT reachable (%s)", host, port, errMsg),
+		Level:   "warning",
+	}}
 }
 
 func (e *Engine) analyzeSliceEvidence(source string, data []interface{}) []Finding {

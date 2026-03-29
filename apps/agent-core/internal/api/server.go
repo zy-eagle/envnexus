@@ -12,19 +12,22 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/activation"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/device"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/governance"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 )
 
 type LocalServer struct {
-	port            int
-	server          *http.Server
-	identityManager *device.IdentityManager
-	policyEngine    *policy.Engine
-	diagEngine      *diagnosis.Engine
-	activationMgr   *activation.Manager
-	localStore      *store.Store
-	startTime       time.Time
+	port              int
+	server            *http.Server
+	identityManager   *device.IdentityManager
+	policyEngine      *policy.Engine
+	diagEngine        *diagnosis.Engine
+	activationMgr     *activation.Manager
+	governanceEngine  *governance.Engine
+	localStore        *store.Store
+	startTime         time.Time
+	platformConnected bool
 }
 
 func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine, diagEngine *diagnosis.Engine) *LocalServer {
@@ -43,6 +46,14 @@ func (s *LocalServer) SetActivationManager(mgr *activation.Manager) {
 
 func (s *LocalServer) SetStore(st *store.Store) {
 	s.localStore = st
+}
+
+func (s *LocalServer) SetPlatformConnected(connected bool) {
+	s.platformConnected = connected
+}
+
+func (s *LocalServer) SetGovernanceEngine(e *governance.Engine) {
+	s.governanceEngine = e
 }
 
 func (s *LocalServer) Start() error {
@@ -86,9 +97,10 @@ func (s *LocalServer) Stop(ctx context.Context) error {
 
 func (s *LocalServer) handleRuntimeStatus(c *gin.Context) {
 	resp := gin.H{
-		"status":    "running",
-		"uptime_ms": time.Since(s.startTime).Milliseconds(),
-		"started":   s.startTime.Format(time.RFC3339),
+		"status":             "running",
+		"uptime_ms":          time.Since(s.startTime).Milliseconds(),
+		"started":            s.startTime.Format(time.RFC3339),
+		"platform_connected": s.platformConnected,
 	}
 
 	if s.activationMgr != nil {
@@ -108,6 +120,10 @@ func (s *LocalServer) handleRuntimeStatus(c *gin.Context) {
 	}
 
 	resp["pending_approvals"] = len(s.policyEngine.GetPending())
+
+	if s.governanceEngine != nil {
+		resp["governance"] = s.governanceEngine.GetStatus()
+	}
 
 	c.JSON(http.StatusOK, resp)
 }

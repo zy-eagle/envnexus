@@ -78,6 +78,16 @@ func (m *Manager) Activate(ctx context.Context) error {
 	hwHash := hwinfo.CompositeHash(components)
 	deviceCode := generateDeviceCode(hwHash)
 
+	// Persist device code early so the dashboard can display it even if activation fails
+	if m.status == nil || m.status.DeviceCode == "" {
+		m.status = &Status{
+			Activated:      false,
+			DeviceCode:     deviceCode,
+			ActivationMode: m.activationMode,
+		}
+		m.saveStatus()
+	}
+
 	switch m.activationMode {
 	case "auto":
 		return m.activateAuto(ctx, deviceCode, compInfos)

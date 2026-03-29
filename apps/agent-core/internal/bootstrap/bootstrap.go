@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -172,6 +173,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	}
 
 	// Step 2: Pull remote config (skip in offline mode)
+	var remoteModelProfile *remoteModelConfig
 	if deviceToken != "" && platformReachable {
 		slog.Info("[boot] Pulling remote configuration...")
 		lifecycleClient := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
@@ -179,13 +181,24 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 		if err != nil {
 			slog.Warn("[boot] Config pull failed, entering offline mode", "error", err)
 			platformReachable = false
-		} else if configResp.HasUpdate {
-			slog.Info("[boot] Config updated", "config_version", configResp.ConfigVersion)
-			b.configManager.Update(func(c *config.AgentConfig) {
-				c.ConfigVersion = configResp.ConfigVersion
-			})
 		} else {
-			slog.Info("[boot] Config is up to date")
+			if configResp.HasUpdate {
+				slog.Info("[boot] Config updated", "config_version", configResp.ConfigVersion)
+				b.configManager.Update(func(c *config.AgentConfig) {
+					c.ConfigVersion = configResp.ConfigVersion
+				})
+			} else {
+				slog.Info("[boot] Config is up to date")
+			}
+			if len(configResp.ModelProfile) > 0 {
+				var mp remoteModelConfig
+				if err := json.Unmarshal(configResp.ModelProfile, &mp); err != nil {
+					slog.Warn("[boot] Failed to parse remote model profile", "error", err)
+				} else if mp.Provider != "" {
+					remoteModelProfile = &mp
+					slog.Info("[boot] Remote model profile loaded", "provider", mp.Provider, "model", mp.ModelName)
+				}
+			}
 		}
 	}
 
@@ -194,6 +207,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	registry.Register(network.NewReadNetworkConfigTool())
 	registry.Register(network.NewReadProxyConfigTool())
 	registry.Register(network.NewFlushDNSTool())
+	registry.Register(network.NewPingTool())
 	registry.Register(system.NewReadSystemInfoTool())
 	registry.Register(system.NewReadDiskUsageTool())
 	registry.Register(system.NewReadProcessListTool())
@@ -210,7 +224,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	}
 
 	// Step 4: Initialize LLM router
-	llmRouter := b.initLLMRouter()
+	llmRouter := b.initLLMRouter(remoteModelProfile)
 
 	// Step 5: Initialize engines
 	policyEngine := policy.NewEngine()
@@ -233,6 +247,8 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 
 	// Step 7: Start local API
 	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine, diagnosisEngine)
+	localServer.SetPlatformConnected(platformReachable)
+	localServer.SetGovernanceEngine(governanceEngine)
 	if activationMgr != nil {
 		localServer.SetActivationManager(activationMgr)
 	}
@@ -334,9 +350,44 @@ func (b *Bootstrapper) Shutdown(ctx context.Context) {
 	slog.Info("[boot] Shutdown complete")
 }
 
-func (b *Bootstrapper) initLLMRouter() *router.Router {
+type remoteModelConfig struct {
+	Provider  string `json:"provider"`
+	BaseURL   string `json:"base_url"`
+	ModelName string `json:"model_name"`
+	APIKey    string `json:"api_key"`
+}
+
+var providerFactory = map[string]func(router.ProviderConfig) router.Provider{
+	"openai":     func(c router.ProviderConfig) router.Provider { return providers.NewOpenAIProvider(c) },
+	"deepseek":   func(c router.ProviderConfig) router.Provider { return providers.NewDeepSeekProvider(c) },
+	"anthropic":  func(c router.ProviderConfig) router.Provider { return providers.NewAnthropicProvider(c) },
+	"gemini":     func(c router.ProviderConfig) router.Provider { return providers.NewGeminiProvider(c) },
+	"openrouter": func(c router.ProviderConfig) router.Provider { return providers.NewOpenRouterProvider(c) },
+	"ollama":     func(c router.ProviderConfig) router.Provider { return providers.NewOllamaProvider(c) },
+}
+
+func (b *Bootstrapper) initLLMRouter(remote *remoteModelConfig) *router.Router {
 	llmRouter := router.NewRouter(90 * time.Second)
 
+	// Priority 1: Remote model profile from platform (pushed via config API)
+	if remote != nil {
+		factory, ok := providerFactory[remote.Provider]
+		if ok {
+			p := factory(router.ProviderConfig{
+				Name:    "remote-" + remote.Provider,
+				BaseURL: remote.BaseURL,
+				APIKey:  remote.APIKey,
+				Model:   remote.ModelName,
+			})
+			llmRouter.RegisterProvider(p)
+			llmRouter.SetPrimary("remote-" + remote.Provider)
+			slog.Info("[boot] Registered remote model provider (from platform)", "provider", remote.Provider, "model", remote.ModelName)
+		} else {
+			slog.Warn("[boot] Unknown remote model provider, falling back to env config", "provider", remote.Provider)
+		}
+	}
+
+	// Priority 2: Environment variable providers
 	if apiKey := os.Getenv("ENX_OPENAI_API_KEY"); apiKey != "" {
 		p := providers.NewOpenAIProvider(router.ProviderConfig{
 			Name:    "openai",
@@ -392,6 +443,7 @@ func (b *Bootstrapper) initLLMRouter() *router.Router {
 		slog.Info("[boot] Registered Gemini provider")
 	}
 
+	// Priority 3: Ollama as local fallback
 	ollamaURL := envOrDefault("ENX_OLLAMA_URL", "http://localhost:11434")
 	p := providers.NewOllamaProvider(router.ProviderConfig{
 		Name:    "ollama",

@@ -44,6 +44,28 @@ func (e *Engine) SetStore(s *store.Store) {
 	e.store = s
 }
 
+type Status struct {
+	HasBaseline bool `json:"has_baseline"`
+	DriftCount  int  `json:"drift_count"`
+}
+
+func (e *Engine) GetStatus() Status {
+	if e.store == nil {
+		return Status{}
+	}
+	existing, _ := e.store.GetLatestBaseline("system")
+	hasBaseline := existing != nil
+
+	var driftCount int
+	if hasBaseline {
+		drifts, err := e.DetectDrift()
+		if err == nil {
+			driftCount = len(drifts)
+		}
+	}
+	return Status{HasBaseline: hasBaseline, DriftCount: driftCount}
+}
+
 // Start launches the governance engine with its own internal ticker.
 // Deprecated: prefer registering RunBaselineCheck as a runtime.Task instead.
 func (e *Engine) Start(ctx context.Context) {
