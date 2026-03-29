@@ -226,6 +226,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	registry.Register(system.NewReadDiskUsageTool())
 	registry.Register(system.NewReadProcessListTool())
 	registry.Register(system.NewReadEnvVarsTool())
+	registry.Register(system.NewShellExecTool())
 	registry.Register(system.NewProxyToggleTool())
 	registry.Register(system.NewConfigModifyTool())
 	registry.Register(service.NewRestartTool())
