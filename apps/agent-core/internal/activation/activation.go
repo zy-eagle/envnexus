@@ -112,6 +112,12 @@ func (m *Manager) activateAuto(ctx context.Context, deviceCode string, component
 		return fmt.Errorf("activation key not found in config")
 	}
 
+	slog.Info("[activation] Attempting auto-activation",
+		"device_code", deviceCode,
+		"platform_url", m.platformURL,
+		"key_prefix", m.activationKey[:min(6, len(m.activationKey))]+"***",
+	)
+
 	body := map[string]interface{}{
 		"activation_key": m.activationKey,
 		"device_code":    deviceCode,
@@ -124,6 +130,7 @@ func (m *Manager) activateAuto(ctx context.Context, deviceCode string, component
 	}
 
 	if !resp.Activated {
+		slog.Warn("[activation] Auto-activation rejected by platform", "error", resp.Error)
 		return fmt.Errorf("activation rejected: %s", resp.Error)
 	}
 
@@ -251,11 +258,24 @@ func (m *Manager) postJSON(ctx context.Context, path string, body interface{}) (
 	defer resp.Body.Close()
 
 	var wrapper struct {
-		Data activateResponse `json:"data"`
+		Data  activateResponse `json:"data"`
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&wrapper); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode response (HTTP %d): %w", resp.StatusCode, err)
 	}
+
+	if resp.StatusCode >= 400 || wrapper.Error != nil {
+		errMsg := fmt.Sprintf("HTTP %d", resp.StatusCode)
+		if wrapper.Error != nil {
+			errMsg = fmt.Sprintf("%s [%s]", wrapper.Error.Message, wrapper.Error.Code)
+		}
+		return &activateResponse{Error: errMsg}, nil
+	}
+
 	return &wrapper.Data, nil
 }
 
