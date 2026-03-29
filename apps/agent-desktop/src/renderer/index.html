@@ -3,227 +3,559 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:">
   <title>EnvNexus Agent</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #f9fafb;
-      --sidebar-bg: #1f2937;
-      --sidebar-text: #d1d5db;
-      --sidebar-active: #3b82f6;
+      --bg: #f8fafc;
+      --sidebar-bg: #ffffff;
+      --sidebar-border: #e2e8f0;
       --card-bg: #ffffff;
-      --border: #e5e7eb;
-      --text: #111827;
-      --text-muted: #6b7280;
-      --blue: #3b82f6;
-      --green: #10b981;
-      --yellow: #f59e0b;
-      --red: #ef4444;
-      --orange: #f97316;
-      --radius: 8px;
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --card-border: rgba(226,232,240,0.6);
+      --card-shadow: 0 1px 3px 0 rgba(0,0,0,0.04), 0 1px 2px -1px rgba(0,0,0,0.04);
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --indigo-50: #eef2ff;
+      --indigo-100: #e0e7ff;
+      --indigo-500: #6366f1;
+      --indigo-600: #4f46e5;
+      --indigo-700: #4338ca;
+      --emerald-50: #ecfdf5;
+      --emerald-500: #10b981;
+      --emerald-700: #047857;
+      --amber-50: #fffbeb;
+      --amber-500: #f59e0b;
+      --amber-700: #b45309;
+      --red-50: #fef2f2;
+      --red-500: #ef4444;
+      --red-700: #b91c1c;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-300: #cbd5e1;
+      --slate-400: #94a3b8;
+      --slate-500: #64748b;
+      --slate-600: #475569;
+      --slate-700: #334155;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --radius-lg: 16px;
+      --font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
 
-    body { font-family: var(--font); background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-size: 13px;
+      line-height: 1.5;
+    }
 
-    /* Sidebar */
+    /* ── Sidebar ─────────────────────────────────────────────────────── */
     #sidebar {
-      width: 200px; flex-shrink: 0;
+      width: 240px;
+      flex-shrink: 0;
       background: var(--sidebar-bg);
-      display: flex; flex-direction: column;
-      padding: 0;
+      border-right: 1px solid var(--sidebar-border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
     }
+
     #sidebar-header {
-      padding: 16px;
-      border-bottom: 1px solid #374151;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
     }
-    #sidebar-header h1 { color: #f9fafb; font-size: 14px; font-weight: 700; letter-spacing: 0.05em; }
+
+    .logo-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--indigo-500), var(--indigo-600));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(99,102,241,0.3);
+      flex-shrink: 0;
+    }
+    .logo-mark span {
+      color: white;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .logo-text .brand {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--slate-900);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+
     #status-badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-size: 11px; margin-top: 4px; color: var(--sidebar-text);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-muted);
     }
     #status-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--yellow);
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--amber-500);
+      flex-shrink: 0;
     }
-    #status-dot.online { background: var(--green); }
-    #status-dot.offline { background: var(--text-muted); }
+    #status-dot.online { background: var(--emerald-500); }
+    #status-dot.offline { background: var(--slate-400); }
 
-    nav { flex: 1; padding: 8px 0; }
+    nav { flex: 1; padding: 8px; overflow-y: auto; }
+
     .nav-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 16px; cursor: pointer;
-      color: var(--sidebar-text); font-size: 13px;
-      border-left: 3px solid transparent;
-      transition: background 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+      color: var(--slate-600);
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease;
       user-select: none;
+      margin-bottom: 2px;
     }
-    .nav-item:hover { background: rgba(255,255,255,0.05); }
-    .nav-item.active { background: rgba(59,130,246,0.15); border-left-color: var(--blue); color: #fff; }
-    .nav-item .icon { width: 16px; text-align: center; }
+    .nav-item:hover {
+      background: var(--slate-100);
+      color: var(--slate-900);
+    }
+    .nav-item.active {
+      background: var(--indigo-50);
+      color: var(--indigo-700);
+    }
+    .nav-item .icon {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .nav-item.active .icon { color: var(--indigo-500); }
+    .nav-item:not(.active) .icon { color: var(--slate-400); }
+
     .nav-badge {
-      margin-left: auto; background: var(--red);
-      color: white; font-size: 10px; font-weight: 700;
-      padding: 1px 5px; border-radius: 10px; min-width: 18px; text-align: center;
+      margin-left: auto;
+      background: var(--red-500);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 10px;
+      min-width: 18px;
+      text-align: center;
+      line-height: 16px;
     }
 
     #sidebar-footer {
       padding: 12px 16px;
-      border-top: 1px solid #374151;
-      font-size: 11px; color: #4b5563;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--slate-400);
     }
 
-    /* Main content */
-    #content { flex: 1; overflow-y: auto; padding: 24px; }
+    /* ── Main content ────────────────────────────────────────────────── */
+    #content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 28px;
+    }
 
-    /* Pages */
     .page { display: none; }
     .page.active { display: block; }
 
-    /* Cards */
+    /* ── Cards ────────────────────────────────────────────────────────── */
     .card {
-      background: var(--card-bg); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: var(--card-shadow);
     }
-    .card-title { font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
-    .card-value { font-size: 28px; font-weight: 700; }
-    .card-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--slate-500);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 10px;
+    }
+    .card-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--slate-900);
+      line-height: 1.2;
+    }
+    .card-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
 
-    /* Grid */
-    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+    /* ── Grid ─────────────────────────────────────────────────────────── */
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
     .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 
-    /* Page title */
-    .page-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+    /* ── Page title ───────────────────────────────────────────────────── */
+    .page-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--slate-900);
+      margin-bottom: 20px;
+      letter-spacing: -0.01em;
+    }
 
-    /* Badges */
+    /* ── Badges ────────────────────────────────────────────────────────── */
     .badge {
-      display: inline-flex; align-items: center;
-      padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 18px;
     }
-    .badge-green { background: #d1fae5; color: #065f46; }
-    .badge-red { background: #fee2e2; color: #991b1b; }
-    .badge-yellow { background: #fef3c7; color: #92400e; }
-    .badge-blue { background: #dbeafe; color: #1e40af; }
-    .badge-gray { background: #f3f4f6; color: #374151; }
-    .badge-orange { background: #ffedd5; color: #9a3412; }
+    .badge-green { background: var(--emerald-50); color: var(--emerald-700); outline: 1px solid rgba(16,185,129,0.2); }
+    .badge-red { background: var(--red-50); color: var(--red-700); outline: 1px solid rgba(239,68,68,0.2); }
+    .badge-yellow { background: var(--amber-50); color: var(--amber-700); outline: 1px solid rgba(245,158,11,0.2); }
+    .badge-blue { background: var(--indigo-50); color: var(--indigo-700); outline: 1px solid rgba(99,102,241,0.2); }
+    .badge-gray { background: var(--slate-100); color: var(--slate-600); outline: 1px solid rgba(100,116,139,0.1); }
+    .badge-orange { background: #fff7ed; color: #c2410c; outline: 1px solid rgba(249,115,22,0.2); }
 
-    /* Buttons */
+    /* ── Buttons ───────────────────────────────────────────────────────── */
     .btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
-      cursor: pointer; border: none; transition: opacity 0.1s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s ease;
+      font-family: var(--font);
+      line-height: 1;
     }
-    .btn:hover { opacity: 0.85; }
+    .btn:hover { opacity: 0.9; }
+    .btn:active { transform: scale(0.98); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-primary { background: var(--blue); color: white; }
-    .btn-success { background: var(--green); color: white; }
-    .btn-danger { background: var(--red); color: white; }
-    .btn-secondary { background: var(--border); color: var(--text); }
-    .btn-outline { background: transparent; color: var(--blue); border: 1px solid var(--blue); }
+    .btn-primary {
+      background: var(--indigo-600);
+      color: white;
+      box-shadow: 0 1px 2px rgba(79,70,229,0.3);
+    }
+    .btn-primary:hover { background: var(--indigo-700); }
+    .btn-success { background: var(--emerald-500); color: white; }
+    .btn-danger { background: var(--red-500); color: white; }
+    .btn-secondary {
+      background: white;
+      color: var(--slate-700);
+      border: 1px solid var(--slate-300);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .btn-secondary:hover { background: var(--slate-50); }
+    .btn-outline {
+      background: transparent;
+      color: var(--indigo-600);
+      border: 1px solid var(--indigo-500);
+    }
+    .btn-outline:hover { background: var(--indigo-50); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--slate-600);
+      padding: 6px 12px;
+    }
+    .btn-ghost:hover { background: var(--slate-100); color: var(--slate-900); }
 
-    /* Tables */
+    /* ── Tables ────────────────────────────────────────────────────────── */
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); background: #f9fafb; border-bottom: 1px solid var(--border); }
-    td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th {
+      text-align: left;
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--slate-500);
+      background: var(--slate-50);
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      color: var(--slate-600);
+    }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #f9fafb; }
+    tr:hover td { background: var(--slate-50); }
 
-    /* Code / pre */
+    /* ── Code / pre ───────────────────────────────────────────────────── */
     pre {
-      background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px;
-      font-size: 12px; font-family: 'Consolas', 'Monaco', monospace;
-      white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto;
+      background: var(--slate-800);
+      color: #e2e8f0;
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
     }
 
-    /* Approval card */
+    /* ── Approval card ────────────────────────────────────────────────── */
     .approval-card {
-      background: var(--card-bg); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 12px;
+      box-shadow: var(--card-shadow);
     }
     .approval-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-    .approval-tool { font-size: 14px; font-weight: 600; }
-    .approval-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
-    .approval-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .approval-tool { font-size: 14px; font-weight: 600; color: var(--slate-900); }
+    .approval-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .approval-actions { display: flex; gap: 8px; margin-top: 14px; }
 
-    /* Chat UI */
+    /* ── Chat UI ──────────────────────────────────────────────────────── */
     #chat-messages {
-      height: 380px; overflow-y: auto;
-      background: #f8fafc; border: 1px solid var(--border);
+      height: 380px;
+      overflow-y: auto;
+      background: var(--slate-50);
+      border: 1px solid var(--border);
       border-radius: var(--radius) var(--radius) 0 0;
-      padding: 12px; display: flex; flex-direction: column; gap: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
-    .msg { max-width: 75%; padding: 9px 13px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
-    .msg-user { background: var(--blue); color: white; align-self: flex-end; border-radius: 12px 12px 2px 12px; }
-    .msg-agent { background: var(--card-bg); border: 1px solid var(--border); align-self: flex-start; border-radius: 12px 12px 12px 2px; }
-    .msg-system { background: #fef3c7; color: #92400e; align-self: center; border-radius: 6px; font-size: 12px; }
-    .msg-time { font-size: 10px; opacity: 0.6; margin-top: 3px; }
+    .msg {
+      max-width: 75%;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .msg-user {
+      background: var(--indigo-600);
+      color: white;
+      align-self: flex-end;
+      border-radius: var(--radius) var(--radius) 4px var(--radius);
+    }
+    .msg-agent {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      align-self: flex-start;
+      border-radius: var(--radius) var(--radius) var(--radius) 4px;
+      color: var(--slate-700);
+    }
+    .msg-system {
+      background: var(--indigo-50);
+      color: var(--indigo-700);
+      align-self: center;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      text-align: center;
+      padding: 8px 16px;
+    }
+    .msg-time { font-size: 10px; opacity: 0.5; margin-top: 4px; }
 
     #chat-input-row {
-      display: flex; border: 1px solid var(--border); border-top: none;
-      border-radius: 0 0 var(--radius) var(--radius); overflow: hidden;
+      display: flex;
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius);
+      overflow: hidden;
+      background: white;
     }
     #chat-input {
-      flex: 1; padding: 10px 14px; border: none; font-size: 13px;
-      font-family: var(--font); outline: none; background: white;
+      flex: 1;
+      padding: 12px 16px;
+      border: none;
+      font-size: 13px;
+      font-family: var(--font);
+      outline: none;
+      background: white;
+      color: var(--text);
     }
-    #chat-send { padding: 10px 16px; background: var(--blue); color: white; border: none; cursor: pointer; font-size: 13px; }
-    #chat-send:hover { background: #2563eb; }
+    #chat-input::placeholder { color: var(--slate-400); }
+    #chat-send {
+      padding: 12px 20px;
+      background: var(--indigo-600);
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font);
+      transition: background 0.15s;
+    }
+    #chat-send:hover { background: var(--indigo-700); }
 
-    /* Findings */
+    /* ── Findings ──────────────────────────────────────────────────────── */
     .finding {
-      background: var(--card-bg); border-left: 4px solid var(--yellow);
-      border-radius: 0 var(--radius) var(--radius) 0;
-      padding: 12px 16px; margin-bottom: 8px;
+      background: var(--card-bg);
+      border-left: 3px solid var(--amber-500);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      box-shadow: var(--card-shadow);
     }
-    .finding.critical { border-left-color: var(--red); }
-    .finding.ok { border-left-color: var(--green); }
-    .finding-title { font-weight: 600; font-size: 13px; }
+    .finding.critical { border-left-color: var(--red-500); }
+    .finding.ok { border-left-color: var(--emerald-500); }
+    .finding-title { font-weight: 600; font-size: 13px; color: var(--slate-900); }
     .finding-detail { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 
-    /* Settings */
-    .form-group { margin-bottom: 16px; }
-    .form-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+    /* ── Settings ──────────────────────────────────────────────────────── */
+    .form-group { margin-bottom: 18px; }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--slate-700);
+      margin-bottom: 6px;
+    }
     .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
     .form-input, .form-select {
-      width: 100%; padding: 8px 12px; border: 1px solid var(--border);
-      border-radius: 6px; font-size: 13px; font-family: var(--font);
-      background: white; outline: none;
+      width: 100%;
+      padding: 9px 14px;
+      border: 1px solid var(--slate-300);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: var(--font);
+      background: white;
+      outline: none;
+      color: var(--text);
+      transition: all 0.15s;
     }
-    .form-input:focus, .form-select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--indigo-500);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    }
+    .form-input::placeholder { color: var(--slate-400); }
 
-    /* Status info */
-    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    /* ── Info rows ─────────────────────────────────────────────────────── */
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
     .info-row:last-child { border-bottom: none; }
     .info-key { color: var(--text-muted); }
-    .info-value { font-weight: 500; }
+    .info-value { font-weight: 500; color: var(--slate-700); }
 
-    /* Empty state */
+    /* ── Empty state ───────────────────────────────────────────────────── */
     .empty { text-align: center; padding: 48px 24px; color: var(--text-muted); }
-    .empty-icon { font-size: 40px; margin-bottom: 12px; }
-    .empty-text { font-size: 14px; }
+    .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.4; }
+    .empty-text { font-size: 13px; }
 
-    /* Alert */
-    .alert { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; margin-bottom: 12px; }
-    .alert-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
-    .alert-info { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
-    .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    /* ── Alert ──────────────────────────────────────────────────────────── */
+    .alert {
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .alert-warning { background: var(--amber-50); color: var(--amber-700); border: 1px solid rgba(245,158,11,0.2); }
+    .alert-info { background: var(--indigo-50); color: var(--indigo-700); border: 1px solid rgba(99,102,241,0.2); }
+    .alert-error { background: var(--red-50); color: var(--red-700); border: 1px solid rgba(239,68,68,0.2); }
 
-    /* Loading */
-    .loading { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    /* ── Loading ────────────────────────────────────────────────────────── */
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--slate-200);
+      border-top-color: var(--indigo-500);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    /* ── Scrollbar ──────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: var(--slate-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--slate-400); }
 
-    /* Session history */
-    .session-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    /* ── Session history ────────────────────────────────────────────────── */
+    .session-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      transition: background 0.1s;
+    }
     .session-row:last-child { border-bottom: none; }
+    .session-row:hover { background: var(--slate-50); }
     .session-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Device code section ────────────────────────────────────────────── */
+    .device-code-display {
+      margin-top: 10px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 14px 18px;
+      background: var(--slate-50);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      word-break: break-all;
+      user-select: all;
+      color: var(--slate-800);
+    }
+
+    /* ── Section divider ────────────────────────────────────────────────── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--slate-400);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 12px 12px 6px;
+    }
   </style>
 </head>
 <body>
@@ -231,28 +563,46 @@
 <!-- Sidebar -->
 <div id="sidebar">
   <div id="sidebar-header">
-    <h1>EnvNexus</h1>
-    <div id="status-badge">
-      <span id="status-dot"></span>
-      <span id="status-text">连接中...</span>
+    <div class="logo-mark"><span>E</span></div>
+    <div class="logo-text">
+      <span class="brand">EnvNexus</span>
+      <div id="status-badge">
+        <span id="status-dot"></span>
+        <span id="status-text"></span>
+      </div>
     </div>
   </div>
   <nav>
     <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
-      <span class="icon">⊞</span> 仪表盘
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>
+      </span>
+      <span class="nav-label">仪表盘</span>
     </div>
     <div class="nav-item" data-page="diagnosis" onclick="navigate('diagnosis')">
-      <span class="icon">⚕</span> 诊断对话
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/></svg>
+      </span>
+      <span class="nav-label">诊断对话</span>
     </div>
     <div class="nav-item" data-page="approvals" onclick="navigate('approvals')">
-      <span class="icon">✔</span> 待审批
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="nav-label">待审批</span>
       <span class="nav-badge" id="approval-count" style="display:none">0</span>
     </div>
     <div class="nav-item" data-page="history" onclick="navigate('history')">
-      <span class="icon">⏱</span> 历史会话
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="nav-label">历史会话</span>
     </div>
     <div class="nav-item" data-page="settings" onclick="navigate('settings')">
-      <span class="icon">⚙</span> 设置
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </span>
+      <span class="nav-label">设置</span>
     </div>
   </nav>
   <div id="sidebar-footer" id="app-version">v0.2.0</div>
@@ -263,7 +613,7 @@
 
   <!-- Dashboard -->
   <div id="page-dashboard" class="page active">
-    <div class="page-title">仪表盘</div>
+    <div class="page-title" id="dash-title">仪表盘</div>
 
     <div id="offline-alert" class="alert alert-warning" style="display:none">
       ⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。
@@ -271,22 +621,22 @@
 
     <div class="grid-4">
       <div class="card">
-        <div class="card-title">连接状态</div>
+        <div class="card-title" id="card-title-conn">连接状态</div>
         <div class="card-value" id="dash-status" style="font-size:16px">—</div>
         <div class="card-sub" id="dash-device-id">—</div>
       </div>
       <div class="card">
-        <div class="card-title">激活状态</div>
+        <div class="card-title" id="card-title-activation">激活状态</div>
         <div class="card-value" id="dash-activation" style="font-size:16px">—</div>
         <div class="card-sub" id="dash-activation-mode">—</div>
       </div>
       <div class="card">
-        <div class="card-title">待审批</div>
-        <div class="card-value" id="dash-approvals" style="color:var(--orange)">—</div>
-        <div class="card-sub">需要确认</div>
+        <div class="card-title" id="card-title-approvals">待审批</div>
+        <div class="card-value" id="dash-approvals" style="color:var(--amber-500)">—</div>
+        <div class="card-sub" id="card-sub-approvals">需要确认</div>
       </div>
       <div class="card">
-        <div class="card-title">治理基线</div>
+        <div class="card-title" id="card-title-governance">治理基线</div>
         <div class="card-value" id="dash-baseline" style="font-size:14px">—</div>
         <div class="card-sub" id="dash-drift">—</div>
       </div>
@@ -295,25 +645,25 @@
     <div id="device-code-section" class="card" style="display:none; margin-bottom:16px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <div class="card-title" style="margin-bottom:4px;">设备码 (Device Code)</div>
-          <div style="font-size:11px; color:var(--text-muted);">手动激活时需提供此设备码给管理员绑定</div>
+          <div class="card-title" id="device-code-label" style="margin-bottom:2px;">设备码 (Device Code)</div>
+          <div id="device-code-hint" style="font-size:11px; color:var(--text-muted);">手动激活时需提供此设备码给管理员绑定</div>
         </div>
         <button class="btn btn-outline" id="copy-device-code-btn" onclick="copyDeviceCode()" style="flex-shrink:0;">复制</button>
       </div>
-      <div id="dash-device-code" style="margin-top:10px; font-family:'Consolas','Monaco',monospace; font-size:18px; font-weight:700; letter-spacing:0.05em; padding:12px 16px; background:#f1f5f9; border-radius:6px; word-break:break-all; user-select:all;">—</div>
+      <div id="dash-device-code" class="device-code-display">—</div>
     </div>
 
     <div class="grid-2">
       <div class="card">
-        <div class="card-title">Agent Core 状态</div>
+        <div class="card-title" id="card-title-agent-core">Agent Core 状态</div>
         <div id="status-detail">
           <div class="loading"></div>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">最新诊断发现</div>
+        <div class="card-title" id="card-title-findings">最新诊断发现</div>
         <div id="latest-findings">
-          <div class="empty"><div class="empty-text">暂无诊断数据</div></div>
+          <div class="empty"><div class="empty-text" id="empty-findings-text">暂无诊断数据</div></div>
         </div>
       </div>
     </div>
@@ -321,10 +671,10 @@
 
   <!-- Diagnosis -->
   <div id="page-diagnosis" class="page">
-    <div class="page-title">诊断对话</div>
-    <div class="card" style="padding:0; overflow:hidden;">
+    <div class="page-title" id="diag-title">诊断对话</div>
+    <div style="border-radius:var(--radius); overflow:hidden; box-shadow:var(--card-shadow);">
       <div id="chat-messages">
-        <div class="msg msg-system">
+        <div class="msg msg-system" id="chat-welcome">
           👋 你好！我是 EnvNexus 本地 AI 诊断助手。告诉我你遇到了什么问题，我来帮你诊断。
         </div>
       </div>
@@ -334,8 +684,8 @@
       </div>
     </div>
 
-    <div id="findings-section" style="display:none; margin-top:16px;">
-      <div class="page-title" style="font-size:14px; margin-bottom:12px;">诊断结果</div>
+    <div id="findings-section" style="display:none; margin-top:20px;">
+      <div class="page-title" id="diag-results-title" style="font-size:14px; margin-bottom:12px;">诊断结果</div>
       <div id="findings-list"></div>
     </div>
   </div>
@@ -343,8 +693,8 @@
   <!-- Approvals -->
   <div id="page-approvals" class="page">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-      <div class="page-title" style="margin:0">待审批操作</div>
-      <button class="btn btn-secondary" onclick="loadApprovals()">↻ 刷新</button>
+      <div class="page-title" id="approvals-page-title" style="margin:0">待审批操作</div>
+      <button class="btn btn-secondary" id="approvals-refresh-btn" onclick="loadApprovals()">↻ 刷新</button>
     </div>
     <div id="approvals-list">
       <div class="loading"></div>
@@ -353,7 +703,7 @@
 
   <!-- History -->
   <div id="page-history" class="page">
-    <div class="page-title">历史会话</div>
+    <div class="page-title" id="history-title">历史会话</div>
     <div class="card" style="padding:0; overflow:hidden;">
       <div id="history-list">
         <div class="empty"><div class="empty-icon">⏱</div><div class="empty-text">加载中...</div></div>
@@ -363,23 +713,23 @@
 
   <!-- Settings -->
   <div id="page-settings" class="page">
-    <div class="page-title">设置</div>
+    <div class="page-title" id="settings-title">设置</div>
     <div class="card">
-      <div class="card-title">常规设置</div>
+      <div class="card-title" id="settings-general-title">常规设置</div>
       <div class="form-group">
-        <label class="form-label">界面语言</label>
+        <label class="form-label" id="label-language">界面语言</label>
         <select class="form-select" id="setting-language">
           <option value="zh">中文</option>
           <option value="en">English</option>
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">平台地址</label>
+        <label class="form-label" id="label-platform-url">平台地址</label>
         <input class="form-input" id="setting-platform-url" type="text" placeholder="http://localhost:8080">
-        <div class="form-hint">EnvNexus 控制台后端地址</div>
+        <div class="form-hint" id="hint-platform-url">EnvNexus 控制台后端地址</div>
       </div>
       <div class="form-group">
-        <label class="form-label">日志级别</label>
+        <label class="form-label" id="label-log-level">日志级别</label>
         <select class="form-select" id="setting-log-level">
           <option value="debug">Debug</option>
           <option value="info">Info</option>
@@ -388,38 +738,38 @@
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">开机自启动 Agent Core</label>
+        <label class="form-label" id="label-auto-start">开机自启动 Agent Core</label>
         <select class="form-select" id="setting-auto-start">
-          <option value="true">启用</option>
-          <option value="false">禁用</option>
+          <option value="true" id="opt-auto-start-on">启用</option>
+          <option value="false" id="opt-auto-start-off">禁用</option>
         </select>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Agent Core 可执行文件</div>
+      <div class="card-title" id="settings-binary-title">Agent Core 可执行文件</div>
       <div style="display:flex; gap:8px; align-items:center;">
         <input class="form-input" id="setting-agent-path" type="text" placeholder="自动检测" style="flex:1">
-        <button class="btn btn-secondary" onclick="chooseBinary()">浏览...</button>
+        <button class="btn btn-secondary" id="btn-browse" onclick="chooseBinary()">浏览...</button>
       </div>
-      <div class="form-hint">留空则自动在常见路径中查找 enx-agent</div>
+      <div class="form-hint" id="hint-agent-path">留空则自动在常见路径中查找 enx-agent</div>
     </div>
 
     <div style="display:flex; gap:10px;">
-      <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
-      <button class="btn btn-secondary" onclick="restartAgentCore()">重启 Agent Core</button>
-      <button class="btn btn-outline" onclick="exportDiagnostics()">导出诊断包</button>
+      <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()">保存设置</button>
+      <button class="btn btn-secondary" id="btn-restart-agent" onclick="restartAgentCore()">重启 Agent Core</button>
+      <button class="btn btn-ghost" id="btn-export-diag" onclick="exportDiagnostics()">导出诊断包</button>
     </div>
 
     <div id="settings-msg" style="margin-top:12px; display:none;"></div>
 
     <div class="card" style="margin-top:16px;">
-      <div class="card-title">关于</div>
+      <div class="card-title" id="settings-about-title">关于</div>
       <div id="about-info">
-        <div class="info-row"><span class="info-key">应用版本</span><span class="info-value" id="about-version">—</span></div>
-        <div class="info-row"><span class="info-key">Agent Core 地址</span><span class="info-value">127.0.0.1:17700</span></div>
-        <div class="info-row"><span class="info-key">项目主页</span>
-          <span class="info-value"><a href="#" onclick="openExternal('https://github.com/zy-eagle/envnexus')" style="color:var(--blue)">github.com/zy-eagle/envnexus</a></span>
+        <div class="info-row"><span class="info-key" id="label-app-version">应用版本</span><span class="info-value" id="about-version">—</span></div>
+        <div class="info-row"><span class="info-key" id="label-agent-addr">Agent Core 地址</span><span class="info-value">127.0.0.1:17700</span></div>
+        <div class="info-row"><span class="info-key" id="label-project-home">项目主页</span>
+          <span class="info-value"><a href="#" onclick="openExternal('https://github.com/zy-eagle/envnexus')" style="color:var(--indigo-600); text-decoration:none;">github.com/zy-eagle/envnexus</a></span>
         </div>
       </div>
     </div>
@@ -428,6 +778,209 @@
 </div><!-- end #content -->
 
 <script>
+// ── i18n ──────────────────────────────────────────────────────────────────────
+const i18n = {
+  zh: {
+    nav_dashboard: '仪表盘', nav_diagnosis: '诊断对话', nav_approvals: '待审批',
+    nav_history: '历史会话', nav_settings: '设置',
+    status_online: '在线', status_offline: '离线', status_connecting: '连接中...',
+    dash_title: '仪表盘',
+    dash_offline_alert: '⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。',
+    dash_conn_status: '连接状态', dash_activation_status: '激活状态',
+    dash_pending_approvals: '待审批', dash_need_confirm: '需要确认',
+    dash_governance_baseline: '治理基线',
+    dash_activated: '已激活', dash_not_activated: '未激活',
+    dash_mode_prefix: '模式: ',
+    dash_baseline_captured: '已采集', dash_baseline_not_captured: '未采集',
+    dash_drift_count: '{n} 处漂移', dash_no_drift: '无漂移',
+    dash_device_code_title: '设备码 (Device Code)',
+    dash_device_code_hint: '手动激活时需提供此设备码给管理员绑定',
+    dash_copy: '复制', dash_copied: '已复制 ✓',
+    dash_agent_core_status: 'Agent Core 状态',
+    dash_latest_findings: '最新诊断发现', dash_no_findings: '暂无诊断数据',
+    dash_not_connected: '未连接',
+    dash_platform_conn: 'Platform 连接', dash_connected: '✅ 已连接',
+    dash_not_connected_warn: '⚠ 未连接',
+    dash_device_code: '设备码', dash_activation: '激活状态',
+    dash_activated_yes: '✅ 已激活', dash_activated_no: '⏳ 未激活',
+    dash_activation_mode: '激活模式', dash_current_session: '当前会话',
+    dash_pending: '待审批',
+    dash_conn_error: '无法连接到 agent-core：',
+    diag_title: '诊断对话',
+    diag_welcome: '👋 你好！我是 EnvNexus 本地 AI 诊断助手。告诉我你遇到了什么问题，我来帮你诊断。',
+    diag_placeholder: '描述你的问题，例如：网络无法连接、服务启动失败...',
+    diag_send: '发送', diag_analyzing: '分析中...', diag_results: '诊断结果',
+    diag_done: '诊断完成',
+    diag_error: '⚠ 诊断服务返回错误',
+    diag_conn_error: '⚠ 无法连接到 agent-core 诊断服务。请确保 agent-core 正在运行。',
+    diag_finding: '发现', diag_recommend: '建议：',
+    approvals_title: '待审批操作', approvals_refresh: '↻ 刷新',
+    approvals_empty: '暂无待审批操作', approvals_risk: '风险',
+    approvals_approve: '✓ 批准', approvals_reject: '✗ 拒绝',
+    approvals_approved: '✓ 已批准', approvals_rejected: '✗ 已拒绝',
+    approvals_error: '加载失败：', approvals_resolve_error: '操作失败：',
+    history_title: '历史会话', history_loading: '加载中...',
+    history_empty: '暂无历史会话记录', history_error: '加载历史失败：',
+    settings_title: '设置', settings_general: '常规设置',
+    settings_language: '界面语言', settings_platform_url: '平台地址',
+    settings_platform_hint: 'EnvNexus 控制台后端地址',
+    settings_log_level: '日志级别', settings_auto_start: '开机自启动 Agent Core',
+    settings_enabled: '启用', settings_disabled: '禁用',
+    settings_agent_binary: 'Agent Core 可执行文件',
+    settings_browse: '浏览...',
+    settings_agent_hint: '留空则自动在常见路径中查找 enx-agent',
+    settings_save: '保存设置', settings_restart: '重启 Agent Core',
+    settings_export: '导出诊断包',
+    settings_saved: '✓ 设置已保存', settings_save_error: '✗ 保存失败：',
+    settings_restarting: '✓ Agent Core 正在重启...',
+    settings_restart_error: '✗ 重启失败：',
+    settings_exported: '✓ 诊断包已导出', settings_export_error: '✗ 导出失败：',
+    settings_about: '关于', settings_app_version: '应用版本',
+    settings_agent_addr: 'Agent Core 地址', settings_project_home: '项目主页',
+    settings_auto_detect: '自动检测',
+    settings_choose_binary_title: '选择 enx-agent 可执行文件',
+    unknown_error: '未知错误',
+  },
+  en: {
+    nav_dashboard: 'Dashboard', nav_diagnosis: 'Diagnosis', nav_approvals: 'Approvals',
+    nav_history: 'History', nav_settings: 'Settings',
+    status_online: 'Online', status_offline: 'Offline', status_connecting: 'Connecting...',
+    dash_title: 'Dashboard',
+    dash_offline_alert: '⚠ agent-core is unreachable. Running in offline (read-only) mode.',
+    dash_conn_status: 'Connection', dash_activation_status: 'Activation',
+    dash_pending_approvals: 'Pending', dash_need_confirm: 'Need confirmation',
+    dash_governance_baseline: 'Governance',
+    dash_activated: 'Activated', dash_not_activated: 'Not Activated',
+    dash_mode_prefix: 'Mode: ',
+    dash_baseline_captured: 'Captured', dash_baseline_not_captured: 'Not Captured',
+    dash_drift_count: '{n} drift(s)', dash_no_drift: 'No drift',
+    dash_device_code_title: 'Device Code',
+    dash_device_code_hint: 'Provide this code to admin for manual activation binding',
+    dash_copy: 'Copy', dash_copied: 'Copied ✓',
+    dash_agent_core_status: 'Agent Core Status',
+    dash_latest_findings: 'Latest Findings', dash_no_findings: 'No diagnostic data',
+    dash_not_connected: 'Disconnected',
+    dash_platform_conn: 'Platform', dash_connected: '✅ Connected',
+    dash_not_connected_warn: '⚠ Disconnected',
+    dash_device_code: 'Device Code', dash_activation: 'Activation',
+    dash_activated_yes: '✅ Activated', dash_activated_no: '⏳ Not Activated',
+    dash_activation_mode: 'Activation Mode', dash_current_session: 'Current Session',
+    dash_pending: 'Pending',
+    dash_conn_error: 'Cannot connect to agent-core: ',
+    diag_title: 'Diagnosis Chat',
+    diag_welcome: '👋 Hi! I\'m the EnvNexus local AI diagnostic assistant. Tell me what issue you\'re experiencing and I\'ll help diagnose it.',
+    diag_placeholder: 'Describe your issue, e.g.: network unreachable, service won\'t start...',
+    diag_send: 'Send', diag_analyzing: 'Analyzing...', diag_results: 'Diagnosis Results',
+    diag_done: 'Diagnosis complete',
+    diag_error: '⚠ Diagnosis service returned an error',
+    diag_conn_error: '⚠ Cannot connect to agent-core diagnosis service. Make sure agent-core is running.',
+    diag_finding: 'Finding', diag_recommend: 'Suggestion: ',
+    approvals_title: 'Pending Approvals', approvals_refresh: '↻ Refresh',
+    approvals_empty: 'No pending approvals', approvals_risk: 'Risk',
+    approvals_approve: '✓ Approve', approvals_reject: '✗ Reject',
+    approvals_approved: '✓ Approved', approvals_rejected: '✗ Rejected',
+    approvals_error: 'Failed to load: ', approvals_resolve_error: 'Operation failed: ',
+    history_title: 'Session History', history_loading: 'Loading...',
+    history_empty: 'No session history', history_error: 'Failed to load history: ',
+    settings_title: 'Settings', settings_general: 'General',
+    settings_language: 'Language', settings_platform_url: 'Platform URL',
+    settings_platform_hint: 'EnvNexus console backend address',
+    settings_log_level: 'Log Level', settings_auto_start: 'Auto-start Agent Core',
+    settings_enabled: 'Enabled', settings_disabled: 'Disabled',
+    settings_agent_binary: 'Agent Core Binary',
+    settings_browse: 'Browse...',
+    settings_agent_hint: 'Leave empty to auto-detect enx-agent in common paths',
+    settings_save: 'Save Settings', settings_restart: 'Restart Agent Core',
+    settings_export: 'Export Diagnostics',
+    settings_saved: '✓ Settings saved', settings_save_error: '✗ Save failed: ',
+    settings_restarting: '✓ Agent Core is restarting...',
+    settings_restart_error: '✗ Restart failed: ',
+    settings_exported: '✓ Diagnostics exported', settings_export_error: '✗ Export failed: ',
+    settings_about: 'About', settings_app_version: 'App Version',
+    settings_agent_addr: 'Agent Core Address', settings_project_home: 'Project Home',
+    settings_auto_detect: 'Auto-detect',
+    settings_choose_binary_title: 'Select enx-agent executable',
+    unknown_error: 'Unknown error',
+  }
+};
+
+let currentLang = 'zh';
+
+function t(key, params) {
+  const val = (i18n[currentLang] && i18n[currentLang][key]) || (i18n.zh[key]) || key;
+  if (!params) return val;
+  return val.replace(/\{(\w+)\}/g, (_, k) => params[k] !== undefined ? params[k] : `{${k}}`);
+}
+
+function applyLanguage(lang) {
+  currentLang = lang || 'zh';
+  document.documentElement.lang = currentLang === 'zh' ? 'zh' : 'en';
+
+  const statusTextEl = document.getElementById('status-text');
+  if (statusTextEl && !statusTextEl.textContent) statusTextEl.textContent = t('status_connecting');
+
+  document.querySelector('[data-page="dashboard"] .nav-label').textContent = t('nav_dashboard');
+  document.querySelector('[data-page="diagnosis"] .nav-label').textContent = t('nav_diagnosis');
+  document.querySelector('[data-page="approvals"] .nav-label').textContent = t('nav_approvals');
+  document.querySelector('[data-page="history"] .nav-label').textContent = t('nav_history');
+  document.querySelector('[data-page="settings"] .nav-label').textContent = t('nav_settings');
+
+  document.getElementById('dash-title').textContent = t('dash_title');
+  document.getElementById('offline-alert').textContent = t('dash_offline_alert');
+  document.getElementById('card-title-conn').textContent = t('dash_conn_status');
+  document.getElementById('card-title-activation').textContent = t('dash_activation_status');
+  document.getElementById('card-title-approvals').textContent = t('dash_pending_approvals');
+  document.getElementById('card-sub-approvals').textContent = t('dash_need_confirm');
+  document.getElementById('card-title-governance').textContent = t('dash_governance_baseline');
+  document.getElementById('device-code-label').textContent = t('dash_device_code_title');
+  document.getElementById('device-code-hint').textContent = t('dash_device_code_hint');
+  document.getElementById('copy-device-code-btn').textContent = t('dash_copy');
+  document.getElementById('card-title-agent-core').textContent = t('dash_agent_core_status');
+  document.getElementById('card-title-findings').textContent = t('dash_latest_findings');
+  const emptyFindings = document.getElementById('empty-findings-text');
+  if (emptyFindings) emptyFindings.textContent = t('dash_no_findings');
+
+  document.getElementById('diag-title').textContent = t('diag_title');
+  document.getElementById('chat-input').placeholder = t('diag_placeholder');
+  document.getElementById('chat-send').textContent = t('diag_send');
+  document.getElementById('diag-results-title').textContent = t('diag_results');
+  const welcomeEl = document.getElementById('chat-welcome');
+  if (welcomeEl) welcomeEl.textContent = t('diag_welcome');
+
+  document.getElementById('approvals-page-title').textContent = t('approvals_title');
+  document.getElementById('approvals-refresh-btn').textContent = t('approvals_refresh');
+  document.getElementById('history-title').textContent = t('history_title');
+
+  document.getElementById('settings-title').textContent = t('settings_title');
+  document.getElementById('settings-general-title').textContent = t('settings_general');
+  document.getElementById('label-language').textContent = t('settings_language');
+  document.getElementById('label-platform-url').textContent = t('settings_platform_url');
+  document.getElementById('hint-platform-url').textContent = t('settings_platform_hint');
+  document.getElementById('label-log-level').textContent = t('settings_log_level');
+  document.getElementById('label-auto-start').textContent = t('settings_auto_start');
+  document.getElementById('opt-auto-start-on').textContent = t('settings_enabled');
+  document.getElementById('opt-auto-start-off').textContent = t('settings_disabled');
+  document.getElementById('settings-binary-title').textContent = t('settings_agent_binary');
+  document.getElementById('setting-agent-path').placeholder = t('settings_auto_detect');
+  document.getElementById('btn-browse').textContent = t('settings_browse');
+  document.getElementById('hint-agent-path').textContent = t('settings_agent_hint');
+  document.getElementById('btn-save-settings').textContent = t('settings_save');
+  document.getElementById('btn-restart-agent').textContent = t('settings_restart');
+  document.getElementById('btn-export-diag').textContent = t('settings_export');
+  document.getElementById('settings-about-title').textContent = t('settings_about');
+  document.getElementById('label-app-version').textContent = t('settings_app_version');
+  document.getElementById('label-agent-addr').textContent = t('settings_agent_addr');
+  document.getElementById('label-project-home').textContent = t('settings_project_home');
+
+  const activePage = document.querySelector('.page.active');
+  if (activePage) {
+    const pageId = activePage.id.replace('page-', '');
+    if (pageId === 'dashboard') loadDashboard();
+    if (pageId === 'history') loadHistory();
+    if (pageId === 'approvals') loadApprovals();
+  }
+}
+
 // ── Navigation ────────────────────────────────────────────────────────────────
 const api = window.electronAPI;
 
@@ -448,13 +1001,12 @@ function setStatus(status) {
   const dot = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
   dot.className = status;
-  text.textContent = { online: '在线', offline: '离线', connecting: '连接中...' }[status] || status;
+  const statusMap = { online: 'status_online', offline: 'status_offline', connecting: 'status_connecting' };
+  text.textContent = statusMap[status] ? t(statusMap[status]) : status;
   document.getElementById('offline-alert').style.display = status === 'offline' ? 'block' : 'none';
 }
 
-function fmt(val) {
-  return val == null || val === '' ? '—' : String(val);
-}
+function fmt(val) { return val == null || val === '' ? '—' : String(val); }
 
 function riskBadge(level) {
   const map = { L0: 'badge-green', L1: 'badge-blue', L2: 'badge-yellow', L3: 'badge-red' };
@@ -470,20 +1022,19 @@ async function loadDashboard() {
     document.getElementById('dash-status').textContent = status.status || 'running';
     document.getElementById('dash-device-id').textContent = 'ID: ' + (status.device_id || '—');
 
-    // Activation & device code
     const act = status.activation || {};
     const deviceCode = status.device_code || act.device_code || '';
     const activated = act.activated;
     const actMode = act.mode || '';
 
     if (activated === true) {
-      document.getElementById('dash-activation').innerHTML = '<span class="badge badge-green">已激活</span>';
+      document.getElementById('dash-activation').innerHTML = `<span class="badge badge-green">${t('dash_activated')}</span>`;
     } else if (activated === false) {
-      document.getElementById('dash-activation').innerHTML = '<span class="badge badge-yellow">未激活</span>';
+      document.getElementById('dash-activation').innerHTML = `<span class="badge badge-yellow">${t('dash_not_activated')}</span>`;
     } else {
       document.getElementById('dash-activation').textContent = '—';
     }
-    document.getElementById('dash-activation-mode').textContent = actMode ? '模式: ' + actMode : '—';
+    document.getElementById('dash-activation-mode').textContent = actMode ? t('dash_mode_prefix') + actMode : '—';
 
     const codeSection = document.getElementById('device-code-section');
     if (deviceCode) {
@@ -493,20 +1044,19 @@ async function loadDashboard() {
       codeSection.style.display = 'none';
     }
 
-    document.getElementById('dash-baseline').textContent = status.governance?.has_baseline ? '已采集' : '未采集';
+    document.getElementById('dash-baseline').textContent = status.governance?.has_baseline ? t('dash_baseline_captured') : t('dash_baseline_not_captured');
     document.getElementById('dash-drift').textContent = status.governance?.drift_count
-      ? `${status.governance.drift_count} 处漂移`
-      : '无漂移';
+      ? t('dash_drift_count', { n: status.governance.drift_count })
+      : t('dash_no_drift');
 
-    // Status detail
     const sd = document.getElementById('status-detail');
     sd.innerHTML = `
-      <div class="info-row"><span class="info-key">Platform 连接</span><span class="info-value">${status.platform_connected ? '✅ 已连接' : '⚠ 未连接'}</span></div>
-      <div class="info-row"><span class="info-key">设备码</span><span class="info-value" style="font-family:monospace;">${deviceCode || '—'}</span></div>
-      <div class="info-row"><span class="info-key">激活状态</span><span class="info-value">${activated === true ? '✅ 已激活' : activated === false ? '⏳ 未激活' : '—'}</span></div>
-      <div class="info-row"><span class="info-key">激活模式</span><span class="info-value">${fmt(actMode)}</span></div>
-      <div class="info-row"><span class="info-key">当前会话</span><span class="info-value">${fmt(status.active_session_id)}</span></div>
-      <div class="info-row"><span class="info-key">待审批</span><span class="info-value">${fmt(status.pending_approvals)}</span></div>
+      <div class="info-row"><span class="info-key">${t('dash_platform_conn')}</span><span class="info-value">${status.platform_connected ? t('dash_connected') : t('dash_not_connected_warn')}</span></div>
+      <div class="info-row"><span class="info-key">${t('dash_device_code')}</span><span class="info-value" style="font-family:monospace;">${deviceCode || '—'}</span></div>
+      <div class="info-row"><span class="info-key">${t('dash_activation')}</span><span class="info-value">${activated === true ? t('dash_activated_yes') : activated === false ? t('dash_activated_no') : '—'}</span></div>
+      <div class="info-row"><span class="info-key">${t('dash_activation_mode')}</span><span class="info-value">${fmt(actMode)}</span></div>
+      <div class="info-row"><span class="info-key">${t('dash_current_session')}</span><span class="info-value">${fmt(status.active_session_id)}</span></div>
+      <div class="info-row"><span class="info-key">${t('dash_pending')}</span><span class="info-value">${fmt(status.pending_approvals)}</span></div>
     `;
 
     const count = parseInt(status.pending_approvals) || 0;
@@ -517,8 +1067,8 @@ async function loadDashboard() {
 
   } catch (e) {
     setStatus('offline');
-    document.getElementById('dash-status').textContent = '未连接';
-    document.getElementById('status-detail').innerHTML = `<div class="alert alert-error">无法连接到 agent-core：${e.details || e.message || '未知错误'}</div>`;
+    document.getElementById('dash-status').textContent = t('dash_not_connected');
+    document.getElementById('status-detail').innerHTML = `<div class="alert alert-error">${t('dash_conn_error')}${e.details || e.message || t('unknown_error')}</div>`;
   }
 }
 
@@ -546,10 +1096,9 @@ async function sendDiagnosisRequest() {
   addMsg(text, 'user');
   chatHistory.push({ role: 'user', content: text });
 
-  const thinkingMsg = addMsg('<span class="loading"></span> 分析中...', 'agent');
+  const thinkingMsg = addMsg(`<span class="loading"></span> ${t('diag_analyzing')}`, 'agent');
 
   try {
-    // Try to call local diagnosis API (if it exists)
     const resp = await fetch('http://127.0.0.1:17700/local/v1/diagnose', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -558,17 +1107,14 @@ async function sendDiagnosisRequest() {
 
     if (resp.ok) {
       const data = await resp.json();
-      thinkingMsg.innerHTML = `<div>${data.response || data.message || '诊断完成'}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+      thinkingMsg.innerHTML = `<div>${data.response || data.message || t('diag_done')}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
       chatHistory.push({ role: 'assistant', content: data.response || '' });
-
-      if (data.findings && data.findings.length > 0) {
-        renderFindings(data.findings);
-      }
+      if (data.findings && data.findings.length > 0) renderFindings(data.findings);
     } else {
-      thinkingMsg.innerHTML = `<div>⚠ 诊断服务返回错误 (${resp.status})</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+      thinkingMsg.innerHTML = `<div>${t('diag_error')} (${resp.status})</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
     }
   } catch (e) {
-    thinkingMsg.innerHTML = `<div>⚠ 无法连接到 agent-core 诊断服务。请确保 agent-core 正在运行。<br><small style="color:#9ca3af">${e.message || ''}</small></div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+    thinkingMsg.innerHTML = `<div>${t('diag_conn_error')}<br><small style="color:var(--slate-400)">${e.message || ''}</small></div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
   }
 }
 
@@ -581,9 +1127,9 @@ function renderFindings(findings) {
     const div = document.createElement('div');
     div.className = `finding ${f.severity === 'critical' ? 'critical' : f.severity === 'ok' ? 'ok' : ''}`;
     div.innerHTML = `
-      <div class="finding-title">${f.title || f.check_name || '发现'}</div>
+      <div class="finding-title">${f.title || f.check_name || t('diag_finding')}</div>
       <div class="finding-detail">${f.description || f.detail || ''}</div>
-      ${f.recommended_action ? `<div style="font-size:12px; margin-top:6px; color:var(--blue)">建议：${f.recommended_action}</div>` : ''}
+      ${f.recommended_action ? `<div style="font-size:12px; margin-top:6px; color:var(--indigo-600)">${t('diag_recommend')}${f.recommended_action}</div>` : ''}
     `;
     list.appendChild(div);
   });
@@ -592,7 +1138,7 @@ function renderFindings(findings) {
 // ── Approvals ─────────────────────────────────────────────────────────────────
 async function loadApprovals() {
   const container = document.getElementById('approvals-list');
-  container.innerHTML = '<div class="loading"></div>';
+  container.innerHTML = '<div style="padding:20px; text-align:center;"><div class="loading"></div></div>';
 
   try {
     const data = await api.getPendingApprovals();
@@ -604,7 +1150,7 @@ async function loadApprovals() {
     document.getElementById('dash-approvals').textContent = pending.length;
 
     if (pending.length === 0) {
-      container.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">暂无待审批操作</div></div>';
+      container.innerHTML = `<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">${t('approvals_empty')}</div></div>`;
       return;
     }
 
@@ -616,30 +1162,29 @@ async function loadApprovals() {
 
       let paramsHTML = '';
       if (item.Params) {
-        try {
-          paramsHTML = `<pre style="max-height:80px;">${JSON.stringify(item.Params, null, 2)}</pre>`;
-        } catch { paramsHTML = `<pre>${JSON.stringify(item.Params)}</pre>`; }
+        try { paramsHTML = `<pre style="max-height:80px;">${JSON.stringify(item.Params, null, 2)}</pre>`; }
+        catch { paramsHTML = `<pre>${JSON.stringify(item.Params)}</pre>`; }
       }
 
       div.innerHTML = `
         <div class="approval-header">
           <div>
             <div class="approval-tool">🔧 ${item.ToolName || item.tool_name}</div>
-            <div class="approval-meta">ID: ${item.ID || item.id} · 风险: ${riskBadge(item.RiskLevel || item.risk_level)}</div>
+            <div class="approval-meta">ID: ${item.ID || item.id} · ${t('approvals_risk')}: ${riskBadge(item.RiskLevel || item.risk_level)}</div>
           </div>
           <span class="badge badge-orange">${item.Status || item.status || 'pending'}</span>
         </div>
-        ${item.Reason ? `<p style="font-size:13px; margin-bottom:8px;">${item.Reason}</p>` : ''}
+        ${item.Reason ? `<p style="font-size:13px; margin-bottom:8px; color:var(--slate-600)">${item.Reason}</p>` : ''}
         ${paramsHTML}
         <div class="approval-actions">
-          <button class="btn btn-success" onclick="resolveApproval('${item.ID || item.id}', true, this)">✓ 批准</button>
-          <button class="btn btn-danger" onclick="resolveApproval('${item.ID || item.id}', false, this)">✗ 拒绝</button>
+          <button class="btn btn-success" onclick="resolveApproval('${item.ID || item.id}', true, this)">${t('approvals_approve')}</button>
+          <button class="btn btn-danger" onclick="resolveApproval('${item.ID || item.id}', false, this)">${t('approvals_reject')}</button>
         </div>
       `;
       container.appendChild(div);
     });
   } catch (e) {
-    container.innerHTML = `<div class="alert alert-error">加载失败：${e.details || e.message || '未知错误'}</div>`;
+    container.innerHTML = `<div class="alert alert-error">${t('approvals_error')}${e.details || e.message || t('unknown_error')}</div>`;
   }
 }
 
@@ -650,12 +1195,12 @@ async function resolveApproval(id, approved, btn) {
     await api.resolveApproval(id, approved);
     const card = document.getElementById(`approval-${id}`);
     if (card) {
-      card.innerHTML = `<div style="text-align:center; padding:8px; color:${approved ? 'var(--green)' : 'var(--red)'}; font-weight:600;">${approved ? '✓ 已批准' : '✗ 已拒绝'}</div>`;
+      card.innerHTML = `<div style="text-align:center; padding:12px; color:${approved ? 'var(--emerald-700)' : 'var(--red-700)'}; font-weight:600;">${approved ? t('approvals_approved') : t('approvals_rejected')}</div>`;
       setTimeout(() => card.remove(), 1500);
     }
     setTimeout(loadApprovals, 1600);
   } catch (e) {
-    alert('操作失败：' + (e.details || e.message || '未知错误'));
+    alert(t('approvals_resolve_error') + (e.details || e.message || t('unknown_error')));
     btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
   }
 }
@@ -665,27 +1210,28 @@ async function loadHistory() {
   const container = document.getElementById('history-list');
   try {
     const data = await api.getRecentSessions();
-    const sessions = data.sessions || data || [];
+    const raw = data.sessions || data;
+    const sessions = Array.isArray(raw) ? raw : [];
 
-    if (!sessions || sessions.length === 0) {
-      container.innerHTML = '<div class="empty"><div class="empty-icon">⏱</div><div class="empty-text">暂无历史会话记录</div></div>';
+    if (sessions.length === 0) {
+      container.innerHTML = `<div class="empty"><div class="empty-icon">⏱</div><div class="empty-text">${t('history_empty')}</div></div>`;
       return;
     }
 
     container.innerHTML = '';
     sessions.forEach(s => {
       const statusColors = {
-        completed: 'var(--green)', aborted: 'var(--red)', executing: 'var(--yellow)',
-        created: 'var(--blue)', expired: 'var(--text-muted)'
+        completed: 'var(--emerald-500)', aborted: 'var(--red-500)', executing: 'var(--amber-500)',
+        created: 'var(--indigo-500)', expired: 'var(--slate-400)'
       };
-      const color = statusColors[s.status] || 'var(--text-muted)';
+      const color = statusColors[s.status] || 'var(--slate-400)';
 
       const div = document.createElement('div');
       div.className = 'session-row';
       div.innerHTML = `
         <div class="session-status-dot" style="background:${color}"></div>
         <div style="flex:1; min-width:0;">
-          <div style="font-weight:500; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.id || s.session_id}</div>
+          <div style="font-weight:500; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--slate-800)">${s.id || s.session_id}</div>
           <div style="font-size:11px; color:var(--text-muted)">${s.started_at ? new Date(s.started_at).toLocaleString() : '—'}</div>
         </div>
         <span class="badge ${s.status === 'completed' ? 'badge-green' : s.status === 'aborted' ? 'badge-red' : 'badge-blue'}">${s.status || '—'}</span>
@@ -693,7 +1239,7 @@ async function loadHistory() {
       container.appendChild(div);
     });
   } catch (e) {
-    container.innerHTML = `<div class="alert alert-error">加载历史失败：${e.details || e.message || '未知错误'}</div>`;
+    container.innerHTML = `<div class="alert alert-error">${t('history_error')}${e.details || e.message || t('unknown_error')}</div>`;
   }
 }
 
@@ -724,9 +1270,10 @@ async function saveSettings() {
 
   try {
     await api.saveSettings(settings);
-    showSettingsMsg('✓ 设置已保存', 'success');
+    showSettingsMsg(t('settings_saved'), 'success');
+    if (settings.language !== currentLang) applyLanguage(settings.language);
   } catch (e) {
-    showSettingsMsg('✗ 保存失败：' + e.message, 'error');
+    showSettingsMsg(t('settings_save_error') + e.message, 'error');
   }
 }
 
@@ -746,10 +1293,10 @@ async function chooseBinary() {
 async function restartAgentCore() {
   try {
     await api.restartAgentCore();
-    showSettingsMsg('✓ Agent Core 正在重启...', 'success');
+    showSettingsMsg(t('settings_restarting'), 'success');
     setTimeout(loadDashboard, 3000);
   } catch (e) {
-    showSettingsMsg('✗ 重启失败：' + e.message, 'error');
+    showSettingsMsg(t('settings_restart_error') + e.message, 'error');
   }
 }
 
@@ -763,15 +1310,13 @@ async function exportDiagnostics() {
     a.download = `envnexus-diag-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showSettingsMsg('✓ 诊断包已导出', 'success');
+    showSettingsMsg(t('settings_exported'), 'success');
   } catch (e) {
-    showSettingsMsg('✗ 导出失败：' + (e.details || e.message), 'error');
+    showSettingsMsg(t('settings_export_error') + (e.details || e.message), 'error');
   }
 }
 
-function openExternal(url) {
-  api.openExternal(url);
-}
+function openExternal(url) { api.openExternal(url); }
 
 // ── Device code copy ──────────────────────────────────────────────────────
 function copyDeviceCode() {
@@ -780,8 +1325,8 @@ function copyDeviceCode() {
   const btn = document.getElementById('copy-device-code-btn');
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(code).then(() => {
-      btn.textContent = '已复制 ✓';
-      setTimeout(() => { btn.textContent = '复制'; }, 2000);
+      btn.textContent = t('dash_copied');
+      setTimeout(() => { btn.textContent = t('dash_copy'); }, 2000);
     });
   } else {
     const ta = document.createElement('textarea');
@@ -792,18 +1337,21 @@ function copyDeviceCode() {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
-    btn.textContent = '已复制 ✓';
-    setTimeout(() => { btn.textContent = '复制'; }, 2000);
+    btn.textContent = t('dash_copied');
+    setTimeout(() => { btn.textContent = t('dash_copy'); }, 2000);
   }
 }
 
 // ── Init & polling ────────────────────────────────────────────────────────────
 async function init() {
+  try {
+    const s = await api.getSettings();
+    if (s && s.language) applyLanguage(s.language);
+  } catch {}
   await loadDashboard();
   loadSettings_();
 }
 
-// Poll for status and approvals every 10s
 setInterval(async () => {
   try {
     const status = await api.getAgentStatus();

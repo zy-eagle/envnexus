@@ -206,6 +206,9 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	if activationMgr != nil {
 		localServer.SetActivationManager(activationMgr)
 	}
+	if localStore != nil {
+		localServer.SetStore(localStore)
+	}
 	if err := localServer.Start(); err != nil {
 		slog.Error("[boot] Failed to start local API", "error", err)
 	}

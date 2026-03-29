@@ -96,7 +96,12 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "EnvNexus Agent",
-      "uninstallDisplayName": "EnvNexus Agent"
+      "uninstallDisplayName": "EnvNexus Agent",
+      "deleteAppDataOnUninstall": true,
+      "runAfterFinish": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
     },
     "publish": {
       "provider": "github",

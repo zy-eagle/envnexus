@@ -13,6 +13,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/device"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 )
 
 type LocalServer struct {
@@ -22,6 +23,7 @@ type LocalServer struct {
 	policyEngine    *policy.Engine
 	diagEngine      *diagnosis.Engine
 	activationMgr   *activation.Manager
+	localStore      *store.Store
 	startTime       time.Time
 }
 
@@ -39,6 +41,10 @@ func (s *LocalServer) SetActivationManager(mgr *activation.Manager) {
 	s.activationMgr = mgr
 }
 
+func (s *LocalServer) SetStore(st *store.Store) {
+	s.localStore = st
+}
+
 func (s *LocalServer) Start() error {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -52,6 +58,7 @@ func (s *LocalServer) Start() error {
 		api.POST("/approvals/:id/resolve", s.handleResolveApproval)
 		api.POST("/diagnose", s.handleDiagnose)
 		api.POST("/diagnostics/export", s.handleDiagnosticsExport)
+		api.GET("/sessions/recent", s.handleRecentSessions)
 	}
 
 	s.server = &http.Server{
@@ -189,4 +196,32 @@ func (s *LocalServer) handleDiagnosticsExport(c *gin.Context) {
 	report["pending_approvals"] = s.policyEngine.GetPending()
 
 	c.JSON(http.StatusOK, gin.H{"diagnostic_bundle": report})
+}
+
+func (s *LocalServer) handleRecentSessions(c *gin.Context) {
+	if s.localStore == nil {
+		c.JSON(http.StatusOK, gin.H{"sessions": []any{}})
+		return
+	}
+
+	sessions, err := s.localStore.ListRecentSessions(50)
+	if err != nil {
+		slog.Warn("Failed to list recent sessions", "error", err)
+		c.JSON(http.StatusOK, gin.H{"sessions": []any{}})
+		return
+	}
+
+	result := make([]gin.H, 0, len(sessions))
+	for _, sess := range sessions {
+		result = append(result, gin.H{
+			"id":         sess.ID,
+			"tenant_id":  sess.TenantID,
+			"device_id":  sess.DeviceID,
+			"status":     sess.Status,
+			"intent":     sess.Intent,
+			"started_at": sess.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"sessions": result})
 }

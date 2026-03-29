@@ -181,6 +181,8 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 
 	w.updateBuildProgress(ctx, p.PackageID, "packaging", 55)
 
+	folderPrefix := fmt.Sprintf("EnvNexus-Agent-%s-%s/", p.Platform, p.Arch)
+
 	pr, pw := io.Pipe()
 	uploadErrCh := make(chan error, 1)
 
@@ -193,9 +195,9 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 	}()
 
 	zw := zip.NewWriter(pw)
-	zipErr := createStoreEntry(zw, installerName, installerData)
+	zipErr := createStoreEntry(zw, folderPrefix+installerName, installerData)
 	if zipErr == nil {
-		zipErr = createStoreEntry(zw, "agent.enx", configENX)
+		zipErr = createStoreEntry(zw, folderPrefix+"agent.enx", configENX)
 	}
 	if zipErr == nil {
 		zipErr = zw.Close()
@@ -323,6 +325,8 @@ func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p package
 
 	w.updateBuildProgress(ctx, p.PackageID, "packaging", 55)
 
+	folderPrefix := fmt.Sprintf("EnvNexus-Agent-%s-%s/", p.Platform, p.Arch)
+
 	pr, pw := io.Pipe()
 	uploadErrCh := make(chan error, 1)
 
@@ -335,9 +339,9 @@ func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p package
 	}()
 
 	zw := zip.NewWriter(pw)
-	zipErr := createStoreEntry(zw, "enx-agent"+ext, binaryData)
+	zipErr := createStoreEntry(zw, folderPrefix+"enx-agent"+ext, binaryData)
 	if zipErr == nil {
-		zipErr = createStoreEntry(zw, "agent.enx", configENX)
+		zipErr = createStoreEntry(zw, folderPrefix+"agent.enx", configENX)
 	}
 	if zipErr == nil {
 		zipErr = zw.Close()

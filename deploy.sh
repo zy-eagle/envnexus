@@ -149,6 +149,32 @@ patch_env() {
         echo "# ===== Auto-patched: MinIO public endpoint for presigned URLs =====" >> "$env_file"
         echo "ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=${HOST_IP}:9000" >> "$env_file"
     fi
+
+    # Fix PUBLIC URLs that still point to localhost — these are used by Agent Desktop
+    # running on end-user machines, so they must be the server's real IP.
+    if [ "$HOST_IP" != "127.0.0.1" ]; then
+        if grep -q "^ENX_PLATFORM_API_PUBLIC_BASE_URL=http://localhost:" "$env_file" 2>/dev/null; then
+            local port
+            port=$(grep "^ENX_PLATFORM_API_PUBLIC_BASE_URL=" "$env_file" | sed 's/.*localhost://' | tr -d '\r')
+            sed -i "s|^ENX_PLATFORM_API_PUBLIC_BASE_URL=http://localhost:.*|ENX_PLATFORM_API_PUBLIC_BASE_URL=http://${HOST_IP}:${port}|" "$env_file"
+            log_info "Patched ENX_PLATFORM_API_PUBLIC_BASE_URL: localhost -> ${HOST_IP}"
+        fi
+        if grep -q "^ENX_SESSION_GATEWAY_PUBLIC_WS_URL=ws://localhost:" "$env_file" 2>/dev/null; then
+            local ws_port
+            ws_port=$(grep "^ENX_SESSION_GATEWAY_PUBLIC_WS_URL=" "$env_file" | sed 's/.*localhost://' | tr -d '\r')
+            sed -i "s|^ENX_SESSION_GATEWAY_PUBLIC_WS_URL=ws://localhost:.*|ENX_SESSION_GATEWAY_PUBLIC_WS_URL=ws://${HOST_IP}:${ws_port}|" "$env_file"
+            log_info "Patched ENX_SESSION_GATEWAY_PUBLIC_WS_URL: localhost -> ${HOST_IP}"
+        fi
+        if grep -q "^ENX_CORS_ALLOWED_ORIGINS=http://localhost:" "$env_file" 2>/dev/null; then
+            local cors_val
+            cors_val=$(grep "^ENX_CORS_ALLOWED_ORIGINS=" "$env_file" | sed 's/^ENX_CORS_ALLOWED_ORIGINS=//' | tr -d '\r')
+            local new_cors="http://${HOST_IP}:3000,${cors_val}"
+            if ! echo "$cors_val" | grep -q "${HOST_IP}"; then
+                sed -i "s|^ENX_CORS_ALLOWED_ORIGINS=.*|ENX_CORS_ALLOWED_ORIGINS=${new_cors}|" "$env_file"
+                log_info "Patched ENX_CORS_ALLOWED_ORIGINS: added ${HOST_IP}"
+            fi
+        fi
+    fi
 }
 
 generate_env() {

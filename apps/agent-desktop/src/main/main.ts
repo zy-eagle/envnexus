@@ -247,55 +247,119 @@ type ConnectionStatus = 'online' | 'offline' | 'connecting';
 let currentStatus: ConnectionStatus = 'connecting';
 
 function createTrayIcon(status: ConnectionStatus): NativeImage {
-  const colors: Record<ConnectionStatus, string> = {
+  const statusColors: Record<ConnectionStatus, string> = {
     online: '#10b981',
     offline: '#9ca3af',
     connecting: '#f59e0b',
   };
-  const color = colors[status];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-    <circle cx="8" cy="8" r="6" fill="${color}"/>
-    <circle cx="8" cy="8" r="3" fill="white"/>
-  </svg>`;
-  return nativeImage.createFromDataURL(
-    'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64')
-  );
+  const dotColor = statusColors[status];
+
+  // Windows doesn't render SVG via createFromDataURL reliably.
+  // Use a 32x32 PNG data URL built from raw RGBA pixel buffer.
+  const size = 32;
+  const buf = Buffer.alloc(size * size * 4, 0);
+
+  const brandR = 99, brandG = 102, brandB = 241; // indigo-500 #6366f1
+  const [dotR, dotG, dotB] = hexToRGB(dotColor);
+
+  const cx = size / 2, cy = size / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - cx + 0.5, dy = y - cy + 0.5;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const idx = (y * size + x) * 4;
+
+      if (dist <= 12) {
+        buf[idx] = brandR; buf[idx + 1] = brandG; buf[idx + 2] = brandB; buf[idx + 3] = 255;
+        // "E" letter — simplified pixel art in center
+        const lx = x - 9, ly = y - 9;
+        if (lx >= 0 && lx < 14 && ly >= 0 && ly < 14) {
+          const isE = (lx >= 3 && lx <= 4) || // left bar
+                      (ly >= 1 && ly <= 2 && lx >= 3 && lx <= 10) || // top bar
+                      (ly >= 6 && ly <= 7 && lx >= 3 && lx <= 9) ||  // middle bar
+                      (ly >= 11 && ly <= 12 && lx >= 3 && lx <= 10); // bottom bar
+          if (isE) {
+            buf[idx] = 255; buf[idx + 1] = 255; buf[idx + 2] = 255; buf[idx + 3] = 255;
+          }
+        }
+      }
+
+      // Status dot (bottom-right)
+      const ddx = x - 24.5, ddy = y - 24.5;
+      const dotDist = Math.sqrt(ddx * ddx + ddy * ddy);
+      if (dotDist <= 5) {
+        buf[idx] = dotR; buf[idx + 1] = dotG; buf[idx + 2] = dotB; buf[idx + 3] = 255;
+      } else if (dotDist <= 6.5) {
+        // White ring around dot
+        buf[idx] = 255; buf[idx + 1] = 255; buf[idx + 2] = 255; buf[idx + 3] = 255;
+      }
+    }
+  }
+
+  return nativeImage.createFromBuffer(buf, { width: size, height: size });
+}
+
+function hexToRGB(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
+}
+
+function trayText(key: string): string {
+  const lang = loadSettings().language || 'zh';
+  const dict: Record<string, Record<string, string>> = {
+    zh: {
+      tooltip_online: 'EnvNexus Agent — 在线',
+      tooltip_offline: 'EnvNexus Agent — 离线',
+      tooltip_connecting: 'EnvNexus Agent — 连接中...',
+      status_online: '● 在线',
+      status_offline: '○ 离线',
+      status_connecting: '◌ 连接中...',
+      open_panel: '打开控制面板',
+      restart_core: '重启 Agent Core',
+      start_core: '启动 Agent Core',
+      quit: '退出',
+    },
+    en: {
+      tooltip_online: 'EnvNexus Agent — Online',
+      tooltip_offline: 'EnvNexus Agent — Offline',
+      tooltip_connecting: 'EnvNexus Agent — Connecting...',
+      status_online: '● Online',
+      status_offline: '○ Offline',
+      status_connecting: '◌ Connecting...',
+      open_panel: 'Open Dashboard',
+      restart_core: 'Restart Agent Core',
+      start_core: 'Start Agent Core',
+      quit: 'Quit',
+    },
+  };
+  return (dict[lang] && dict[lang][key]) || dict.zh[key] || key;
 }
 
 function updateTrayStatus(status: ConnectionStatus): void {
   currentStatus = status;
   if (!tray) return;
   tray.setImage(createTrayIcon(status));
-  const statusLabels: Record<ConnectionStatus, string> = {
-    online: 'EnvNexus Agent — 在线',
-    offline: 'EnvNexus Agent — 离线',
-    connecting: 'EnvNexus Agent — 连接中...',
-  };
-  tray.setToolTip(statusLabels[status]);
+  tray.setToolTip(trayText(`tooltip_${status}`));
   buildTrayMenu();
 }
 
 function buildTrayMenu(): void {
   if (!tray) return;
 
-  const statusLabel = {
-    online: '● 在线',
-    offline: '○ 离线',
-    connecting: '◌ 连接中...',
-  }[currentStatus];
+  const statusLabel = trayText(`status_${currentStatus}`);
 
   const menu = Menu.buildFromTemplate([
     { label: `EnvNexus Agent  ${statusLabel}`, enabled: false },
     { type: 'separator' },
     {
-      label: '打开控制面板',
+      label: trayText('open_panel'),
       click: () => {
         mainWindow?.show();
         mainWindow?.focus();
       },
     },
     {
-      label: agentCoreProcess ? '重启 Agent Core' : '启动 Agent Core',
+      label: agentCoreProcess ? trayText('restart_core') : trayText('start_core'),
       click: () => {
         stopAgentCore();
         setTimeout(spawnAgentCore, 500);
@@ -303,7 +367,7 @@ function buildTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: '退出',
+      label: trayText('quit'),
       click: () => {
         isQuitting = true;
         stopAgentCore();
@@ -347,7 +411,7 @@ function createWindow(): void {
       contextIsolation: true,
     },
     show: false,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f8fafc',
   });
 
   mainWindow.loadFile(path.join(__dirname, '../../src/renderer/index.html'));
@@ -402,8 +466,10 @@ function registerIPC(): void {
 
   ipcMain.handle('choose-agent-binary', async () => {
     if (!mainWindow) return null;
+    const settings = loadSettings();
+    const title = settings.language === 'en' ? 'Select enx-agent executable' : '选择 enx-agent 可执行文件';
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: '选择 enx-agent 可执行文件',
+      title,
       properties: ['openFile'],
       filters: [{ name: 'Executable', extensions: ['', 'exe'] }],
     });
