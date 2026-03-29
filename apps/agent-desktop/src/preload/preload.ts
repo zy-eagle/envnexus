@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportDiagnostics: () => ipcRenderer.invoke('export-diagnostics'),
   sendDiagnose: (query: string, history: unknown[]) =>
     ipcRenderer.invoke('send-diagnose', query, history),
+  onDiagnosisProgress: (callback: (data: { step: string; detail: string }) => void) => {
+    ipcRenderer.on('diagnosis-progress', (_event, data) => callback(data));
+  },
 
   // Settings
   getSettings: () => ipcRenderer.invoke('get-settings'),

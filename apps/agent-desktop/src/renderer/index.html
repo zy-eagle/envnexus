@@ -769,6 +769,14 @@ const i18n = {
     diag_done: '诊断完成',
     diag_error: '⚠ 诊断服务返回错误',
     diag_conn_error: '⚠ 无法连接到 agent-core 诊断服务。请确保 agent-core 正在运行。',
+    diag_step_intent_parse: '正在分析问题类型...',
+    diag_step_intent_parse_fallback: '使用本地启发式分析...',
+    diag_step_plan_ready: '诊断计划就绪',
+    diag_step_evidence_collect: '正在采集系统信息...',
+    diag_step_evidence_done: '信息采集完成',
+    diag_step_reasoning: '正在生成诊断结论...',
+    diag_step_reasoning_fallback: '使用本地分析引擎...',
+    diag_step_complete: '诊断完成',
     diag_finding: '发现', diag_recommend: '建议：',
     diag_type: '问题类型', diag_confidence: '置信度',
     approvals_title: '待审批操作', approvals_refresh: '↻ 刷新',
@@ -835,6 +843,14 @@ const i18n = {
     diag_done: 'Diagnosis complete',
     diag_error: '⚠ Diagnosis service returned an error',
     diag_conn_error: '⚠ Cannot connect to agent-core diagnosis service. Make sure agent-core is running.',
+    diag_step_intent_parse: 'Analyzing problem type...',
+    diag_step_intent_parse_fallback: 'Using local heuristic analysis...',
+    diag_step_plan_ready: 'Diagnosis plan ready',
+    diag_step_evidence_collect: 'Collecting system information...',
+    diag_step_evidence_done: 'Evidence collected',
+    diag_step_reasoning: 'Generating diagnosis...',
+    diag_step_reasoning_fallback: 'Using local analysis engine...',
+    diag_step_complete: 'Diagnosis complete',
     diag_finding: 'Finding', diag_recommend: 'Suggestion: ',
     diag_type: 'Problem Type', diag_confidence: 'Confidence',
     approvals_title: 'Pending Approvals', approvals_refresh: '↻ Refresh',
@@ -1048,6 +1064,29 @@ async function loadDashboard() {
 
 // ── Chat / Diagnosis ──────────────────────────────────────────────────────────
 let chatHistory = [];
+let activeThinkingMsg = null;
+
+const diagStepLabels = {
+  intent_parse: 'diag_step_intent_parse',
+  intent_parse_fallback: 'diag_step_intent_parse_fallback',
+  plan_ready: 'diag_step_plan_ready',
+  evidence_collect: 'diag_step_evidence_collect',
+  evidence_done: 'diag_step_evidence_done',
+  reasoning: 'diag_step_reasoning',
+  reasoning_fallback: 'diag_step_reasoning_fallback',
+  complete: 'diag_step_complete',
+};
+
+if (api.onDiagnosisProgress) {
+  api.onDiagnosisProgress((data) => {
+    if (activeThinkingMsg && data.step) {
+      const label = t(diagStepLabels[data.step] || '') || data.detail || data.step;
+      activeThinkingMsg.querySelector('div').innerHTML =
+        `<span class="loading"></span> ${label}`;
+      document.getElementById('chat-messages').scrollTop = 99999;
+    }
+  });
+}
 
 function addMsg(text, type) {
   const div = document.createElement('div');
@@ -1071,9 +1110,11 @@ async function sendDiagnosisRequest() {
   chatHistory.push({ role: 'user', content: text });
 
   const thinkingMsg = addMsg(`<span class="loading"></span> ${t('diag_analyzing')}`, 'agent');
+  activeThinkingMsg = thinkingMsg;
 
   try {
     const data = await api.sendDiagnose(text, chatHistory);
+    activeThinkingMsg = null;
     if (data && data.error) throw new Error(data.error);
     const diag = data.diagnosis || data;
     const findings = diag.findings || [];
@@ -1095,6 +1136,7 @@ async function sendDiagnosisRequest() {
     chatHistory.push({ role: 'assistant', content: responseText || '' });
     if (findings.length > 0) renderFindings(findings);
   } catch (e) {
+    activeThinkingMsg = null;
     thinkingMsg.innerHTML = `<div>${t('diag_conn_error')}<br><small style="color:var(--slate-400)">${e.message || ''}</small></div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
   }
 }

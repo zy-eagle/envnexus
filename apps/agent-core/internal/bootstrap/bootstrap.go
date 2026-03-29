@@ -375,7 +375,7 @@ var providerFactory = map[string]func(router.ProviderConfig) router.Provider{
 }
 
 func (b *Bootstrapper) initLLMRouter(remote *remoteModelConfig) *router.Router {
-	llmRouter := router.NewRouter(90 * time.Second)
+	llmRouter := router.NewRouter(600 * time.Second)
 
 	// Priority 1: Remote model profile from platform (pushed via config API)
 	if remote != nil {

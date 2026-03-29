@@ -46,6 +46,8 @@ type ActionDraft struct {
 	Params      map[string]interface{} `json:"params"`
 }
 
+type ProgressFn func(step string, detail string)
+
 type Engine struct {
 	registry  *tools.Registry
 	llmRouter *router.Router
@@ -59,28 +61,43 @@ func NewEngine(registry *tools.Registry, llmRouter *router.Router) *Engine {
 }
 
 func (e *Engine) Plan(ctx context.Context, sessionID, input string) (*DiagnosisPlan, error) {
+	return e.PlanWithProgress(ctx, sessionID, input, nil)
+}
+
+func (e *Engine) PlanWithProgress(ctx context.Context, sessionID, input string, onProgress ProgressFn) (*DiagnosisPlan, error) {
 	slog.Info("[diagnosis] Planning", "session_id", sessionID, "input", input)
 
+	notify(onProgress, "intent_parse", "Analyzing problem type...")
 	plan, err := e.stepIntentParse(ctx, input)
 	if err != nil {
 		slog.Warn("[diagnosis] IntentParse failed, using heuristic", "error", err)
+		notify(onProgress, "intent_parse_fallback", "Using local heuristic analysis")
 		plan = e.heuristicPlan(input)
 	}
 
 	plan.ToolNames = e.stepEvidencePlan(plan)
+	notify(onProgress, "plan_ready", fmt.Sprintf("Problem type: %s, tools: %d", plan.ProblemType, len(plan.ToolNames)))
 	slog.Info("[diagnosis] Plan", "problem_type", plan.ProblemType, "tools", plan.ToolNames)
 	return plan, nil
 }
 
 func (e *Engine) Execute(ctx context.Context, sessionID string, plan *DiagnosisPlan) (*DiagnosisResult, error) {
+	return e.ExecuteWithProgress(ctx, sessionID, plan, nil)
+}
+
+func (e *Engine) ExecuteWithProgress(ctx context.Context, sessionID string, plan *DiagnosisPlan, onProgress ProgressFn) (*DiagnosisResult, error) {
 	start := time.Now()
 	slog.Info("[diagnosis] Executing plan", "session_id", sessionID, "problem_type", plan.ProblemType)
 
+	notify(onProgress, "evidence_collect", fmt.Sprintf("Collecting evidence from %d tools...", len(plan.ToolNames)))
 	evidence := e.stepEvidenceCollect(ctx, plan)
+	notify(onProgress, "evidence_done", fmt.Sprintf("Collected %d evidence items", len(evidence)))
 
+	notify(onProgress, "reasoning", "Generating diagnosis...")
 	reasoning, err := e.stepReasoning(ctx, plan, evidence)
 	if err != nil {
 		slog.Warn("[diagnosis] Reasoning via LLM failed, using local analysis", "error", err)
+		notify(onProgress, "reasoning_fallback", "Using local analysis engine")
 		reasoning = e.localReasoning(plan, evidence)
 	}
 
@@ -91,6 +108,7 @@ func (e *Engine) Execute(ctx context.Context, sessionID string, plan *DiagnosisP
 		e.stepActionDraft(reasoning)
 	}
 
+	notify(onProgress, "complete", fmt.Sprintf("Done in %dms", reasoning.DurationMs))
 	slog.Info("[diagnosis] Complete",
 		"problem_type", reasoning.ProblemType,
 		"confidence", reasoning.Confidence,
@@ -103,11 +121,21 @@ func (e *Engine) Execute(ctx context.Context, sessionID string, plan *DiagnosisP
 }
 
 func (e *Engine) RunDiagnosis(ctx context.Context, sessionID, intent string) (*DiagnosisResult, error) {
-	plan, err := e.Plan(ctx, sessionID, intent)
+	return e.RunDiagnosisWithProgress(ctx, sessionID, intent, nil)
+}
+
+func (e *Engine) RunDiagnosisWithProgress(ctx context.Context, sessionID, intent string, onProgress ProgressFn) (*DiagnosisResult, error) {
+	plan, err := e.PlanWithProgress(ctx, sessionID, intent, onProgress)
 	if err != nil {
 		return nil, fmt.Errorf("plan: %w", err)
 	}
-	return e.Execute(ctx, sessionID, plan)
+	return e.ExecuteWithProgress(ctx, sessionID, plan, onProgress)
+}
+
+func notify(fn ProgressFn, step, detail string) {
+	if fn != nil {
+		fn(step, detail)
+	}
 }
 
 // Step 1: IntentParse — use LLM to classify the problem

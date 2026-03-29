@@ -623,9 +623,59 @@ function registerIPC(): void {
     safeLocalAPI('POST', '/local/v1/diagnostics/export', {})
   );
 
-  ipcMain.handle('send-diagnose', (_e, query: string, history: any[]) =>
-    safeLocalAPI('POST', '/local/v1/diagnose', { intent: query, history }, 120000)
-  );
+  ipcMain.handle('send-diagnose', (_e, query: string, history: any[]) => {
+    return new Promise((resolve) => {
+      const postData = JSON.stringify({ intent: query, history });
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: 17700,
+        path: '/local/v1/diagnose',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+          'Accept': 'text/event-stream',
+        },
+      }, (res) => {
+        let buffer = '';
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          let currentEvent = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ') && currentEvent) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (currentEvent === 'progress' && mainWindow) {
+                  mainWindow.webContents.send('diagnosis-progress', data);
+                } else if (currentEvent === 'result') {
+                  resolve(data);
+                } else if (currentEvent === 'error') {
+                  resolve(data);
+                }
+              } catch { /* ignore parse errors */ }
+              currentEvent = '';
+            }
+          }
+        });
+        res.on('end', () => {
+          if (buffer.includes('data: ')) {
+            const dataLine = buffer.split('\n').find(l => l.startsWith('data: '));
+            if (dataLine) {
+              try { resolve(JSON.parse(dataLine.slice(6))); } catch { /* ignore */ }
+            }
+          }
+        });
+      });
+      req.on('error', (e) => resolve({ error: `agent-core not reachable: ${e.message}` }));
+      req.setTimeout(660000, () => { req.destroy(); resolve({ error: 'diagnosis timed out (660s)' }); });
+      req.write(postData);
+      req.end();
+    });
+  });
 
   ipcMain.handle('get-settings', () => loadSettings());
 

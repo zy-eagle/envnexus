@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -184,16 +185,37 @@ func (s *LocalServer) handleDiagnose(c *gin.Context) {
 		req.SessionID = "local"
 	}
 
-	diagCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
 
-	result, err := s.diagEngine.RunDiagnosis(diagCtx, req.SessionID, req.Intent)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"diagnosis": result})
+	writeSSE := func(event string, data interface{}) {
+		jsonData, _ := json.Marshal(data)
+		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, jsonData)
+		flusher.Flush()
+	}
+
+	onProgress := func(step string, detail string) {
+		writeSSE("progress", gin.H{"step": step, "detail": detail})
+	}
+
+	diagCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	result, err := s.diagEngine.RunDiagnosisWithProgress(diagCtx, req.SessionID, req.Intent, onProgress)
+	if err != nil {
+		writeSSE("error", gin.H{"error": err.Error()})
+		return
+	}
+
+	writeSSE("result", gin.H{"diagnosis": result})
 }
 
 func (s *LocalServer) handleDiagnosticsExport(c *gin.Context) {
