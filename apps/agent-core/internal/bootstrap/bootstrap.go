@@ -25,6 +25,8 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/cache"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/container"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/database"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/network"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/service"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/system"
@@ -238,6 +240,13 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	registry.Register(service.NewRestartTool())
 	registry.Register(service.NewContainerReloadTool())
 	registry.Register(cache.NewRebuildTool())
+	registry.Register(container.NewDockerInspectTool())
+	registry.Register(container.NewDockerComposeTool())
+	registry.Register(container.NewKubectlDiagnoseTool())
+	registry.Register(database.NewMySQLCheckTool())
+	registry.Register(database.NewPostgresCheckTool())
+	registry.Register(database.NewRedisCheckTool())
+	registry.Register(database.NewMongoCheckTool())
 
 	if !platformReachable {
 		slog.Info("[boot] Offline mode: only read-only tools available", "count", countReadOnly(registry))

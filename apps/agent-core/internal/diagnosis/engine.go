@@ -180,8 +180,8 @@ func (e *Engine) stepIntentParse(ctx context.Context, input string) (*DiagnosisP
 	}
 
 	prompt := fmt.Sprintf(`You are an IT diagnostic assistant. Analyze the user's problem description and return a JSON object with:
-- "problem_type": one of "network", "dns", "service", "performance", "disk", "auth", "install", "general"
-- "scope": one of "local", "network", "system"
+- "problem_type": one of "network", "dns", "service", "performance", "disk", "auth", "install", "docker", "kubernetes", "database", "general"
+- "scope": one of "local", "network", "system", "cluster"
 - "risk_bias": one of "conservative", "moderate", "aggressive"
 
 User's problem: %s
@@ -220,6 +220,9 @@ func (e *Engine) stepEvidencePlan(plan *DiagnosisPlan) []string {
 		"disk":        {"read_system_info", "read_disk_usage", "read_dir_list"},
 		"auth":        {"read_system_info", "read_env_vars", "check_tls_cert"},
 		"install":     {"read_system_info", "read_disk_usage", "read_installed_apps", "check_runtime_deps", "read_event_log", "read_env_vars", "read_file_info"},
+		"docker":      {"read_system_info", "docker_inspect", "docker_compose_check", "read_process_list", "read_disk_usage", "read_env_vars"},
+		"kubernetes":  {"read_system_info", "kubectl_diagnose", "docker_inspect", "read_process_list", "read_env_vars", "read_event_log"},
+		"database":    {"read_system_info", "mysql_check", "postgres_check", "redis_check", "mongo_check", "read_process_list", "read_env_vars", "read_disk_usage"},
 		"general":     {"read_system_info", "read_network_config", "read_proxy_config", "read_env_vars"},
 	}
 
@@ -377,6 +380,21 @@ func (e *Engine) heuristicPlan(input string) *DiagnosisPlan {
 	case strings.Contains(lower, "auth") || strings.Contains(lower, "认证") || strings.Contains(lower, "登录") ||
 		strings.Contains(lower, "password") || strings.Contains(lower, "密码") || strings.Contains(lower, "权限"):
 		plan.ProblemType = "auth"
+	case strings.Contains(lower, "docker") || strings.Contains(lower, "容器") || strings.Contains(lower, "container") ||
+		strings.Contains(lower, "compose") || strings.Contains(lower, "镜像") || strings.Contains(lower, "image"):
+		plan.ProblemType = "docker"
+		plan.Scope = "local"
+	case strings.Contains(lower, "k8s") || strings.Contains(lower, "kubernetes") || strings.Contains(lower, "kubectl") ||
+		strings.Contains(lower, "pod") || strings.Contains(lower, "deployment") || strings.Contains(lower, "集群") ||
+		strings.Contains(lower, "node") || strings.Contains(lower, "namespace") || strings.Contains(lower, "helm"):
+		plan.ProblemType = "kubernetes"
+		plan.Scope = "cluster"
+	case strings.Contains(lower, "mysql") || strings.Contains(lower, "postgres") || strings.Contains(lower, "redis") ||
+		strings.Contains(lower, "mongo") || strings.Contains(lower, "数据库") || strings.Contains(lower, "database") ||
+		strings.Contains(lower, "db") || strings.Contains(lower, "sql") || strings.Contains(lower, "缓存") ||
+		strings.Contains(lower, "mariadb") || strings.Contains(lower, "连接池") || strings.Contains(lower, "connection pool"):
+		plan.ProblemType = "database"
+		plan.Scope = "local"
 	case strings.Contains(lower, "install") || strings.Contains(lower, "安装") || strings.Contains(lower, "setup") ||
 		strings.Contains(lower, "卸载") || strings.Contains(lower, "uninstall") || strings.Contains(lower, "依赖") ||
 		strings.Contains(lower, "dependency") || strings.Contains(lower, "runtime") || strings.Contains(lower, "运行时") ||
