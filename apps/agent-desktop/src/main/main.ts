@@ -107,7 +107,7 @@ function saveSettings(settings: Settings): void {
 
 // ── Local API helper ───────────────────────────────────────────────────────────
 
-function localAPIRequest(method: string, path: string, body?: object): Promise<any> {
+function localAPIRequest(method: string, path: string, body?: object, timeoutMs = 5000): Promise<any> {
   return new Promise((resolve, reject) => {
     const postData = body ? JSON.stringify(body) : undefined;
     const options: http.RequestOptions = {
@@ -134,9 +134,9 @@ function localAPIRequest(method: string, path: string, body?: object): Promise<a
     });
 
     req.on('error', (e) => reject(new Error(`agent-core not reachable: ${e.message}`)));
-    req.setTimeout(5000, () => {
+    req.setTimeout(timeoutMs, () => {
       req.destroy();
-      reject(new Error('agent-core did not respond in 5s'));
+      reject(new Error(`agent-core did not respond in ${timeoutMs / 1000}s`));
     });
 
     if (postData) req.write(postData);
@@ -600,8 +600,8 @@ function createWindow(): void {
 
 // ── IPC Handlers ──────────────────────────────────────────────────────────────
 
-function safeLocalAPI(method: string, path: string, body?: object): Promise<any> {
-  return localAPIRequest(method, path, body).catch((err: Error) => ({
+function safeLocalAPI(method: string, path: string, body?: object, timeoutMs = 5000): Promise<any> {
+  return localAPIRequest(method, path, body, timeoutMs).catch((err: Error) => ({
     error: err.message || 'agent-core not reachable',
   }));
 }
@@ -624,7 +624,7 @@ function registerIPC(): void {
   );
 
   ipcMain.handle('send-diagnose', (_e, query: string, history: any[]) =>
-    safeLocalAPI('POST', '/local/v1/diagnose', { intent: query, history })
+    safeLocalAPI('POST', '/local/v1/diagnose', { intent: query, history }, 120000)
   );
 
   ipcMain.handle('get-settings', () => loadSettings());

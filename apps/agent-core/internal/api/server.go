@@ -184,7 +184,10 @@ func (s *LocalServer) handleDiagnose(c *gin.Context) {
 		req.SessionID = "local"
 	}
 
-	result, err := s.diagEngine.RunDiagnosis(c.Request.Context(), req.SessionID, req.Intent)
+	diagCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	result, err := s.diagEngine.RunDiagnosis(diagCtx, req.SessionID, req.Intent)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
