@@ -20,11 +20,15 @@ FROM golang:1.25-alpine AS go-builder
 WORKDIR /app
 
 COPY apps/agent-core/go.mod apps/agent-core/go.sum ./
-RUN go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct && go mod download
+ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY apps/agent-core/ .
 
-RUN mkdir -p /out && \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out && \
     for os in linux windows; do \
         for arch in amd64 arm64; do \
             ext=""; \

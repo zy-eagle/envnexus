@@ -38,7 +38,12 @@ detect_host_ip() {
     if command -v hostname &>/dev/null && hostname -I &>/dev/null 2>&1; then
         ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     fi
+    if [ -z "$ip" ] && command -v ipconfig.exe &>/dev/null; then
+        # WSL/Windows fallback
+        ip=$(ipconfig.exe | grep -i "IPv4" | grep -v "127.0.0.1" | awk -F': ' '{print $2}' | tr -d '\r' | head -n 1 || true)
+    fi
     if [ -z "$ip" ] && command -v ipconfig &>/dev/null; then
+        # macOS fallback
         ip=$(ipconfig getifaddr en0 2>/dev/null || true)
     fi
     if [ -z "$ip" ]; then
@@ -66,17 +71,29 @@ mkdir -p "$HASH_DIR"
 
 compute_hash() {
     local dir="$1"
-    if [ -d "${SCRIPT_DIR}/${dir}" ]; then
-        find "${SCRIPT_DIR}/${dir}" -type f \
-            -not -path '*/node_modules/*' \
-            -not -path '*/.next/*' \
-            -not -path '*/dist/*' \
-            -not -path '*/release/*' \
-            -not -path '*/__pycache__/*' \
-            -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
-    else
+    if [ ! -d "${SCRIPT_DIR}/${dir}" ]; then
         echo "missing"
+        return
     fi
+
+    # Fast path: use git if inside a git repo (much faster than find+sha256sum)
+    if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree &>/dev/null; then
+        local tree_hash diff_hash untracked_hash
+        tree_hash=$(git -C "${SCRIPT_DIR}" ls-tree -r HEAD -- "$dir" 2>/dev/null | sha256sum | awk '{print $1}')
+        diff_hash=$(git -C "${SCRIPT_DIR}" diff HEAD -- "$dir" 2>/dev/null | sha256sum | awk '{print $1}')
+        untracked_hash=$(git -C "${SCRIPT_DIR}" ls-files --others --exclude-standard -- "$dir" 2>/dev/null | sha256sum | awk '{print $1}')
+        echo "${tree_hash}${diff_hash}${untracked_hash}" | sha256sum | awk '{print $1}'
+        return
+    fi
+
+    # Fallback: full filesystem scan (non-git environments)
+    find "${SCRIPT_DIR}/${dir}" -type f \
+        -not -path '*/node_modules/*' \
+        -not -path '*/.next/*' \
+        -not -path '*/dist/*' \
+        -not -path '*/release/*' \
+        -not -path '*/__pycache__/*' \
+        -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
 }
 
 # Also hash workspace-level Go files that affect all Go services
@@ -272,12 +289,21 @@ ensure_electron_shell() {
         log_info "Building enx-electron-shell (one-time, includes npm install + electron download)..."
         log_info "  This may take 3-5 minutes on first run. Subsequent agent builds will be fast (~30s)."
         echo ""
-        DOCKER_BUILDKIT=1 docker build \
+
+        local exit_file
+        exit_file=$(mktemp)
+        echo "1" > "$exit_file"
+        ( DOCKER_BUILDKIT=1 docker build \
             -f "${SCRIPT_DIR}/deploy/docker/electron-shell.Dockerfile" \
             -t enx-electron-shell \
-            "${SCRIPT_DIR}" 2>&1 | sed 's/^/  [electron-shell] /'
+            "${SCRIPT_DIR}" 2>&1
+          echo $? > "$exit_file"
+        ) | sed 's/^/  [electron-shell] /'
+        local build_exit
+        build_exit=$(cat "$exit_file" 2>/dev/null)
+        rm -f "$exit_file"
 
-        if [ $? -eq 0 ]; then
+        if [ "$build_exit" = "0" ]; then
             save_hash "electron-shell" "$shell_hash"
             log_info "enx-electron-shell: ${GREEN}image built and cached${NC}"
         else
@@ -297,12 +323,21 @@ cmd_build_electron_shell() {
     echo ""
 
     cd "$SCRIPT_DIR"
-    DOCKER_BUILDKIT=1 docker build \
+
+    local exit_file
+    exit_file=$(mktemp)
+    echo "1" > "$exit_file"
+    ( DOCKER_BUILDKIT=1 docker build \
         -f deploy/docker/electron-shell.Dockerfile \
         -t enx-electron-shell \
-        . 2>&1 | sed 's/^/  [electron-shell] /'
+        . 2>&1
+      echo $? > "$exit_file"
+    ) | sed 's/^/  [electron-shell] /'
+    local build_exit
+    build_exit=$(cat "$exit_file" 2>/dev/null)
+    rm -f "$exit_file"
 
-    if [ $? -eq 0 ]; then
+    if [ "$build_exit" = "0" ]; then
         local shell_hash
         shell_hash=$(compute_hash apps/agent-desktop)
         save_hash "electron-shell" "$shell_hash"
@@ -316,34 +351,74 @@ cmd_build_electron_shell() {
 
 
 build_agent_with_fallback() {
-    log_info "Attempting agent-builder in Docker (60s timeout)..."
-    
-    if timeout 60s env DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder 2>&1 | sed 's/^/  [agent-builder] /'; then
+    local timeout_secs="${AGENT_BUILD_TIMEOUT:-300}"
+    log_info "Attempting agent-builder in Docker (${timeout_secs}s timeout)..."
+
+    # Run docker build with timeout, capture exit code via temp file (pipe to sed loses PIPESTATUS)
+    local exit_file
+    exit_file=$(mktemp)
+    echo "1" > "$exit_file"
+    ( timeout "${timeout_secs}" env DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder 2>&1
+      echo $? > "$exit_file"
+    ) | sed 's/^/  [agent-builder] /'
+    local exit_code
+    exit_code=$(cat "$exit_file" 2>/dev/null)
+    rm -f "$exit_file"
+
+    if [ "$exit_code" = "0" ]; then
         log_info "Docker agent build completed successfully."
         return 0
+    fi
+
+    if [ "$exit_code" = "124" ]; then
+        log_warn "Docker agent build timed out (>${timeout_secs}s). Falling back to host build..."
+        docker compose --profile agent-build stop agent-builder 2>/dev/null || true
     else
-        local exit_code=${PIPESTATUS[0]}
-        if [ $exit_code -eq 124 ]; then
-            log_warn "Docker agent build timed out (>60s). Falling back to host build..."
-            docker compose --profile agent-build stop agent-builder 2>/dev/null || true
-        else
-            log_warn "Docker agent build failed (exit $exit_code). Falling back to host build..."
+        log_warn "Docker agent build failed (exit $exit_code). Falling back to host build..."
+    fi
+
+    cd "$SCRIPT_DIR"
+    log_info "Running 'make build-desktop' on host..."
+    if make build-desktop 2>&1 | sed 's/^/  [host-build] /'; then
+        log_info "Uploading host-built artifacts to MinIO..."
+
+        # Detect the Compose network: inspect a running container to find the actual network
+        local compose_network
+        local minio_id
+        minio_id=$(cd "$DEPLOY_DIR" && docker compose ps -q minio 2>/dev/null | head -1)
+        if [ -n "$minio_id" ]; then
+            compose_network=$(docker inspect "$minio_id" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null | head -1)
         fi
-        
-        cd "$SCRIPT_DIR"
-        log_info "Running 'make build-desktop' on host..."
-        if make build-desktop 2>&1 | sed 's/^/  [host-build] /'; then
-            log_info "Uploading host-built artifacts to MinIO..."
-            docker run --rm --network docker_default \
-                -v "${SCRIPT_DIR}/bin/agents:/binaries" \
-                -v "${SCRIPT_DIR}/apps/agent-desktop/release:/installers" \
-                -v "${SCRIPT_DIR}/deploy/docker/upload-agents.sh:/upload-agents.sh" \
-                --entrypoint sh minio/mc:latest /upload-agents.sh 2>&1 | sed 's/^/  [host-upload] /'
-            return $?
-        else
-            log_error "Host build also failed."
-            return 1
+        if [ -z "$compose_network" ]; then
+            # Fallback: Compose project = directory name "docker" by default, default network = docker_default
+            # If COMPOSE_PROJECT_NAME is set, use that instead.
+            local proj_name="${COMPOSE_PROJECT_NAME:-docker}"
+            compose_network="${proj_name}_default"
+            log_warn "Could not detect Compose network from running containers, assuming '${compose_network}'"
         fi
+
+        local upload_exit_file
+        upload_exit_file=$(mktemp)
+        echo "1" > "$upload_exit_file"
+        ( docker run --rm --network "$compose_network" \
+            -e "ENX_OBJECT_STORAGE_ENDPOINT=${ENX_OBJECT_STORAGE_ENDPOINT:-minio:9000}" \
+            -e "ENX_OBJECT_STORAGE_BUCKET=${ENX_OBJECT_STORAGE_BUCKET:-envnexus}" \
+            -e "MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}" \
+            -e "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}" \
+            -e "FORCE_UPLOAD=${FORCE_AGENT_UPLOAD:-${FORCE_UPLOAD:-false}}" \
+            -v "${SCRIPT_DIR}/bin/agents:/binaries:ro" \
+            -v "${SCRIPT_DIR}/apps/agent-desktop/release:/installers:ro" \
+            -v "${SCRIPT_DIR}/deploy/docker/upload-agents.sh:/upload-agents.sh:ro" \
+            --entrypoint sh minio/mc:latest /upload-agents.sh 2>&1
+          echo $? > "$upload_exit_file"
+        ) | sed 's/^/  [host-upload] /'
+        local upload_exit
+        upload_exit=$(cat "$upload_exit_file" 2>/dev/null)
+        rm -f "$upload_exit_file"
+        return "$upload_exit"
+    else
+        log_error "Host build also failed."
+        return 1
     fi
 }
 
@@ -469,7 +544,9 @@ cmd_smart_deploy() {
             echo ""
 
             # Track A: agent-builder in background (build + run upload) with fallback
+            # Disable 'set -e' inside the subshell so a failure doesn't kill the subshell silently before returning the exit code
             (
+                set +e
                 build_agent_with_fallback
             ) &
             local agent_pid=$!
@@ -480,7 +557,7 @@ cmd_smart_deploy() {
 
             # Wait for agent-builder to finish uploading
             log_info "Waiting for agent-builder upload to complete..."
-            if wait $agent_pid; then
+            if wait $agent_pid 2>/dev/null || [ $? -eq 0 ]; then
                 save_hash "agent-builder" "$ab_hash"
                 log_info "agent-builder: ${GREEN}build + upload complete${NC}"
             else
@@ -490,8 +567,11 @@ cmd_smart_deploy() {
         elif $agent_needs_build; then
             # Only agent-builder needs rebuild, no other services
             log_info "Building agent-builder (Go cross-compile + Electron installers + upload)..."
-            build_agent_with_fallback
-            save_hash "agent-builder" "$ab_hash"
+            if build_agent_with_fallback; then
+                save_hash "agent-builder" "$ab_hash"
+            else
+                log_warn "agent-builder: build failed, hash NOT saved (will retry next deploy)"
+            fi
 
         elif [ -n "$other_services" ]; then
             # Only app services need rebuild (agent unchanged)
@@ -499,7 +579,9 @@ cmd_smart_deploy() {
         fi
 
         # Save hashes for successfully built app services
-        echo "$other_services" | tr ' ' '\n' | while read -r svc; do
+        # Use here-string to avoid pipe subshell (pipe | while runs in subshell in bash)
+        local svc
+        for svc in $other_services; do
             [ -z "$svc" ] && continue
             case "$svc" in
                 platform-api)     save_hash "platform-api" "$pa_hash" ;;
@@ -557,7 +639,9 @@ cmd_deploy_full() {
     echo ""
 
     # Track A: agent-builder (background — build + upload to MinIO) with fallback
+    # Disable 'set -e' inside the subshell so a failure doesn't kill the subshell silently before returning the exit code
     (
+        set +e
         build_agent_with_fallback
     ) &
     local agent_pid=$!
@@ -567,8 +651,10 @@ cmd_deploy_full() {
         | sed 's/^/  [services]      /'
 
     # Wait for agent-builder upload to finish
+    local agent_build_ok=false
     log_info "Waiting for agent-builder upload to complete..."
-    if wait $agent_pid; then
+    if wait $agent_pid 2>/dev/null || [ $? -eq 0 ]; then
+        agent_build_ok=true
         log_info "agent-builder: ${GREEN}build + upload complete${NC}"
     else
         log_warn "agent-builder: build or upload had issues (check logs)"
@@ -577,14 +663,16 @@ cmd_deploy_full() {
     # Ensure everything is up
     docker compose up -d
 
-    # Save all hashes after successful full build
+    # Save hashes — only for components that succeeded
     local go_ws_hash
     go_ws_hash=$(compute_go_workspace_hash)
     save_hash "platform-api" "$(echo "$(compute_hash services/platform-api)${go_ws_hash}" | sha256sum | awk '{print $1}')"
     save_hash "session-gateway" "$(echo "$(compute_hash services/session-gateway)${go_ws_hash}" | sha256sum | awk '{print $1}')"
     save_hash "job-runner" "$(echo "$(compute_hash services/job-runner)${go_ws_hash}" | sha256sum | awk '{print $1}')"
     save_hash "console-web" "$(compute_hash apps/console-web)"
-    save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
+    if $agent_build_ok; then
+        save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
+    fi
 
     print_urls
 }
@@ -710,9 +798,12 @@ case "${1:-}" in
         ensure_electron_shell
         cd "$DEPLOY_DIR"
         set -a; source "${DEPLOY_DIR}/.env"; set +a
-        FORCE_AGENT_UPLOAD=true build_agent_with_fallback
-        save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
-        log_info "Agent packages rebuilt and uploaded to MinIO."
+        if FORCE_AGENT_UPLOAD=true build_agent_with_fallback; then
+            save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
+            log_info "Agent packages rebuilt and uploaded to MinIO."
+        else
+            log_error "Agent build failed. Hash NOT saved — will retry next time."
+        fi
         ;;
     agents-shell)
         cmd_build_electron_shell
