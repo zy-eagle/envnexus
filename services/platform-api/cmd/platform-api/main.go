@@ -164,7 +164,7 @@ func main() {
 	tenantService := tenant.NewService(tenantRepo)
 	enrollService := enrollment.NewService(enrollRepo, deviceRepo, authService)
 	auditService := audit.NewService(auditRepo)
-	pkgService := package_svc.NewService(pkgRepo, bindingRepo, minioClient)
+	pkgService := package_svc.NewService(pkgRepo, enrollRepo, bindingRepo, minioClient)
 	bindingService := device_binding.NewService(bindingRepo, pkgRepo)
 	modelProfileService := model_profile.NewService(modelProfileRepo)
 	policyProfileService := policy_profile.NewService(policyProfileRepo)

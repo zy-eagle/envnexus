@@ -193,6 +193,7 @@ function spawnAgentCore(): void {
 
   console.log('Spawning agent-core:', binaryPath);
 
+  const agentDataDir = getAgentDataDir();
   const agentEnv: Record<string, string> = {
     ...process.env as Record<string, string>,
     ENX_LOG_LEVEL: settings.logLevel,
@@ -201,7 +202,14 @@ function spawnAgentCore(): void {
     agentEnv.ENX_PLATFORM_URL = settings.platformURL;
   }
 
-  const agentDataDir = getAgentDataDir();
+  const enxCfg = readAgentEnxConfig(agentDataDir);
+  if (enxCfg.enrollment_token) {
+    agentEnv.ENX_ENROLLMENT_TOKEN = enxCfg.enrollment_token;
+  }
+  if (enxCfg.ws_url && !agentEnv.ENX_WS_URL) {
+    agentEnv.ENX_WS_URL = enxCfg.ws_url;
+  }
+
   const args: string[] = ['--data-dir', agentDataDir];
   if (settings.platformURL) {
     args.push('--platform-url', settings.platformURL);
@@ -341,43 +349,35 @@ function createTrayIcon(status: ConnectionStatus): NativeImage {
   };
   const dotColor = statusColors[status];
 
-  // Windows doesn't render SVG via createFromDataURL reliably.
-  // Use a 32x32 PNG data URL built from raw RGBA pixel buffer.
   const size = 32;
   const buf = Buffer.alloc(size * size * 4, 0);
-
-  const brandR = 99, brandG = 102, brandB = 241; // indigo-500 #6366f1
+  const brandR = 99, brandG = 102, brandB = 241;
   const [dotR, dotG, dotB] = hexToRGB(dotColor);
+  const cr = 6;
 
-  const cx = size / 2, cy = size / 2;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const dx = x - cx + 0.5, dy = y - cy + 0.5;
-      const dist = Math.sqrt(dx * dx + dy * dy);
       const idx = (y * size + x) * 4;
 
-      if (dist <= 12) {
+      if (isInsideRoundedRect(x, y, 2, 2, 26, 26, cr)) {
         buf[idx] = brandR; buf[idx + 1] = brandG; buf[idx + 2] = brandB; buf[idx + 3] = 255;
-        // "E" letter — simplified pixel art in center
-        const lx = x - 9, ly = y - 9;
-        if (lx >= 0 && lx < 14 && ly >= 0 && ly < 14) {
-          const isE = (lx >= 3 && lx <= 4) || // left bar
-                      (ly >= 1 && ly <= 2 && lx >= 3 && lx <= 10) || // top bar
-                      (ly >= 6 && ly <= 7 && lx >= 3 && lx <= 9) ||  // middle bar
-                      (ly >= 11 && ly <= 12 && lx >= 3 && lx <= 10); // bottom bar
+        const lx = x - 8, ly = y - 7;
+        if (lx >= 0 && lx < 14 && ly >= 0 && ly < 18) {
+          const isE = (lx >= 2 && lx <= 4 && ly >= 1 && ly <= 16) ||
+                      (lx >= 2 && lx <= 11 && ly >= 1 && ly <= 3) ||
+                      (lx >= 2 && lx <= 10 && ly >= 7 && ly <= 9) ||
+                      (lx >= 2 && lx <= 11 && ly >= 14 && ly <= 16);
           if (isE) {
             buf[idx] = 255; buf[idx + 1] = 255; buf[idx + 2] = 255; buf[idx + 3] = 255;
           }
         }
       }
 
-      // Status dot (bottom-right)
-      const ddx = x - 24.5, ddy = y - 24.5;
+      const ddx = x - 25, ddy = y - 25;
       const dotDist = Math.sqrt(ddx * ddx + ddy * ddy);
-      if (dotDist <= 5) {
+      if (dotDist <= 4.5) {
         buf[idx] = dotR; buf[idx + 1] = dotG; buf[idx + 2] = dotB; buf[idx + 3] = 255;
-      } else if (dotDist <= 6.5) {
-        // White ring around dot
+      } else if (dotDist <= 6) {
         buf[idx] = 255; buf[idx + 1] = 255; buf[idx + 2] = 255; buf[idx + 3] = 255;
       }
     }
@@ -699,14 +699,39 @@ function initAutoUpdate(): void {
   }
 }
 
+// ── Read agent.enx config from data dir and bundled locations ─────────────────
+
+function readAgentEnxConfig(agentDataDir: string): Record<string, string> {
+  const exeDir = path.dirname(app.getPath('exe'));
+  const searchPaths = [
+    path.join(agentDataDir, 'agent.enx'),
+    path.join(exeDir, 'agent.enx'),
+    path.join(process.resourcesPath || '', 'agent.enx'),
+    path.join(exeDir, '..', 'agent.enx'),
+  ];
+  const merged: Record<string, string> = {};
+  for (const p of searchPaths) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const cfg = parseTOMLConfig(fs.readFileSync(p, 'utf-8'));
+      for (const [k, v] of Object.entries(cfg)) {
+        if (v && !merged[k]) merged[k] = v;
+      }
+    } catch {}
+  }
+  return merged;
+}
+
 // ── Config sync from agent.enx ────────────────────────────────────────────────
 
 function syncSettingsFromEnxConfig(): void {
   const agentDataDir = getAgentDataDir();
+  const exeDir = path.dirname(app.getPath('exe'));
   const enxPaths = [
     path.join(agentDataDir, 'agent.enx'),
-    path.join(path.dirname(app.getPath('exe')), 'agent.enx'),
+    path.join(exeDir, 'agent.enx'),
     path.join(process.resourcesPath || '', 'agent.enx'),
+    path.join(exeDir, '..', 'agent.enx'),
   ];
 
   for (const enxPath of enxPaths) {
@@ -752,12 +777,15 @@ function importBundledConfig(): void {
   const jsonTarget = path.join(agentDataDir, 'agent_config.json');
   const targetExists = fs.existsSync(enxTarget) || fs.existsSync(jsonTarget);
 
+  const exeDir = path.dirname(app.getPath('exe'));
   const enxSearchPaths = [
-    path.join(path.dirname(app.getPath('exe')), 'agent.enx'),
+    path.join(exeDir, 'agent.enx'),
     path.join(process.resourcesPath || '', 'agent.enx'),
     path.join(app.getAppPath(), 'agent.enx'),
     path.join(app.getPath('downloads'), 'agent.enx'),
+    path.join(exeDir, '..', 'agent.enx'),
   ];
+  console.log('[config] Searching for agent.enx in:', enxSearchPaths.filter(p => { try { return fs.existsSync(p); } catch { return false; } }));
 
   for (const src of enxSearchPaths) {
     try {

@@ -2,6 +2,9 @@ package package_svc
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -16,13 +19,15 @@ import (
 
 type Service struct {
 	pkgRepo     repository.PackageRepository
+	enrollRepo  repository.EnrollmentRepository
 	bindingRepo repository.DeviceBindingRepository
 	minioClient *infrastructure.MinIOClient
 }
 
-func NewService(pkgRepo repository.PackageRepository, bindingRepo repository.DeviceBindingRepository, minioClient *infrastructure.MinIOClient) *Service {
+func NewService(pkgRepo repository.PackageRepository, enrollRepo repository.EnrollmentRepository, bindingRepo repository.DeviceBindingRepository, minioClient *infrastructure.MinIOClient) *Service {
 	return &Service{
 		pkgRepo:     pkgRepo,
+		enrollRepo:  enrollRepo,
 		bindingRepo: bindingRepo,
 		minioClient: minioClient,
 	}
@@ -69,7 +74,15 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 		UpdatedAt:         time.Now(),
 	}
 
-	if err := s.pkgRepo.Create(ctx, pkg, activationKey); err != nil {
+	enrollTokenStr, err := s.createEnrollmentTokenForPackage(ctx, tenantID, req.AgentProfileID, pkg.ID, maxDevices)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create enrollment token: %w", err)
+	}
+
+	if err := s.pkgRepo.Create(ctx, pkg, repository.PackageBuildSecrets{
+		ActivationKey:   activationKey,
+		EnrollmentToken: enrollTokenStr,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -78,6 +91,37 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 		resp.ActivationKey = activationKey
 	}
 	return resp, nil
+}
+
+func (s *Service) createEnrollmentTokenForPackage(ctx context.Context, tenantID, agentProfileID, packageID string, maxUses int) (string, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", err
+	}
+	tokenStr := "enx_tok_" + hex.EncodeToString(tokenBytes)
+	hash := sha256.Sum256([]byte(tokenStr))
+	tokenHash := hex.EncodeToString(hash[:])
+
+	now := time.Now()
+	token := &domain.EnrollmentToken{
+		ID:                ulid.Make().String(),
+		TenantID:          tenantID,
+		AgentProfileID:    agentProfileID,
+		DownloadPackageID: packageID,
+		TokenHash:         tokenHash,
+		Channel:           "stable",
+		MaxUses:           maxUses,
+		UsedCount:         0,
+		ExpiresAt:         now.Add(365 * 24 * time.Hour),
+		Status:            "active",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+
+	if err := s.enrollRepo.Create(ctx, token); err != nil {
+		return "", err
+	}
+	return tokenStr, nil
 }
 
 func (s *Service) ListPackages(ctx context.Context, tenantID string) ([]*dto.PackageResponse, error) {

@@ -33,12 +33,13 @@ func NewPackageBuildWorker(db *gorm.DB, minioClient *minio.Client, bucket string
 }
 
 type packageBuildPayload struct {
-	PackageID      string `json:"package_id"`
-	TenantID       string `json:"tenant_id"`
-	Platform       string `json:"platform"`
-	Arch           string `json:"arch"`
-	ActivationMode string `json:"activation_mode,omitempty"`
-	ActivationKey  string `json:"activation_key,omitempty"`
+	PackageID       string `json:"package_id"`
+	TenantID        string `json:"tenant_id"`
+	Platform        string `json:"platform"`
+	Arch            string `json:"arch"`
+	ActivationMode  string `json:"activation_mode,omitempty"`
+	ActivationKey   string `json:"activation_key,omitempty"`
+	EnrollmentToken string `json:"enrollment_token,omitempty"`
 }
 
 func (w *PackageBuildWorker) Start(ctx context.Context) {
@@ -407,7 +408,9 @@ func (w *PackageBuildWorker) buildConfigENX(p packageBuildPayload) []byte {
 	buf.WriteString("# or copy to the agent data directory after installation.\n\n")
 	buf.WriteString(fmt.Sprintf("platform_url = %q\n", platformURL))
 	buf.WriteString(fmt.Sprintf("ws_url = %q\n", wsURL))
-	buf.WriteString(fmt.Sprintf("enrollment_token = %q\n", "auto_generated_token_for_"+p.TenantID))
+	if p.EnrollmentToken != "" {
+		buf.WriteString(fmt.Sprintf("enrollment_token = %q\n", p.EnrollmentToken))
+	}
 
 	if p.ActivationMode != "" {
 		buf.WriteString(fmt.Sprintf("activation_mode = %q\n", p.ActivationMode))

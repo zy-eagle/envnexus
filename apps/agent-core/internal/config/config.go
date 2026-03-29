@@ -52,6 +52,10 @@ func NewManager(configDir string) *Manager {
 	m.loadFromBundledConfig()
 	m.loadFromExecutable()
 	m.loadFromDisk()
+	slog.Info("[config] Final config loaded",
+		"platform_url", m.config.PlatformURL,
+		"has_enrollment_token", m.config.EnrollmentToken != "",
+		"config_dir", configDir)
 	return m
 }
 
@@ -91,8 +95,9 @@ func (m *Manager) Update(fn func(c *AgentConfig)) {
 	m.saveToDisk()
 }
 
-// loadFromBundledConfig reads agent.enx (TOML) or config.json from the executable's directory.
-// This is the config injected by the download package build system.
+// loadFromBundledConfig reads agent.enx (TOML) or config.json from the executable's
+// directory and common parent directories (for Electron packaged apps where the exe
+// lives in resources/bin/ but agent.enx is in the install root).
 func (m *Manager) loadFromBundledConfig() {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -100,20 +105,31 @@ func (m *Manager) loadFromBundledConfig() {
 	}
 	exeDir := filepath.Dir(exePath)
 
-	// Prefer .enx (TOML) format
-	if m.tryLoadTOML(filepath.Join(exeDir, "agent.enx")) {
-		slog.Info("[config] Loaded bundled agent.enx from package directory")
-		return
+	searchDirs := []string{
+		exeDir,
+		filepath.Dir(exeDir),                       // parent (e.g. resources/ -> install root)
+		filepath.Join(filepath.Dir(exeDir), ".."),   // grandparent (e.g. resources/bin/ -> install root)
 	}
-	// Fallback to legacy JSON
-	if m.tryLoadJSON(filepath.Join(exeDir, "config.json")) {
-		slog.Info("[config] Loaded bundled config.json from package directory")
+
+	for _, dir := range searchDirs {
+		if m.tryLoadTOML(filepath.Join(dir, "agent.enx")) {
+			slog.Info("[config] Loaded bundled agent.enx", "dir", dir)
+			return
+		}
+	}
+	for _, dir := range searchDirs {
+		if m.tryLoadJSON(filepath.Join(dir, "config.json")) {
+			slog.Info("[config] Loaded bundled config.json", "dir", dir)
+			return
+		}
 	}
 }
 
 func (m *Manager) loadFromDisk() {
-	// Prefer .enx (TOML) format
-	if m.tryLoadTOML(filepath.Join(m.configDir, "agent.enx")) {
+	enxPath := filepath.Join(m.configDir, "agent.enx")
+	if m.tryLoadTOML(enxPath) {
+		slog.Info("[config] Loaded config from disk", "path", enxPath,
+			"has_enrollment_token", m.config.EnrollmentToken != "")
 		return
 	}
 	// Fallback to legacy JSON

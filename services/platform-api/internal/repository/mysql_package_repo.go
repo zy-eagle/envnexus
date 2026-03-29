@@ -11,8 +11,13 @@ import (
 	"gorm.io/gorm"
 )
 
+type PackageBuildSecrets struct {
+	ActivationKey   string
+	EnrollmentToken string
+}
+
 type PackageRepository interface {
-	Create(ctx context.Context, pkg *domain.DownloadPackage, activationKey ...string) error
+	Create(ctx context.Context, pkg *domain.DownloadPackage, secrets ...PackageBuildSecrets) error
 	GetByID(ctx context.Context, id string) (*domain.DownloadPackage, error)
 	ListByTenant(ctx context.Context, tenantID string) ([]*domain.DownloadPackage, error)
 	GetByActivationKeyHash(ctx context.Context, keyHash string) (*domain.DownloadPackage, error)
@@ -28,7 +33,7 @@ func NewMySQLPackageRepository(db *gorm.DB) *MySQLPackageRepository {
 	return &MySQLPackageRepository{db: db}
 }
 
-func (r *MySQLPackageRepository) Create(ctx context.Context, pkg *domain.DownloadPackage, activationKey ...string) error {
+func (r *MySQLPackageRepository) Create(ctx context.Context, pkg *domain.DownloadPackage, secrets ...PackageBuildSecrets) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(pkg).Error; err != nil {
 			return err
@@ -43,8 +48,13 @@ func (r *MySQLPackageRepository) Create(ctx context.Context, pkg *domain.Downloa
 		if pkg.ActivationMode != "" {
 			payload["activation_mode"] = pkg.ActivationMode
 		}
-		if len(activationKey) > 0 && activationKey[0] != "" {
-			payload["activation_key"] = activationKey[0]
+		if len(secrets) > 0 {
+			if secrets[0].ActivationKey != "" {
+				payload["activation_key"] = secrets[0].ActivationKey
+			}
+			if secrets[0].EnrollmentToken != "" {
+				payload["enrollment_token"] = secrets[0].EnrollmentToken
+			}
 		}
 		payloadBytes, _ := json.Marshal(payload)
 		payloadStr := string(payloadBytes)
@@ -60,7 +70,7 @@ func (r *MySQLPackageRepository) Create(ctx context.Context, pkg *domain.Downloa
 			"scheduled_at": time.Now(),
 			"created_at":   time.Now(),
 		}
-		
+
 		return tx.Table("jobs").Create(job).Error
 	})
 }
