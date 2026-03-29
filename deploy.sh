@@ -314,7 +314,41 @@ cmd_build_electron_shell() {
     fi
 }
 
+
+build_agent_with_fallback() {
+    log_info "Attempting agent-builder in Docker (60s timeout)..."
+    
+    if timeout 60s env DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder 2>&1 | sed 's/^/  [agent-builder] /'; then
+        log_info "Docker agent build completed successfully."
+        return 0
+    else
+        local exit_code=${PIPESTATUS[0]}
+        if [ $exit_code -eq 124 ]; then
+            log_warn "Docker agent build timed out (>60s). Falling back to host build..."
+            docker compose --profile agent-build stop agent-builder 2>/dev/null || true
+        else
+            log_warn "Docker agent build failed (exit $exit_code). Falling back to host build..."
+        fi
+        
+        cd "$SCRIPT_DIR"
+        log_info "Running 'make build-desktop' on host..."
+        if make build-desktop 2>&1 | sed 's/^/  [host-build] /'; then
+            log_info "Uploading host-built artifacts to MinIO..."
+            docker run --rm --network docker_default \
+                -v "${SCRIPT_DIR}/bin/agents:/binaries" \
+                -v "${SCRIPT_DIR}/apps/agent-desktop/release:/installers" \
+                -v "${SCRIPT_DIR}/deploy/docker/upload-agents.sh:/upload-agents.sh" \
+                --entrypoint sh minio/mc:latest /upload-agents.sh 2>&1 | sed 's/^/  [host-upload] /'
+            return $?
+        else
+            log_error "Host build also failed."
+            return 1
+        fi
+    fi
+}
+
 # ── Smart deploy: detect changes and only rebuild what's needed ──────────────
+
 
 cmd_smart_deploy() {
     echo -e "${GREEN}${BOLD}========================================${NC}"
@@ -434,10 +468,9 @@ cmd_smart_deploy() {
             log_info "  Track B: ${other_services} (image builds)"
             echo ""
 
-            # Track A: agent-builder in background (build + run upload)
+            # Track A: agent-builder in background (build + run upload) with fallback
             (
-                DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder 2>&1 \
-                    | sed 's/^/  [agent-builder] /'
+                build_agent_with_fallback
             ) &
             local agent_pid=$!
 
@@ -457,8 +490,7 @@ cmd_smart_deploy() {
         elif $agent_needs_build; then
             # Only agent-builder needs rebuild, no other services
             log_info "Building agent-builder (Go cross-compile + Electron installers + upload)..."
-            log_info "  (BuildKit cache mounts enabled — npm/electron downloads cached across builds)"
-            DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder
+            build_agent_with_fallback
             save_hash "agent-builder" "$ab_hash"
 
         elif [ -n "$other_services" ]; then
@@ -524,10 +556,9 @@ cmd_deploy_full() {
     log_info "Full parallel rebuild: agent-builder ║ all app services"
     echo ""
 
-    # Track A: agent-builder (background — build + upload to MinIO)
+    # Track A: agent-builder (background — build + upload to MinIO) with fallback
     (
-        DOCKER_BUILDKIT=1 docker compose --profile agent-build up --build agent-builder 2>&1 \
-            | sed 's/^/  [agent-builder] /'
+        build_agent_with_fallback
     ) &
     local agent_pid=$!
 
@@ -679,7 +710,7 @@ case "${1:-}" in
         ensure_electron_shell
         cd "$DEPLOY_DIR"
         set -a; source "${DEPLOY_DIR}/.env"; set +a
-        DOCKER_BUILDKIT=1 FORCE_AGENT_UPLOAD=true docker compose --profile agent-build up --build --force-recreate agent-builder
+        FORCE_AGENT_UPLOAD=true build_agent_with_fallback
         save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
         log_info "Agent packages rebuilt and uploaded to MinIO."
         ;;
