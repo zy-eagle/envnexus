@@ -108,6 +108,14 @@ func (w *PackageBuildWorker) processNext(ctx context.Context) {
 					"status": status, "completed_at": time.Now(),
 					"error_message": err.Error(),
 				})
+			// Also mark the download_package as failed
+			if job.PayloadJSON != nil {
+				var p packageBuildPayload
+				if json.Unmarshal([]byte(*job.PayloadJSON), &p) == nil && p.PackageID != "" {
+					w.db.WithContext(ctx).Table("download_packages").Where("id = ?", p.PackageID).
+						Updates(map[string]interface{}{"status": "failed", "updated_at": time.Now()})
+				}
+			}
 		}
 		return
 	}
@@ -149,17 +157,21 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 		return fmt.Errorf("MinIO not configured")
 	}
 
-	configJSON := w.buildConfigJSON(p)
+	configENX := w.buildConfigENX(p)
 
-	// Try installer first (GUI + Agent Core bundled), fall back to raw binary
 	installerData, installerName, err := w.downloadInstaller(ctx, p.Platform, p.Arch)
 	if err != nil {
-		slog.Warn("Installer not found, falling back to raw binary", "error", err)
-		return w.buildFallbackPackage(ctx, p, configJSON, artifactPath)
+		// Windows/macOS MUST have a desktop installer (with UI) — no fallback to CLI binary.
+		// Only Linux is allowed to fall back to raw binary for headless server use.
+		if p.Platform != "linux" {
+			return fmt.Errorf("desktop installer not found for %s/%s — please run agent-builder first to produce the installer: %w", p.Platform, p.Arch, err)
+		}
+		slog.Warn("Installer not found for Linux, falling back to raw binary", "error", err)
+		return w.buildFallbackPackage(ctx, p, configENX, artifactPath)
 	}
 
-	// Create ZIP: installer + config.json + README
-	outputZip, err := bundleInstallerWithConfig(installerData, installerName, configJSON, p.Platform)
+	// Create ZIP: installer + agent.enx (only 2 files)
+	outputZip, err := bundleInstallerWithConfig(installerData, installerName, configENX, p.Platform)
 	if err != nil {
 		return fmt.Errorf("failed to create installer bundle: %w", err)
 	}
@@ -221,12 +233,11 @@ func installerCandidates(platform, arch string) []string {
 	return nil
 }
 
-// bundleInstallerWithConfig creates a ZIP containing the installer + config.json + README.
-func bundleInstallerWithConfig(installerData []byte, installerName string, configJSON []byte, platform string) ([]byte, error) {
+// bundleInstallerWithConfig creates a ZIP containing only the installer + agent.enx config.
+func bundleInstallerWithConfig(installerData []byte, installerName string, configENX []byte, platform string) ([]byte, error) {
 	var buf bytes.Buffer
 	w := zip.NewWriter(&buf)
 
-	// Add installer
 	iw, err := w.Create(installerName)
 	if err != nil {
 		return nil, err
@@ -235,22 +246,11 @@ func bundleInstallerWithConfig(installerData []byte, installerName string, confi
 		return nil, err
 	}
 
-	// Add config.json (user places this next to the installed app)
-	cw, err := w.Create("config.json")
+	cw, err := w.Create("agent.enx")
 	if err != nil {
 		return nil, err
 	}
-	if _, err := cw.Write(configJSON); err != nil {
-		return nil, err
-	}
-
-	// Add README
-	readme := generateReadme(installerName, platform)
-	rw, err := w.Create("README.txt")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := rw.Write([]byte(readme)); err != nil {
+	if _, err := cw.Write(configENX); err != nil {
 		return nil, err
 	}
 
@@ -260,35 +260,8 @@ func bundleInstallerWithConfig(installerData []byte, installerName string, confi
 	return buf.Bytes(), nil
 }
 
-func generateReadme(installerName, platform string) string {
-	switch platform {
-	case "windows":
-		return "EnvNexus Agent - Installation Guide\r\n" +
-			"====================================\r\n\r\n" +
-			"Step 1: Double-click \"" + installerName + "\" to install\r\n" +
-			"Step 2: Launch \"EnvNexus Agent\" from Start Menu or Desktop\r\n" +
-			"Step 3: The agent will auto-configure using the bundled settings\r\n\r\n" +
-			"Note: config.json contains your server connection settings.\r\n" +
-			"The agent reads it automatically on first launch.\r\n" +
-			"If you need to reconfigure, use Settings in the app.\r\n"
-	case "linux":
-		return "EnvNexus Agent - Installation Guide\n" +
-			"====================================\n\n" +
-			"Step 1: chmod +x " + installerName + "\n" +
-			"Step 2: ./" + installerName + "\n" +
-			"Step 3: The agent will auto-configure using the bundled settings\n\n" +
-			"Note: config.json contains your server connection settings.\n" +
-			"Copy it to ~/.envnexus/agent/agent_config.json if needed.\n"
-	default:
-		return "EnvNexus Agent - Installation Guide\n" +
-			"====================================\n\n" +
-			"Run the installer and follow the on-screen instructions.\n" +
-			"config.json contains your server connection settings.\n"
-	}
-}
-
-// buildFallbackPackage creates a ZIP with raw binary + config when no installer is available.
-func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p packageBuildPayload, configJSON []byte, artifactPath string) error {
+// buildFallbackPackage creates a ZIP with raw binary + agent.enx when no installer is available.
+func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p packageBuildPayload, configENX []byte, artifactPath string) error {
 	ext := ""
 	if p.Platform == "windows" {
 		ext = ".exe"
@@ -313,9 +286,7 @@ func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p package
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
-	dirPrefix := fmt.Sprintf("enx-agent-%s-%s/", p.Platform, p.Arch)
-
-	bw, err := zw.Create(dirPrefix + "enx-agent" + ext)
+	bw, err := zw.Create("enx-agent" + ext)
 	if err != nil {
 		return err
 	}
@@ -323,11 +294,11 @@ func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p package
 		return err
 	}
 
-	cw, err := zw.Create(dirPrefix + "config.json")
+	cw, err := zw.Create("agent.enx")
 	if err != nil {
 		return err
 	}
-	if _, err := cw.Write(configJSON); err != nil {
+	if _, err := cw.Write(configENX); err != nil {
 		return err
 	}
 
@@ -362,7 +333,8 @@ func (w *PackageBuildWorker) markReady(ctx context.Context, packageID, artifactP
 	return nil
 }
 
-func (w *PackageBuildWorker) buildConfigJSON(p packageBuildPayload) []byte {
+// buildConfigENX generates agent.enx (TOML format) for the download package.
+func (w *PackageBuildWorker) buildConfigENX(p packageBuildPayload) []byte {
 	platformURL := os.Getenv("ENX_PLATFORM_API_PUBLIC_BASE_URL")
 	if platformURL == "" {
 		platformURL = os.Getenv("ENX_PLATFORM_URL")
@@ -382,19 +354,20 @@ func (w *PackageBuildWorker) buildConfigJSON(p packageBuildPayload) []byte {
 		wsURL = strings.TrimRight(wsURL, "/") + "/ws/v1/sessions"
 	}
 
-	config := map[string]interface{}{
-		"platform_url":     platformURL,
-		"ws_url":           wsURL,
-		"enrollment_token": "auto_generated_token_for_" + p.TenantID,
-	}
+	var buf bytes.Buffer
+	buf.WriteString("# EnvNexus Agent Configuration\n")
+	buf.WriteString("# Place this file next to the installer before running it,\n")
+	buf.WriteString("# or copy to the agent data directory after installation.\n\n")
+	buf.WriteString(fmt.Sprintf("platform_url = %q\n", platformURL))
+	buf.WriteString(fmt.Sprintf("ws_url = %q\n", wsURL))
+	buf.WriteString(fmt.Sprintf("enrollment_token = %q\n", "auto_generated_token_for_"+p.TenantID))
 
 	if p.ActivationMode != "" {
-		config["activation_mode"] = p.ActivationMode
+		buf.WriteString(fmt.Sprintf("activation_mode = %q\n", p.ActivationMode))
 	}
 	if (p.ActivationMode == "auto" || p.ActivationMode == "both") && p.ActivationKey != "" {
-		config["activation_key"] = p.ActivationKey
+		buf.WriteString(fmt.Sprintf("activation_key = %q\n", p.ActivationKey))
 	}
 
-	data, _ := json.MarshalIndent(config, "", "  ")
-	return data
+	return buf.Bytes()
 }

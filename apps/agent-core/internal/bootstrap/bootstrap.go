@@ -38,18 +38,30 @@ type Bootstrapper struct {
 	runtime         *agentruntime.Runtime
 }
 
+// NewBootstrapper creates a bootstrapper with the default config directory (~/.envnexus/agent).
+// Use SetDataDir before Run() to override the data/config location (e.g. when running under Electron).
 func NewBootstrapper() *Bootstrapper {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		homeDir = "."
-	}
-	configDir := filepath.Join(homeDir, ".envnexus", "agent")
-
+	configDir := DefaultConfigDir()
 	return &Bootstrapper{
 		identityManager: device.NewIdentityManager(configDir),
 		configManager:   config.NewManager(configDir),
 		configDir:       configDir,
 	}
+}
+
+// SetDataDir overrides the config/data directory (used by Electron to align with install path).
+func (b *Bootstrapper) SetDataDir(dir string) {
+	b.configDir = dir
+	b.identityManager = device.NewIdentityManager(dir)
+	b.configManager = config.NewManager(dir)
+}
+
+func DefaultConfigDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+	return filepath.Join(homeDir, ".envnexus", "agent")
 }
 
 func (b *Bootstrapper) ApplyCLIOverrides(o config.CLIOverrides) {
@@ -60,7 +72,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	slog.Info("[boot] Starting agent bootstrap sequence...")
 	cfg := b.configManager.Get()
 
-	// Step 0: Initialize local SQLite store
+	// Step 0: Initialize local SQLite store (agentdb lives alongside config)
 	dataDir := filepath.Join(b.configDir, "data")
 	localStore, err := store.New(dataDir)
 	if err != nil {

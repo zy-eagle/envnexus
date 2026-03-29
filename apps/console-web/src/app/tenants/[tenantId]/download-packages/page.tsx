@@ -620,6 +620,8 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                       </button>
                     ) : pkg.status === 'building' || pkg.status === 'pending' ? (
                       <span className="text-gray-400 cursor-not-allowed">{t.buildingHint}</span>
+                    ) : pkg.status === 'failed' ? (
+                      <span className="text-red-400 text-xs cursor-help" title={t.failedHint}>{t.failedHint?.substring(0, 20)}...</span>
                     ) : null}
                     <button
                       onClick={() => handleDeletePackage(pkg)}

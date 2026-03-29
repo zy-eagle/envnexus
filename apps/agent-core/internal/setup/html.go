@@ -163,7 +163,8 @@ const setupHTML = `<!DOCTYPE html>
         <div class="success-title">Setup Complete!</div>
         <div class="success-text">
           Your EnvNexus Agent has been configured successfully.<br>
-          You can now close this window and start the agent.
+          The agent will start automatically after you close this wizard.<br>
+          <span style="font-size:12px;color:#94a3b8;margin-top:8px;display:inline-block;">You can access the agent status at <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;">http://127.0.0.1:17700/status</code></span>
         </div>
         <div class="config-path" id="config-path"></div>
       </div>

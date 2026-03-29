@@ -109,7 +109,7 @@ func RunGUI(configDir string) {
 	defer cancel()
 	server.Shutdown(ctx)
 
-	fmt.Println("Setup complete. You can now start the agent with: enx-agent")
+	fmt.Println("Setup complete. Starting agent...")
 }
 
 func openBrowser(url string) {

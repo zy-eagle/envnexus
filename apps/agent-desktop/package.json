@@ -69,7 +69,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "EnvNexus Agent",
+      "uninstallDisplayName": "EnvNexus Agent"
     },
     "publish": {
       "provider": "github",

@@ -246,6 +246,74 @@ print_urls() {
     echo ""
 }
 
+# ── Electron Shell image management ──────────────────────────────────────────
+# The enx-electron-shell Docker image contains pre-installed npm deps, compiled
+# TypeScript, and cached electron-builder tools. It only needs rebuilding when
+# apps/agent-desktop/ source changes. This eliminates the #1 failure point
+# (npm install / electron download) from routine agent-builder runs.
+
+ensure_electron_shell() {
+    local shell_hash
+    shell_hash=$(compute_hash apps/agent-desktop)
+    local needs_build=false
+
+    # Check if image exists at all
+    if ! docker image inspect enx-electron-shell &>/dev/null; then
+        log_info "enx-electron-shell image not found — building for the first time..."
+        needs_build=true
+    elif has_changed "electron-shell" "$shell_hash"; then
+        log_info "enx-electron-shell: ${YELLOW}apps/agent-desktop changed, rebuilding shell image...${NC}"
+        needs_build=true
+    else
+        log_skip "enx-electron-shell: image up-to-date (apps/agent-desktop unchanged)"
+    fi
+
+    if $needs_build; then
+        log_info "Building enx-electron-shell (one-time, includes npm install + electron download)..."
+        log_info "  This may take 3-5 minutes on first run. Subsequent agent builds will be fast (~30s)."
+        echo ""
+        DOCKER_BUILDKIT=1 docker build \
+            -f "${SCRIPT_DIR}/deploy/docker/electron-shell.Dockerfile" \
+            -t enx-electron-shell \
+            "${SCRIPT_DIR}" 2>&1 | sed 's/^/  [electron-shell] /'
+
+        if [ $? -eq 0 ]; then
+            save_hash "electron-shell" "$shell_hash"
+            log_info "enx-electron-shell: ${GREEN}image built and cached${NC}"
+        else
+            log_error "enx-electron-shell build failed! agent-builder will not work."
+            log_error "  Fix the issue and retry with: ./deploy.sh agents-shell"
+            return 1
+        fi
+        echo ""
+    fi
+}
+
+cmd_build_electron_shell() {
+    echo -e "${GREEN}${BOLD}  EnvNexus — Build Electron Shell Image  ${NC}"
+    echo ""
+    log_info "Force-building enx-electron-shell image..."
+    log_info "  This pre-installs npm deps, compiles TypeScript, and caches electron-builder tools."
+    echo ""
+
+    cd "$SCRIPT_DIR"
+    DOCKER_BUILDKIT=1 docker build \
+        -f deploy/docker/electron-shell.Dockerfile \
+        -t enx-electron-shell \
+        . 2>&1 | sed 's/^/  [electron-shell] /'
+
+    if [ $? -eq 0 ]; then
+        local shell_hash
+        shell_hash=$(compute_hash apps/agent-desktop)
+        save_hash "electron-shell" "$shell_hash"
+        log_info "enx-electron-shell: ${GREEN}image built successfully${NC}"
+        echo ""
+        echo -e "  ${DIM}Now run './deploy.sh agents' or './deploy.sh start' to build agent packages.${NC}"
+    else
+        log_error "Build failed. Check the output above for errors."
+    fi
+}
+
 # ── Smart deploy: detect changes and only rebuild what's needed ──────────────
 
 cmd_smart_deploy() {
@@ -318,6 +386,8 @@ cmd_smart_deploy() {
     fi
 
     # 5. agent-builder (agent-core + agent-desktop)
+    #    Electron shell image is built separately and cached as enx-electron-shell.
+    #    agent-builder only needs to cross-compile Go + package installers (fast).
     local ab_hash
     ab_hash=$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')
     if has_changed "agent-builder" "$ab_hash"; then
@@ -329,6 +399,11 @@ cmd_smart_deploy() {
     fi
 
     echo ""
+
+    # ── Ensure Electron shell image exists (prerequisite for agent-builder) ──
+    if echo "$services_to_build" | grep -q "agent-builder"; then
+        ensure_electron_shell
+    fi
 
     # ── Infrastructure services (always ensure running, never rebuild) ──
     log_info "Ensuring infrastructure services are running (mysql, redis, minio)..."
@@ -439,6 +514,9 @@ cmd_deploy_full() {
 
     # Clear all build hashes to force rebuild
     rm -f "${HASH_DIR}"/*.hash
+
+    # Ensure electron shell image exists (required for agent-builder)
+    ensure_electron_shell
 
     log_info "Starting infrastructure..."
     docker compose up -d mysql redis minio minio-init
@@ -597,11 +675,16 @@ case "${1:-}" in
         cmd_reset
         ;;
     agents)
-        echo -e "${GREEN}${BOLD}  EnvNexus — Force rebuild agent binaries  ${NC}"
+        echo -e "${GREEN}${BOLD}  EnvNexus — Force rebuild agent packages  ${NC}"
+        ensure_electron_shell
         cd "$DEPLOY_DIR"
+        set -a; source "${DEPLOY_DIR}/.env"; set +a
         DOCKER_BUILDKIT=1 FORCE_AGENT_UPLOAD=true docker compose --profile agent-build up --build --force-recreate agent-builder
         save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
-        log_info "Agent binaries rebuilt and uploaded to MinIO."
+        log_info "Agent packages rebuilt and uploaded to MinIO."
+        ;;
+    agents-shell)
+        cmd_build_electron_shell
         ;;
     *)
         echo -e "${BOLD}EnvNexus — Smart Deployment Manager${NC}"
@@ -609,16 +692,23 @@ case "${1:-}" in
         echo "Usage: $0 <command>"
         echo ""
         echo -e "${BOLD}Commands:${NC}"
-        echo "  start     Smart deploy — only rebuild services with code changes"
-        echo "  full      Force rebuild all services (ignore cache)"
-        echo "  web       Rebuild and redeploy console-web only"
-        echo "  api       Rebuild and redeploy backend services only"
-        echo "  agents    Force rebuild and re-upload agent base packages"
-        echo "  stop      Stop all services (data preserved)"
-        echo "  restart   Restart all services without rebuild"
-        echo "  status    Show running services and build hash status"
-        echo "  logs      Tail logs (optionally: logs <service>)"
-        echo "  reset     Delete all data and config, start fresh"
+        echo "  start        Smart deploy — only rebuild services with code changes"
+        echo "  full         Force rebuild all services (ignore cache)"
+        echo "  web          Rebuild and redeploy console-web only"
+        echo "  api          Rebuild and redeploy backend services only"
+        echo "  agents       Force rebuild and re-upload agent packages (Go + Electron)"
+        echo "  agents-shell Build/rebuild the Electron shell image (one-time setup)"
+        echo "  stop         Stop all services (data preserved)"
+        echo "  restart      Restart all services without rebuild"
+        echo "  status       Show running services and build hash status"
+        echo "  logs         Tail logs (optionally: logs <service>)"
+        echo "  reset        Delete all data and config, start fresh"
+        echo ""
+        echo -e "${BOLD}Agent Build Architecture:${NC}"
+        echo "  The agent build is split into two layers for speed and reliability:"
+        echo "  1. Electron Shell (enx-electron-shell image) — built once, includes npm deps"
+        echo "     and electron-builder cache. Rebuild with: ./deploy.sh agents-shell"
+        echo "  2. Agent Core (Go binary) — fast cross-compile (~30s), injected into shell"
         echo ""
         echo -e "${DIM}Smart deploy computes content hashes of each service's source code."
         echo -e "If the hash matches the last successful build, the service is skipped.${NC}"

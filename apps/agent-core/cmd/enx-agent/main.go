@@ -36,10 +36,9 @@ func main() {
 		}
 	}
 
-	// On Windows, if double-clicked (no existing config), launch GUI setup automatically
+	// On Windows, if double-clicked (no existing config), launch GUI setup then start agent
 	if runtime.GOOS == "windows" && len(os.Args) == 1 && !hasExistingConfig() {
 		setup.RunGUI(getConfigDir())
-		return
 	}
 
 	runAgent()
@@ -60,11 +59,12 @@ Flags (for default run mode):
   --ws-url <url>             WebSocket gateway URL (overrides config)
   --activation-mode <mode>   Activation mode: auto, manual, both
   --activation-key <key>     Activation key (for auto/both mode)
+  --data-dir <path>          Data/config directory (default: ~/.envnexus/agent)
 
 Config priority (highest to lowest):
   1. CLI flags (--platform-url, etc.)
-  2. Saved config (~/.envnexus/agent/agent_config.json)
-  3. Bundled config.json (from download package)
+  2. Saved config (agent.enx in data dir)
+  3. Bundled agent.enx (from download package)
   4. Injected config (binary-embedded)
   5. Environment variables (ENX_PLATFORM_URL, etc.)
   6. Default values
@@ -73,14 +73,18 @@ Config priority (highest to lowest):
 }
 
 func getConfigDir() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".envnexus", "agent")
+	return bootstrap.DefaultConfigDir()
 }
 
 func hasExistingConfig() bool {
-	configPath := filepath.Join(getConfigDir(), "agent_config.json")
-	_, err := os.Stat(configPath)
-	return err == nil
+	dir := getConfigDir()
+	if _, err := os.Stat(filepath.Join(dir, "agent.enx")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "agent_config.json")); err == nil {
+		return true
+	}
+	return false
 }
 
 func handleSetup() {
@@ -142,7 +146,7 @@ func runCLISetup() {
 	})
 
 	fmt.Println()
-	fmt.Printf("Configuration saved to: %s\n", filepath.Join(configDir, "agent_config.json"))
+	fmt.Printf("Configuration saved to: %s\n", filepath.Join(configDir, "agent.enx"))
 	fmt.Println()
 	fmt.Println("You can now start the agent with:")
 	fmt.Println("  enx-agent")
@@ -171,6 +175,7 @@ func runAgent() {
 	wsURL := fs.String("ws-url", "", "WebSocket gateway URL")
 	activationMode := fs.String("activation-mode", "", "Activation mode: auto, manual, both")
 	activationKey := fs.String("activation-key", "", "Activation key")
+	dataDir := fs.String("data-dir", "", "Data/config directory (overrides default ~/.envnexus/agent)")
 	_ = fs.Parse(os.Args[1:])
 
 	overrides := config.CLIOverrides{
@@ -178,6 +183,7 @@ func runAgent() {
 		WSURL:          *wsURL,
 		ActivationMode: *activationMode,
 		ActivationKey:  *activationKey,
+		DataDir:        *dataDir,
 	}
 
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -187,6 +193,9 @@ func runAgent() {
 	defer cancel()
 
 	bootstrapper := bootstrap.NewBootstrapper()
+	if overrides.DataDir != "" {
+		bootstrapper.SetDataDir(overrides.DataDir)
+	}
 	bootstrapper.ApplyCLIOverrides(overrides)
 
 	if err := bootstrapper.Run(ctx); err != nil {

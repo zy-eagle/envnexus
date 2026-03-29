@@ -42,6 +42,22 @@ const DEFAULT_SETTINGS: Settings = {
 
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 
+// Agent data directory: aligned with the app's install location.
+// On Windows (NSIS install): C:\Program Files\EnvNexus Agent\data
+// Fallback: ~/.envnexus/agent
+function getAgentDataDir(): string {
+  const appDir = path.dirname(app.getPath('exe'));
+  const dataDir = path.join(appDir, 'data');
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.accessSync(dataDir, fs.constants.W_OK);
+    return dataDir;
+  } catch {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+    return path.join(homeDir, '.envnexus', 'agent');
+  }
+}
+
 // ── Settings helpers ───────────────────────────────────────────────────────────
 
 function loadSettings(): Settings {
@@ -157,11 +173,13 @@ function spawnAgentCore(): void {
     agentEnv.ENX_PLATFORM_URL = settings.platformURL;
   }
 
-  const args: string[] = [];
+  const agentDataDir = getAgentDataDir();
+  const args: string[] = ['--data-dir', agentDataDir];
   if (settings.platformURL) {
     args.push('--platform-url', settings.platformURL);
   }
 
+  console.log('Agent data dir:', agentDataDir);
   agentCoreProcess = child_process.spawn(binaryPath, args, {
     detached: false,
     stdio: 'pipe',
@@ -456,26 +474,73 @@ function initAutoUpdate(): void {
 
 // ── First-launch config import ────────────────────────────────────────────────
 
+function parseTOMLConfig(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.substring(0, eqIdx).trim();
+    let val = trimmed.substring(eqIdx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    result[key] = val;
+  }
+  return result;
+}
+
 function importBundledConfig(): void {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  const agentConfigDir = path.join(homeDir, '.envnexus', 'agent');
-  const targetPath = path.join(agentConfigDir, 'agent_config.json');
+  const agentDataDir = getAgentDataDir();
+  const enxTarget = path.join(agentDataDir, 'agent.enx');
+  const jsonTarget = path.join(agentDataDir, 'agent_config.json');
 
-  if (fs.existsSync(targetPath)) return;
+  if (fs.existsSync(enxTarget) || fs.existsSync(jsonTarget)) return;
 
-  const searchPaths = [
+  // Search for .enx (TOML) config first, then legacy JSON
+  const enxSearchPaths = [
+    path.join(path.dirname(app.getPath('exe')), 'agent.enx'),
+    path.join(process.resourcesPath || '', 'agent.enx'),
+    path.join(app.getAppPath(), 'agent.enx'),
+    path.join(app.getPath('downloads'), 'agent.enx'),
+  ];
+
+  for (const src of enxSearchPaths) {
+    try {
+      if (fs.existsSync(src)) {
+        fs.mkdirSync(agentDataDir, { recursive: true });
+        fs.copyFileSync(src, enxTarget);
+        console.log('[config] Imported bundled agent.enx from:', src);
+
+        const cfg = parseTOMLConfig(fs.readFileSync(src, 'utf-8'));
+        if (cfg.platform_url) {
+          const settings = loadSettings();
+          settings.platformURL = cfg.platform_url;
+          saveSettings(settings);
+          console.log('[config] Updated desktop settings with platform URL:', cfg.platform_url);
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn('[config] Failed to import .enx from', src, e);
+    }
+  }
+
+  // Fallback: legacy JSON config
+  const jsonSearchPaths = [
     path.join(path.dirname(app.getPath('exe')), 'config.json'),
     path.join(process.resourcesPath || '', 'config.json'),
     path.join(app.getAppPath(), 'config.json'),
     path.join(app.getPath('downloads'), 'config.json'),
   ];
 
-  for (const src of searchPaths) {
+  for (const src of jsonSearchPaths) {
     try {
       if (fs.existsSync(src)) {
-        fs.mkdirSync(agentConfigDir, { recursive: true });
-        fs.copyFileSync(src, targetPath);
-        console.log('[config] Imported bundled config from:', src);
+        fs.mkdirSync(agentDataDir, { recursive: true });
+        fs.copyFileSync(src, jsonTarget);
+        console.log('[config] Imported bundled config.json from:', src);
 
         const cfg = JSON.parse(fs.readFileSync(src, 'utf-8'));
         if (cfg.platform_url) {
