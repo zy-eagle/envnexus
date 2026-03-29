@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Diagnostics
   exportDiagnostics: () => ipcRenderer.invoke('export-diagnostics'),
+  sendDiagnose: (query: string, history: unknown[]) =>
+    ipcRenderer.invoke('send-diagnose', query, history),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('get-settings'),

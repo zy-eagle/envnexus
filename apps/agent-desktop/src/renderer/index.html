@@ -75,64 +75,7 @@
       height: 100vh;
     }
 
-    #sidebar-header {
-      height: 56px;
-      display: flex;
-      align-items: center;
-      padding: 0 16px;
-      border-bottom: 1px solid var(--border);
-      gap: 10px;
-    }
-
-    .logo-mark {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, var(--indigo-500), var(--indigo-600));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 1px 3px rgba(99,102,241,0.3);
-      flex-shrink: 0;
-    }
-    .logo-mark span {
-      color: white;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-
-    .logo-text {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-    .logo-text .brand {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--slate-900);
-      letter-spacing: -0.01em;
-      line-height: 1.2;
-    }
-
-    #status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-    #status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--amber-500);
-      flex-shrink: 0;
-    }
-    #status-dot.online { background: var(--emerald-500); }
-    #status-dot.offline { background: var(--slate-400); }
-
-    nav { flex: 1; padding: 8px; overflow-y: auto; }
+    nav { flex: 1; padding: 12px 8px; overflow-y: auto; }
 
     .nav-item {
       display: flex;
@@ -562,16 +505,6 @@
 
 <!-- Sidebar -->
 <div id="sidebar">
-  <div id="sidebar-header">
-    <div class="logo-mark"><span>E</span></div>
-    <div class="logo-text">
-      <span class="brand">EnvNexus</span>
-      <div id="status-badge">
-        <span id="status-dot"></span>
-        <span id="status-text"></span>
-      </div>
-    </div>
-  </div>
   <nav>
     <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
       <span class="icon">
@@ -947,8 +880,7 @@ function applyLanguage(lang) {
   currentLang = lang || 'zh';
   document.documentElement.lang = currentLang === 'zh' ? 'zh' : 'en';
 
-  const statusTextEl = document.getElementById('status-text');
-  if (statusTextEl && !statusTextEl.textContent) statusTextEl.textContent = t('status_connecting');
+  // status-text element removed from sidebar
 
   document.querySelector('[data-page="dashboard"] .nav-label').textContent = t('nav_dashboard');
   document.querySelector('[data-page="diagnosis"] .nav-label').textContent = t('nav_diagnosis');
@@ -1037,11 +969,7 @@ function navigate(page) {
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 function setStatus(status) {
-  const dot = document.getElementById('status-dot');
-  const text = document.getElementById('status-text');
-  dot.className = status;
   const statusMap = { online: 'status_online', offline: 'status_offline', connecting: 'status_connecting' };
-  text.textContent = statusMap[status] ? t(statusMap[status]) : status;
   document.getElementById('offline-alert').style.display = status === 'offline' ? 'block' : 'none';
 }
 
@@ -1138,20 +1066,10 @@ async function sendDiagnosisRequest() {
   const thinkingMsg = addMsg(`<span class="loading"></span> ${t('diag_analyzing')}`, 'agent');
 
   try {
-    const resp = await fetch('http://127.0.0.1:17700/local/v1/diagnose', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: text, history: chatHistory }),
-    });
-
-    if (resp.ok) {
-      const data = await resp.json();
-      thinkingMsg.innerHTML = `<div>${data.response || data.message || t('diag_done')}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
-      chatHistory.push({ role: 'assistant', content: data.response || '' });
-      if (data.findings && data.findings.length > 0) renderFindings(data.findings);
-    } else {
-      thinkingMsg.innerHTML = `<div>${t('diag_error')} (${resp.status})</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
-    }
+    const data = await api.sendDiagnose(text, chatHistory);
+    thinkingMsg.innerHTML = `<div>${data.response || data.message || t('diag_done')}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+    chatHistory.push({ role: 'assistant', content: data.response || '' });
+    if (data.findings && data.findings.length > 0) renderFindings(data.findings);
   } catch (e) {
     thinkingMsg.innerHTML = `<div>${t('diag_conn_error')}<br><small style="color:var(--slate-400)">${e.message || ''}</small></div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
   }

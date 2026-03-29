@@ -598,6 +598,10 @@ function registerIPC(): void {
     localAPIRequest('POST', '/local/v1/diagnostics/export', {})
   );
 
+  ipcMain.handle('send-diagnose', (_e, query: string, history: any[]) =>
+    localAPIRequest('POST', '/local/v1/diagnose', { query, history })
+  );
+
   ipcMain.handle('get-settings', () => loadSettings());
 
   ipcMain.handle('save-settings', (_e, settings: Settings) => {
@@ -746,10 +750,8 @@ function importBundledConfig(): void {
   const agentDataDir = getAgentDataDir();
   const enxTarget = path.join(agentDataDir, 'agent.enx');
   const jsonTarget = path.join(agentDataDir, 'agent_config.json');
+  const targetExists = fs.existsSync(enxTarget) || fs.existsSync(jsonTarget);
 
-  if (fs.existsSync(enxTarget) || fs.existsSync(jsonTarget)) return;
-
-  // Search for .enx (TOML) config first, then legacy JSON
   const enxSearchPaths = [
     path.join(path.dirname(app.getPath('exe')), 'agent.enx'),
     path.join(process.resourcesPath || '', 'agent.enx'),
@@ -759,26 +761,50 @@ function importBundledConfig(): void {
 
   for (const src of enxSearchPaths) {
     try {
-      if (fs.existsSync(src)) {
+      if (!fs.existsSync(src)) continue;
+      const srcCfg = parseTOMLConfig(fs.readFileSync(src, 'utf-8'));
+
+      if (!targetExists) {
         fs.mkdirSync(agentDataDir, { recursive: true });
         fs.copyFileSync(src, enxTarget);
         console.log('[config] Imported bundled agent.enx from:', src);
-
-        const cfg = parseTOMLConfig(fs.readFileSync(src, 'utf-8'));
-        if (cfg.platform_url) {
-          const settings = loadSettings();
-          settings.platformURL = cfg.platform_url;
-          saveSettings(settings);
-          console.log('[config] Updated desktop settings with platform URL:', cfg.platform_url);
+      } else if (fs.existsSync(enxTarget)) {
+        const existingCfg = parseTOMLConfig(fs.readFileSync(enxTarget, 'utf-8'));
+        let merged = false;
+        const mergeKeys = ['enrollment_token', 'ws_url', 'activation_mode', 'activation_key'];
+        for (const key of mergeKeys) {
+          if (srcCfg[key] && !existingCfg[key]) {
+            existingCfg[key] = srcCfg[key];
+            merged = true;
+          }
         }
-        return;
+        if (merged) {
+          const lines = ['# EnvNexus Agent Configuration'];
+          for (const [k, v] of Object.entries(existingCfg)) {
+            lines.push(`${k} = "${v}"`);
+          }
+          fs.writeFileSync(enxTarget, lines.join('\n') + '\n', 'utf-8');
+          console.log('[config] Merged missing fields from bundled agent.enx into existing config');
+        }
       }
+
+      if (srcCfg.platform_url) {
+        const settings = loadSettings();
+        const isDefault = !settings.platformURL || settings.platformURL === DEFAULT_SETTINGS.platformURL;
+        if (isDefault) {
+          settings.platformURL = srcCfg.platform_url;
+          saveSettings(settings);
+          console.log('[config] Updated desktop settings with platform URL:', srcCfg.platform_url);
+        }
+      }
+      return;
     } catch (e) {
       console.warn('[config] Failed to import .enx from', src, e);
     }
   }
 
-  // Fallback: legacy JSON config
+  if (targetExists) return;
+
   const jsonSearchPaths = [
     path.join(path.dirname(app.getPath('exe')), 'config.json'),
     path.join(process.resourcesPath || '', 'config.json'),
