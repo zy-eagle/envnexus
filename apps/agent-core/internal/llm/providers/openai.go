@@ -63,7 +63,8 @@ type openaiMessage struct {
 type openaiResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
@@ -146,8 +147,16 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *router.CompletionReq
 		return nil, fmt.Errorf("no choices in response")
 	}
 
+	content := oResp.Choices[0].Message.Content
+	if content == "" && oResp.Choices[0].Message.ReasoningContent != "" {
+		content = oResp.Choices[0].Message.ReasoningContent
+	}
+	if content == "" {
+		return nil, fmt.Errorf("empty content in response (raw: %s)", string(respBody[:min(len(respBody), 500)]))
+	}
+
 	return &router.CompletionResponse{
-		Content:      oResp.Choices[0].Message.Content,
+		Content:      content,
 		Model:        oResp.Model,
 		PromptTokens: oResp.Usage.PromptTokens,
 		CompTokens:   oResp.Usage.CompletionTokens,

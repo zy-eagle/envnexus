@@ -117,8 +117,16 @@ func (p *DeepSeekProvider) Complete(ctx context.Context, req *router.CompletionR
 		return nil, fmt.Errorf("no choices in response")
 	}
 
+	content := oResp.Choices[0].Message.Content
+	if content == "" && oResp.Choices[0].Message.ReasoningContent != "" {
+		content = oResp.Choices[0].Message.ReasoningContent
+	}
+	if content == "" {
+		return nil, fmt.Errorf("empty content in response (raw: %s)", string(respBody[:min(len(respBody), 500)]))
+	}
+
 	return &router.CompletionResponse{
-		Content:      oResp.Choices[0].Message.Content,
+		Content:      content,
 		Model:        oResp.Model,
 		PromptTokens: oResp.Usage.PromptTokens,
 		CompTokens:   oResp.Usage.CompletionTokens,
