@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -53,10 +54,18 @@ func (h *ActivateHandler) Activate(c *gin.Context) {
 
 	resp, err := h.bindingService.ActivateAuto(c.Request.Context(), req)
 	if err != nil {
+		slog.Error("[activate] ActivateAuto failed",
+			"device_code", req.DeviceCode,
+			"error", err.Error(),
+		)
 		mw.RespondError(c, err)
 		return
 	}
 
+	slog.Info("[activate] ActivateAuto result",
+		"device_code", req.DeviceCode,
+		"activated", resp.Activated,
+	)
 	mw.RespondSuccess(c, http.StatusOK, resp)
 }
 

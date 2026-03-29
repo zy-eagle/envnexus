@@ -7,6 +7,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -78,16 +79,28 @@ func (s *Service) ActivateAuto(ctx context.Context, req dto.ActivateDeviceReques
 	keyHash := hashActivationKey(req.ActivationKey)
 	pkg, err := s.findPackageByKeyHash(ctx, keyHash)
 	if err != nil {
+		slog.Error("[device_binding] findPackageByKeyHash failed", "error", err)
 		return nil, err
 	}
 	if pkg == nil {
+		slog.Warn("[device_binding] No package found for activation key hash", "key_hash_prefix", keyHash[:8]+"...")
 		return &dto.ActivateDeviceResponse{Error: domain.ErrActivationKeyInvalid.Message}, domain.ErrActivationKeyInvalid
 	}
+	slog.Info("[device_binding] Package found for activation",
+		"package_id", pkg.ID,
+		"activation_mode", pkg.ActivationMode,
+		"max_devices", pkg.MaxDevices,
+		"bound_count", pkg.BoundCount,
+	)
 	if !pkg.SupportsAutoActivation() {
 		return &dto.ActivateDeviceResponse{Error: "package requires manual activation"}, domain.ErrActivationKeyInvalid
 	}
 
-	return s.bindDevice(ctx, pkg, req.DeviceCode, req.Components, "system")
+	resp, err := s.bindDevice(ctx, pkg, req.DeviceCode, req.Components, "system")
+	if err != nil {
+		slog.Error("[device_binding] bindDevice failed", "device_code", req.DeviceCode, "error", err)
+	}
+	return resp, err
 }
 
 // BindManual — Admin binds a pending device to a package (manual mode)
@@ -240,6 +253,7 @@ func (s *Service) GetActivationStatus(ctx context.Context, deviceCode string) (*
 func (s *Service) bindDevice(ctx context.Context, pkg *domain.DownloadPackage, deviceCode string, components []dto.ComponentInfo, actor string) (*dto.ActivateDeviceResponse, error) {
 	existing, err := s.bindingRepo.GetByDeviceCode(ctx, deviceCode)
 	if err != nil {
+		slog.Error("[device_binding] GetByDeviceCode failed", "device_code", deviceCode, "error", err)
 		return nil, err
 	}
 	if existing != nil {
@@ -268,9 +282,11 @@ func (s *Service) bindDevice(ctx context.Context, pkg *domain.DownloadPackage, d
 	}
 
 	if err := s.bindingRepo.CreateBinding(ctx, binding); err != nil {
+		slog.Error("[device_binding] CreateBinding failed", "device_code", deviceCode, "error", err)
 		return nil, err
 	}
 	if err := s.bindingRepo.IncrementBoundCount(ctx, pkg.ID); err != nil {
+		slog.Error("[device_binding] IncrementBoundCount failed", "package_id", pkg.ID, "error", err)
 		return nil, err
 	}
 
