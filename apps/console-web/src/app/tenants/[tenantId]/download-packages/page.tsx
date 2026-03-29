@@ -18,6 +18,8 @@ interface DownloadPackage {
   checksum: string;
   sign_status: string;
   status: string;
+  build_stage: string;
+  build_progress: number;
   activation_mode: string;
   activation_key?: string;
   max_devices: number;
@@ -106,9 +108,11 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
   }, [fetchPackages, fetchAgentProfiles]);
 
   useEffect(() => {
-    const hasPending = packages.some(p => p.status === 'pending' || p.status === 'building');
-    if (!hasPending) return;
-    const timer = setInterval(fetchPackages, 5000);
+    const hasBuilding = packages.some(p => p.status === 'building');
+    const hasPending = packages.some(p => p.status === 'pending');
+    if (!hasBuilding && !hasPending) return;
+    const interval = hasBuilding ? 2000 : 5000;
+    const timer = setInterval(fetchPackages, interval);
     return () => clearInterval(timer);
   }, [packages, fetchPackages]);
 
@@ -566,8 +570,8 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                 <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
                 <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.activationMode}</th>
                 <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.boundCount}</th>
-                <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.buildStatus}</th>
-                <th className="w-[22%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
+                <th className="w-[13%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.buildStatus}</th>
+                <th className="w-[17%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -589,14 +593,31 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                     {pkg.bound_count} / {pkg.max_devices}
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      pkg.status === 'ready' ? 'bg-green-100 text-green-800' :
-                      pkg.status === 'building' ? 'bg-blue-100 text-blue-800' :
-                      pkg.status === 'failed' ? 'bg-red-100 text-red-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {t[`status_${pkg.status}`] || pkg.status}
-                    </span>
+                    {(pkg.status === 'building' || pkg.status === 'pending') && pkg.build_progress > 0 ? (
+                      <div className="min-w-[100px]">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-blue-700">
+                            {t[`stage_${pkg.build_stage}`] || pkg.build_stage || t.status_building}
+                          </span>
+                          <span className="text-xs font-medium text-blue-700">{pkg.build_progress}%</span>
+                        </div>
+                        <div className="w-full bg-blue-100 rounded-full h-1.5">
+                          <div
+                            className="bg-blue-600 h-1.5 rounded-full transition-all duration-500 ease-out"
+                            style={{ width: `${pkg.build_progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        pkg.status === 'ready' ? 'bg-green-100 text-green-800' :
+                        pkg.status === 'building' ? 'bg-blue-100 text-blue-800' :
+                        pkg.status === 'failed' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {t[`status_${pkg.status}`] || pkg.status}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium space-x-3">
                     <button

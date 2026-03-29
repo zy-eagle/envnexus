@@ -25,6 +25,8 @@ type DownloadPackage struct {
 	MaxDevices            int    `gorm:"column:max_devices"`
 	BoundCount            int    `gorm:"column:bound_count"`
 	Status                string
+	BuildStage            string
+	BuildProgress         int
 	PublishedAt           *time.Time
 	CreatedAt             time.Time
 	UpdatedAt             time.Time

@@ -28,7 +28,7 @@ func NewPackageBuildWorker(db *gorm.DB, minioClient *minio.Client, bucket string
 		db:          db,
 		minioClient: minioClient,
 		bucket:      bucket,
-		interval:    15 * time.Second,
+		interval:    3 * time.Second,
 	}
 }
 
@@ -125,6 +125,16 @@ func (w *PackageBuildWorker) processNext(ctx context.Context) {
 	slog.Info("PackageBuildWorker: job completed", "job_id", job.ID)
 }
 
+func (w *PackageBuildWorker) updateBuildProgress(ctx context.Context, packageID, stage string, progress int) {
+	w.db.WithContext(ctx).Table("download_packages").
+		Where("id = ?", packageID).
+		Updates(map[string]interface{}{
+			"build_stage":    stage,
+			"build_progress": progress,
+			"updated_at":     time.Now(),
+		})
+}
+
 func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, payloadJSON *string) error {
 	if payloadJSON == nil {
 		return nil
@@ -143,13 +153,12 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 
 	w.db.WithContext(ctx).Table("download_packages").
 		Where("id = ?", p.PackageID).
-		Updates(map[string]interface{}{"status": "building", "updated_at": time.Now()})
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(2 * time.Second):
-	}
+		Updates(map[string]interface{}{
+			"status":         "building",
+			"build_stage":    "initializing",
+			"build_progress": 5,
+			"updated_at":     time.Now(),
+		})
 
 	artifactPath := fmt.Sprintf("packages/%s/%s/EnvNexus-Agent-%s-%s.zip", p.TenantID, p.PackageID, p.Platform, p.Arch)
 
@@ -157,12 +166,12 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 		return fmt.Errorf("MinIO not configured")
 	}
 
+	w.updateBuildProgress(ctx, p.PackageID, "config", 15)
 	configENX := w.buildConfigENX(p)
 
+	w.updateBuildProgress(ctx, p.PackageID, "downloading", 25)
 	installerData, installerName, err := w.downloadInstaller(ctx, p.Platform, p.Arch)
 	if err != nil {
-		// Windows/macOS MUST have a desktop installer (with UI) — no fallback to CLI binary.
-		// Only Linux is allowed to fall back to raw binary for headless server use.
 		if p.Platform != "linux" {
 			return fmt.Errorf("desktop installer not found for %s/%s — please run agent-builder first to produce the installer: %w", p.Platform, p.Arch, err)
 		}
@@ -170,44 +179,80 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 		return w.buildFallbackPackage(ctx, p, configENX, artifactPath)
 	}
 
-	// Create ZIP: installer + agent.enx (only 2 files)
-	outputZip, err := bundleInstallerWithConfig(installerData, installerName, configENX, p.Platform)
-	if err != nil {
-		return fmt.Errorf("failed to create installer bundle: %w", err)
+	w.updateBuildProgress(ctx, p.PackageID, "packaging", 55)
+
+	pr, pw := io.Pipe()
+	uploadErrCh := make(chan error, 1)
+	estimatedSize := int64(len(installerData) + len(configENX) + 1024)
+
+	go func() {
+		_, err := w.minioClient.PutObject(ctx, w.bucket, artifactPath,
+			pr, estimatedSize,
+			minio.PutObjectOptions{ContentType: "application/zip"},
+		)
+		uploadErrCh <- err
+	}()
+
+	zw := zip.NewWriter(pw)
+	zipErr := createStoreEntry(zw, installerName, installerData)
+	if zipErr == nil {
+		zipErr = createStoreEntry(zw, "agent.enx", configENX)
+	}
+	if zipErr == nil {
+		zipErr = zw.Close()
+	}
+	pw.CloseWithError(zipErr)
+
+	w.updateBuildProgress(ctx, p.PackageID, "uploading", 85)
+
+	if uploadErr := <-uploadErrCh; uploadErr != nil {
+		if zipErr != nil {
+			return fmt.Errorf("zip creation failed: %v; upload also failed: %w", zipErr, uploadErr)
+		}
+		return fmt.Errorf("failed to upload package: %w", uploadErr)
+	}
+	if zipErr != nil {
+		return fmt.Errorf("failed to create installer bundle: %w", zipErr)
 	}
 
-	_, err = w.minioClient.PutObject(ctx, w.bucket, artifactPath,
-		bytes.NewReader(outputZip), int64(len(outputZip)),
-		minio.PutObjectOptions{ContentType: "application/zip"},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to upload package: %w", err)
-	}
-
+	w.updateBuildProgress(ctx, p.PackageID, "done", 100)
 	return w.markReady(ctx, p.PackageID, artifactPath)
 }
 
 // downloadInstaller tries to fetch the desktop installer from MinIO.
+// Uses StatObject first for fast existence check, then downloads only the matching file.
 func (w *PackageBuildWorker) downloadInstaller(ctx context.Context, platform, arch string) ([]byte, string, error) {
 	candidates := installerCandidates(platform, arch)
+
+	var foundKey string
+	var foundSize int64
 	for _, key := range candidates {
-		obj, err := w.minioClient.GetObject(ctx, w.bucket, "base-packages/"+key, minio.GetObjectOptions{})
+		info, err := w.minioClient.StatObject(ctx, w.bucket, "base-packages/"+key, minio.StatObjectOptions{})
 		if err != nil {
 			continue
 		}
-		if _, err := obj.Stat(); err != nil {
-			obj.Close()
-			continue
-		}
-		data, err := io.ReadAll(obj)
-		obj.Close()
-		if err != nil {
-			continue
-		}
-		slog.Info("Found installer", "key", key, "size", len(data))
-		return data, key, nil
+		foundKey = key
+		foundSize = info.Size
+		break
 	}
-	return nil, "", fmt.Errorf("no installer found for %s-%s, tried: %v", platform, arch, candidates)
+	if foundKey == "" {
+		return nil, "", fmt.Errorf("no installer found for %s-%s, tried: %v", platform, arch, candidates)
+	}
+
+	obj, err := w.minioClient.GetObject(ctx, w.bucket, "base-packages/"+foundKey, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get installer %s: %w", foundKey, err)
+	}
+	defer obj.Close()
+
+	data := make([]byte, 0, foundSize)
+	buf := bytes.NewBuffer(data)
+	if _, err := io.Copy(buf, obj); err != nil {
+		return nil, "", fmt.Errorf("failed to read installer %s: %w", foundKey, err)
+	}
+
+	slog.Info("Found installer", "key", foundKey, "size", buf.Len())
+	return buf.Bytes(), foundKey, nil
 }
 
 func installerCandidates(platform, arch string) []string {
@@ -233,35 +278,27 @@ func installerCandidates(platform, arch string) []string {
 	return nil
 }
 
-// bundleInstallerWithConfig creates a ZIP containing only the installer + agent.enx config.
-func bundleInstallerWithConfig(installerData []byte, installerName string, configENX []byte, platform string) ([]byte, error) {
-	var buf bytes.Buffer
-	w := zip.NewWriter(&buf)
-
-	iw, err := w.Create(installerName)
+// createStoreEntry adds a file to the ZIP archive using Store method (no compression).
+// Installers (.exe, .dmg, .AppImage) are already compressed; re-compressing with
+// Deflate wastes CPU and time with negligible size reduction.
+func createStoreEntry(w *zip.Writer, name string, data []byte) error {
+	header := &zip.FileHeader{
+		Name:   name,
+		Method: zip.Store,
+	}
+	header.Modified = time.Now()
+	fw, err := w.CreateHeader(header)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if _, err := iw.Write(installerData); err != nil {
-		return nil, err
-	}
-
-	cw, err := w.Create("agent.enx")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := cw.Write(configENX); err != nil {
-		return nil, err
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	_, err = fw.Write(data)
+	return err
 }
 
 // buildFallbackPackage creates a ZIP with raw binary + agent.enx when no installer is available.
 func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p packageBuildPayload, configENX []byte, artifactPath string) error {
+	w.updateBuildProgress(ctx, p.PackageID, "downloading", 30)
+
 	ext := ""
 	if p.Platform == "windows" {
 		ext = ".exe"
@@ -283,37 +320,43 @@ func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p package
 		return fmt.Errorf("failed to read base binary: %w", err)
 	}
 
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
+	w.updateBuildProgress(ctx, p.PackageID, "packaging", 55)
 
-	bw, err := zw.Create("enx-agent" + ext)
-	if err != nil {
-		return err
+	pr, pw := io.Pipe()
+	uploadErrCh := make(chan error, 1)
+	estimatedSize := int64(len(binaryData) + len(configENX) + 1024)
+
+	go func() {
+		_, err := w.minioClient.PutObject(ctx, w.bucket, artifactPath,
+			pr, estimatedSize,
+			minio.PutObjectOptions{ContentType: "application/zip"},
+		)
+		uploadErrCh <- err
+	}()
+
+	zw := zip.NewWriter(pw)
+	zipErr := createStoreEntry(zw, "enx-agent"+ext, binaryData)
+	if zipErr == nil {
+		zipErr = createStoreEntry(zw, "agent.enx", configENX)
 	}
-	if _, err := bw.Write(binaryData); err != nil {
-		return err
+	if zipErr == nil {
+		zipErr = zw.Close()
+	}
+	pw.CloseWithError(zipErr)
+
+	w.updateBuildProgress(ctx, p.PackageID, "uploading", 85)
+
+	if uploadErr := <-uploadErrCh; uploadErr != nil {
+		if zipErr != nil {
+			return fmt.Errorf("zip creation failed: %v; upload also failed: %w", zipErr, uploadErr)
+		}
+		return fmt.Errorf("failed to upload fallback package: %w", uploadErr)
+	}
+	if zipErr != nil {
+		return fmt.Errorf("failed to create fallback zip: %w", zipErr)
 	}
 
-	cw, err := zw.Create("agent.enx")
-	if err != nil {
-		return err
-	}
-	if _, err := cw.Write(configENX); err != nil {
-		return err
-	}
-
-	if err := zw.Close(); err != nil {
-		return err
-	}
-
-	_, err = w.minioClient.PutObject(ctx, w.bucket, artifactPath,
-		bytes.NewReader(buf.Bytes()), int64(buf.Len()),
-		minio.PutObjectOptions{ContentType: "application/zip"},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to upload fallback package: %w", err)
-	}
-
+	w.updateBuildProgress(ctx, p.PackageID, "done", 100)
 	return w.markReady(ctx, p.PackageID, artifactPath)
 }
 

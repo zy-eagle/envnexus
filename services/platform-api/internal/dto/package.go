@@ -25,6 +25,8 @@ type PackageResponse struct {
 	Checksum         string    `json:"checksum"`
 	SignStatus       string    `json:"sign_status"`
 	Status           string    `json:"status"`
+	BuildStage       string    `json:"build_stage"`
+	BuildProgress    int       `json:"build_progress"`
 	ActivationMode   string    `json:"activation_mode"`
 	ActivationKey    string    `json:"activation_key,omitempty"`
 	MaxDevices       int       `json:"max_devices"`

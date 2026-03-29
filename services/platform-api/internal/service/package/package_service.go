@@ -165,6 +165,8 @@ func (s *Service) toResponse(ctx context.Context, pkg *domain.DownloadPackage) *
 		Checksum:         pkg.Checksum,
 		SignStatus:       pkg.SignStatus,
 		Status:           status,
+		BuildStage:       pkg.BuildStage,
+		BuildProgress:    pkg.BuildProgress,
 		ActivationMode:   pkg.ActivationMode,
 		MaxDevices:       pkg.MaxDevices,
 		BoundCount:       pkg.BoundCount,
