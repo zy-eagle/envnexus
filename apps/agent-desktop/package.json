@@ -24,7 +24,6 @@
     "@types/node": "^20.0.0",
     "electron": "^30.0.0",
     "electron-builder": "^25.1.0",
-    "electron-icon-builder": "^2.0.1",
     "typescript": "^5.0.0"
   },
   "build": {
