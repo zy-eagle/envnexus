@@ -191,12 +191,20 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 				slog.Info("[boot] Config is up to date")
 			}
 			if len(configResp.ModelProfile) > 0 {
+				slog.Debug("[boot] Raw model profile JSON", "json", string(configResp.ModelProfile))
 				var mp remoteModelConfig
 				if err := json.Unmarshal(configResp.ModelProfile, &mp); err != nil {
 					slog.Warn("[boot] Failed to parse remote model profile", "error", err)
 				} else if mp.Provider != "" {
 					remoteModelProfile = &mp
-					slog.Info("[boot] Remote model profile loaded", "provider", mp.Provider, "model", mp.ModelName)
+					slog.Info("[boot] Remote model profile loaded",
+						"provider", mp.Provider,
+						"model", mp.ModelName,
+						"base_url", mp.BaseURL,
+						"has_api_key", mp.APIKey != "",
+					)
+				} else {
+					slog.Warn("[boot] Remote model profile has empty provider, skipping", "raw", string(configResp.ModelProfile))
 				}
 			}
 		}
