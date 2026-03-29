@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -118,8 +119,11 @@ func (p *DeepSeekProvider) Complete(ctx context.Context, req *router.CompletionR
 	}
 
 	content := oResp.Choices[0].Message.Content
-	if content == "" && oResp.Choices[0].Message.ReasoningContent != "" {
-		content = oResp.Choices[0].Message.ReasoningContent
+	reasoning := oResp.Choices[0].Message.ReasoningContent
+	if content == "" && reasoning != "" {
+		slog.Debug("[deepseek] content empty but reasoning_content present, using reasoning_content",
+			"reasoning_len", len(reasoning))
+		content = reasoning
 	}
 	if content == "" {
 		return nil, fmt.Errorf("empty content in response (raw: %s)", string(respBody[:min(len(respBody), 500)]))

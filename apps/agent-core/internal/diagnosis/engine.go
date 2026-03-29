@@ -138,6 +138,41 @@ func notify(fn ProgressFn, step, detail string) {
 	}
 }
 
+// extractJSON finds the first valid JSON object in a string that may contain
+// mixed natural language and JSON. This handles DeepSeek R1 models that return
+// reasoning text with embedded JSON.
+func extractJSON(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.TrimPrefix(s, "```json")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSuffix(s, "```")
+	s = strings.TrimSpace(s)
+
+	if len(s) > 0 && s[0] == '{' {
+		return s
+	}
+
+	start := strings.Index(s, "{")
+	if start == -1 {
+		return s
+	}
+
+	depth := 0
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return s[start : i+1]
+			}
+		}
+	}
+
+	return s[start:]
+}
+
 // Step 1: IntentParse — use LLM to classify the problem
 func (e *Engine) stepIntentParse(ctx context.Context, input string) (*DiagnosisPlan, error) {
 	if e.llmRouter == nil {
@@ -151,11 +186,11 @@ func (e *Engine) stepIntentParse(ctx context.Context, input string) (*DiagnosisP
 
 User's problem: %s
 
-Respond ONLY with the JSON object, no other text.`, input)
+You MUST respond with ONLY a JSON object. No explanation, no markdown, no thinking process. Just the raw JSON object starting with { and ending with }.`, input)
 
 	resp, err := e.llmRouter.Complete(ctx, &router.CompletionRequest{
 		Messages: []router.Message{
-			{Role: "system", Content: "You are a structured diagnostic classifier. Output only valid JSON."},
+			{Role: "system", Content: "You are a structured diagnostic classifier. You MUST output ONLY a valid JSON object. No explanation, no markdown fences, no thinking. Just raw JSON."},
 			{Role: "user", Content: prompt},
 		},
 		MaxTokens:   256,
@@ -166,14 +201,11 @@ Respond ONLY with the JSON object, no other text.`, input)
 	}
 
 	var plan DiagnosisPlan
-	content := strings.TrimSpace(resp.Content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
+	content := extractJSON(resp.Content)
+	slog.Debug("[diagnosis] IntentParse raw response", "content_len", len(resp.Content), "extracted_json", content[:min(len(content), 200)])
 
 	if err := json.Unmarshal([]byte(content), &plan); err != nil {
-		return nil, fmt.Errorf("parse LLM response: %w (content: %s)", err, content)
+		return nil, fmt.Errorf("parse LLM response: %w (content: %s)", err, content[:min(len(content), 300)])
 	}
 	return &plan, nil
 }
@@ -262,14 +294,14 @@ Return a JSON object with:
 - "approval_required": boolean (true if any action is L1 or above)
 - "next_step": string describing what to do next
 
-Respond ONLY with the JSON object.`, plan.ProblemType, plan.Scope, string(evidenceJSON))
+You MUST respond with ONLY a JSON object. No explanation, no markdown, no thinking process. Just the raw JSON object starting with { and ending with }.`, plan.ProblemType, plan.Scope, string(evidenceJSON))
 
 	resp, err := e.llmRouter.Complete(ctx, &router.CompletionRequest{
 		Messages: []router.Message{
-			{Role: "system", Content: "You are a structured IT diagnostic engine. Output only valid JSON."},
+			{Role: "system", Content: "You are a structured IT diagnostic engine. You MUST output ONLY a valid JSON object. No explanation, no markdown fences, no thinking. Just raw JSON."},
 			{Role: "user", Content: prompt},
 		},
-		MaxTokens:   1024,
+		MaxTokens:   2048,
 		Temperature: 0.2,
 	})
 	if err != nil {
@@ -277,14 +309,11 @@ Respond ONLY with the JSON object.`, plan.ProblemType, plan.Scope, string(eviden
 	}
 
 	var result DiagnosisResult
-	content := strings.TrimSpace(resp.Content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
+	content := extractJSON(resp.Content)
+	slog.Debug("[diagnosis] Reasoning raw response", "content_len", len(resp.Content), "extracted_json", content[:min(len(content), 200)])
 
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return nil, fmt.Errorf("parse reasoning response: %w", err)
+		return nil, fmt.Errorf("parse reasoning response: %w (content: %s)", err, content[:min(len(content), 300)])
 	}
 	return &result, nil
 }
