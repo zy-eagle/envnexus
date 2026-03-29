@@ -23,4 +23,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   chooseAgentBinary: () => ipcRenderer.invoke('choose-agent-binary'),
   restartAgentCore: () => ipcRenderer.invoke('restart-agent-core'),
+
+  // Agent Core logs & detection
+  getAgentCoreLogs: () => ipcRenderer.invoke('get-agent-core-logs'),
+  getDetectedAgentPath: () => ipcRenderer.invoke('get-detected-agent-path'),
+  onAgentCoreLog: (callback: (log: string) => void) => {
+    ipcRenderer.on('agent-core-log', (_event, log: string) => callback(log));
+  },
 });

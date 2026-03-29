@@ -598,6 +598,12 @@
       </span>
       <span class="nav-label">历史会话</span>
     </div>
+    <div class="nav-item" data-page="logs" onclick="navigate('logs')">
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 6h6M5 8.5h4M5 11h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      </span>
+      <span class="nav-label">运行日志</span>
+    </div>
     <div class="nav-item" data-page="settings" onclick="navigate('settings')">
       <span class="icon">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -711,6 +717,23 @@
     </div>
   </div>
 
+  <!-- Logs -->
+  <div id="page-logs" class="page">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <div class="page-title" id="logs-title" style="margin:0">Agent Core 运行日志</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-secondary" id="logs-refresh-btn" onclick="loadLogs()">↻ 刷新</button>
+        <button class="btn btn-ghost" id="logs-clear-btn" onclick="clearLogsView()">清空</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <pre id="logs-content" style="max-height:520px; min-height:200px; margin:0; border-radius:var(--radius); font-size:11px; line-height:1.7; padding:16px;">等待日志...</pre>
+    </div>
+    <div style="margin-top:8px; font-size:11px; color:var(--text-muted);" id="logs-hint">
+      实时显示 agent-core 进程的 stdout/stderr 输出。最多保留 2000 行。
+    </div>
+  </div>
+
   <!-- Settings -->
   <div id="page-settings" class="page">
     <div class="page-title" id="settings-title">设置</div>
@@ -782,7 +805,7 @@
 const i18n = {
   zh: {
     nav_dashboard: '仪表盘', nav_diagnosis: '诊断对话', nav_approvals: '待审批',
-    nav_history: '历史会话', nav_settings: '设置',
+    nav_history: '历史会话', nav_logs: '运行日志', nav_settings: '设置',
     status_online: '在线', status_offline: '离线', status_connecting: '连接中...',
     dash_title: '仪表盘',
     dash_offline_alert: '⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。',
@@ -839,11 +862,15 @@ const i18n = {
     settings_agent_addr: 'Agent Core 地址', settings_project_home: '项目主页',
     settings_auto_detect: '自动检测',
     settings_choose_binary_title: '选择 enx-agent 可执行文件',
+    settings_detected: '自动检测到',
+    logs_title: 'Agent Core 运行日志', logs_refresh: '↻ 刷新', logs_clear: '清空',
+    logs_waiting: '等待日志...', logs_empty: '暂无日志输出。Agent Core 可能未启动。',
+    logs_hint: '实时显示 agent-core 进程的 stdout/stderr 输出。最多保留 2000 行。',
     unknown_error: '未知错误',
   },
   en: {
     nav_dashboard: 'Dashboard', nav_diagnosis: 'Diagnosis', nav_approvals: 'Approvals',
-    nav_history: 'History', nav_settings: 'Settings',
+    nav_history: 'History', nav_logs: 'Logs', nav_settings: 'Settings',
     status_online: 'Online', status_offline: 'Offline', status_connecting: 'Connecting...',
     dash_title: 'Dashboard',
     dash_offline_alert: '⚠ agent-core is unreachable. Running in offline (read-only) mode.',
@@ -900,6 +927,10 @@ const i18n = {
     settings_agent_addr: 'Agent Core Address', settings_project_home: 'Project Home',
     settings_auto_detect: 'Auto-detect',
     settings_choose_binary_title: 'Select enx-agent executable',
+    settings_detected: 'Auto-detected',
+    logs_title: 'Agent Core Logs', logs_refresh: '↻ Refresh', logs_clear: 'Clear',
+    logs_waiting: 'Waiting for logs...', logs_empty: 'No log output. Agent Core may not be running.',
+    logs_hint: 'Real-time stdout/stderr output from agent-core process. Up to 2000 lines retained.',
     unknown_error: 'Unknown error',
   }
 };
@@ -923,6 +954,7 @@ function applyLanguage(lang) {
   document.querySelector('[data-page="diagnosis"] .nav-label').textContent = t('nav_diagnosis');
   document.querySelector('[data-page="approvals"] .nav-label').textContent = t('nav_approvals');
   document.querySelector('[data-page="history"] .nav-label').textContent = t('nav_history');
+  document.querySelector('[data-page="logs"] .nav-label').textContent = t('nav_logs');
   document.querySelector('[data-page="settings"] .nav-label').textContent = t('nav_settings');
 
   document.getElementById('dash-title').textContent = t('dash_title');
@@ -951,6 +983,11 @@ function applyLanguage(lang) {
   document.getElementById('approvals-refresh-btn').textContent = t('approvals_refresh');
   document.getElementById('history-title').textContent = t('history_title');
 
+  document.getElementById('logs-title').textContent = t('logs_title');
+  document.getElementById('logs-refresh-btn').textContent = t('logs_refresh');
+  document.getElementById('logs-clear-btn').textContent = t('logs_clear');
+  document.getElementById('logs-hint').textContent = t('logs_hint');
+
   document.getElementById('settings-title').textContent = t('settings_title');
   document.getElementById('settings-general-title').textContent = t('settings_general');
   document.getElementById('label-language').textContent = t('settings_language');
@@ -978,6 +1015,7 @@ function applyLanguage(lang) {
     if (pageId === 'dashboard') loadDashboard();
     if (pageId === 'history') loadHistory();
     if (pageId === 'approvals') loadApprovals();
+    if (pageId === 'logs') loadLogs();
   }
 }
 
@@ -992,6 +1030,7 @@ function navigate(page) {
 
   if (page === 'approvals') loadApprovals();
   if (page === 'history') loadHistory();
+  if (page === 'logs') loadLogs();
   if (page === 'settings') loadSettings_();
   if (page === 'dashboard') loadDashboard();
 }
@@ -1243,6 +1282,47 @@ async function loadHistory() {
   }
 }
 
+// ── Logs ──────────────────────────────────────────────────────────────────────
+async function loadLogs() {
+  const pre = document.getElementById('logs-content');
+  try {
+    const logs = await api.getAgentCoreLogs();
+    if (!logs || logs.trim() === '') {
+      pre.textContent = t('logs_empty');
+    } else {
+      pre.textContent = logs;
+      pre.scrollTop = pre.scrollHeight;
+    }
+  } catch (e) {
+    pre.textContent = t('logs_empty');
+  }
+}
+
+function clearLogsView() {
+  document.getElementById('logs-content').textContent = t('logs_waiting');
+}
+
+if (api.onAgentCoreLog) {
+  api.onAgentCoreLog((log) => {
+    const pre = document.getElementById('logs-content');
+    const activePage = document.querySelector('.page.active');
+    if (activePage && activePage.id === 'page-logs') {
+      const isAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
+      const waiting = pre.textContent === t('logs_waiting') || pre.textContent === t('logs_empty');
+      if (waiting) {
+        pre.textContent = log + '\n';
+      } else {
+        pre.textContent += log + '\n';
+      }
+      const lines = pre.textContent.split('\n');
+      if (lines.length > 2000) {
+        pre.textContent = lines.slice(-2000).join('\n');
+      }
+      if (isAtBottom) pre.scrollTop = pre.scrollHeight;
+    }
+  });
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function loadSettings_() {
   try {
@@ -1254,6 +1334,15 @@ async function loadSettings_() {
     document.getElementById('setting-auto-start').value = s.autoStart ? 'true' : 'false';
     const ver = await api.getAppVersion();
     document.getElementById('about-version').textContent = 'v' + ver;
+
+    if (api.getDetectedAgentPath) {
+      const detected = await api.getDetectedAgentPath();
+      const pathInput = document.getElementById('setting-agent-path');
+      if (detected) {
+        pathInput.placeholder = detected;
+        document.getElementById('hint-agent-path').textContent = t('settings_agent_hint') + ' (' + t('settings_detected') + ': ' + detected + ')';
+      }
+    }
   } catch (e) {
     console.error('loadSettings error', e);
   }

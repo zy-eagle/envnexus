@@ -32,6 +32,10 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let agentCoreProcess: child_process.ChildProcess | null = null;
 let isQuitting = false;
+let agentCoreLogs: string[] = [];
+const MAX_LOG_LINES = 2000;
+let lastSpawnTime = 0;
+const MIN_SPAWN_INTERVAL_MS = 3000;
 
 const DEFAULT_SETTINGS: Settings = {
   language: 'zh',
@@ -156,11 +160,34 @@ function platformAPIRequest(endpoint: string, token: string): Promise<any> {
 function spawnAgentCore(): void {
   if (agentCoreProcess) return;
 
+  const now = Date.now();
+  if (now - lastSpawnTime < MIN_SPAWN_INTERVAL_MS) {
+    console.warn('spawnAgentCore called too quickly, throttling');
+    return;
+  }
+  lastSpawnTime = now;
+
   const settings = loadSettings();
   const binaryPath = settings.agentCorePath || findAgentCoreBinary();
 
   if (!binaryPath || !fs.existsSync(binaryPath)) {
     console.warn('agent-core binary not found, skipping spawn');
+    appendAgentLog('[WARN] enx-agent binary not found. It will be auto-detected from common paths. If the problem persists, set the path manually in Settings.');
+    return;
+  }
+
+  const resolvedBinary = path.resolve(binaryPath).toLowerCase();
+  const selfExe = path.resolve(app.getPath('exe')).toLowerCase();
+  if (resolvedBinary === selfExe) {
+    console.error('SAFETY: agentCorePath points to the Electron app itself — aborting spawn to prevent infinite loop');
+    appendAgentLog('[ERROR] agentCorePath points to the Electron app itself. Please set the correct enx-agent binary path in Settings.');
+    return;
+  }
+
+  const baseName = path.basename(resolvedBinary).toLowerCase();
+  if (baseName.includes('envnexus') || baseName.includes('electron')) {
+    console.error('SAFETY: agentCorePath appears to be an Electron/desktop binary, not enx-agent — aborting spawn');
+    appendAgentLog(`[ERROR] Binary "${baseName}" does not look like enx-agent. Please check Settings > Agent Core path.`);
     return;
   }
 
@@ -188,11 +215,15 @@ function spawnAgentCore(): void {
   });
 
   agentCoreProcess.stdout?.on('data', (data) => {
-    console.log('[agent-core]', data.toString().trim());
+    const line = data.toString().trim();
+    console.log('[agent-core]', line);
+    appendAgentLog(line);
   });
 
   agentCoreProcess.stderr?.on('data', (data) => {
-    console.error('[agent-core]', data.toString().trim());
+    const line = data.toString().trim();
+    console.error('[agent-core]', line);
+    appendAgentLog(line);
   });
 
   agentCoreProcess.on('exit', (code) => {
@@ -212,32 +243,88 @@ function spawnAgentCore(): void {
 function findAgentCoreBinary(): string {
   const isWin = process.platform === 'win32';
   const binaryName = isWin ? 'enx-agent.exe' : 'enx-agent';
+  const appExeDir = path.dirname(app.getPath('exe'));
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 
   const candidates = [
-    // Electron packaged app: extraResources/bin/
+    // 1. Electron packaged app: extraResources/bin/
     path.join(process.resourcesPath || '', 'bin', binaryName),
-    // Development: project root bin/
+    // 2. Same directory as the desktop app exe
+    path.join(appExeDir, binaryName),
+    // 3. bin/ subfolder next to the desktop app
+    path.join(appExeDir, 'bin', binaryName),
+    // 4. Agent data directory (where agent.enx lives)
+    path.join(getAgentDataDir(), binaryName),
+    // 5. Development: project root bin/
     path.join(app.getAppPath(), '..', '..', 'bin', binaryName),
-    // Same directory as the desktop app
-    path.join(path.dirname(app.getPath('exe')), binaryName),
-    // Current working directory
+    // 6. Current working directory
     path.join(process.cwd(), binaryName),
     path.join(process.cwd(), 'bin', binaryName),
+    // 7. User's Downloads folder (common after extracting ZIP)
+    path.join(app.getPath('downloads'), binaryName),
   ];
 
-  if (!isWin) {
+  if (isWin) {
+    // 8. Common Windows install locations
+    candidates.push(path.join(homeDir, '.envnexus', 'agent', binaryName));
+    candidates.push(path.join(homeDir, '.envnexus', binaryName));
+    // 9. Search extracted ZIP folders in Downloads (EnvNexus-Agent-windows-*)
+    try {
+      const dlDir = app.getPath('downloads');
+      const entries = fs.readdirSync(dlDir);
+      for (const entry of entries) {
+        if (entry.startsWith('EnvNexus-Agent-') && fs.statSync(path.join(dlDir, entry)).isDirectory()) {
+          candidates.push(path.join(dlDir, entry, binaryName));
+        }
+      }
+    } catch {}
+  } else {
     candidates.push('/usr/local/bin/enx-agent');
-    candidates.push(path.join(process.env.HOME || '', '.local', 'bin', 'enx-agent'));
+    candidates.push(path.join(homeDir, '.local', 'bin', 'enx-agent'));
+    candidates.push(path.join(homeDir, '.envnexus', 'agent', binaryName));
+    candidates.push(path.join(homeDir, '.envnexus', binaryName));
   }
 
-  return candidates.find((p) => fs.existsSync(p)) || '';
+  const found = candidates.find((p) => {
+    try { return fs.existsSync(p); } catch { return false; }
+  });
+
+  if (found) {
+    console.log('[auto-detect] Found enx-agent at:', found);
+  } else {
+    console.warn('[auto-detect] enx-agent not found in any candidate path');
+    candidates.forEach(c => console.log('  checked:', c));
+  }
+
+  return found || '';
 }
 
 function stopAgentCore(): void {
-  if (agentCoreProcess) {
-    agentCoreProcess.kill('SIGTERM');
-    agentCoreProcess = null;
+  if (!agentCoreProcess) return;
+  const proc = agentCoreProcess;
+  agentCoreProcess = null;
+  try {
+    if (process.platform === 'win32') {
+      child_process.execSync(`taskkill /pid ${proc.pid} /f /t`, { stdio: 'ignore' });
+    } else {
+      proc.kill('SIGTERM');
+    }
+  } catch {
+    try { proc.kill('SIGKILL'); } catch {}
   }
+}
+
+function appendAgentLog(line: string): void {
+  const timestamp = new Date().toISOString().substring(11, 19);
+  for (const l of line.split('\n')) {
+    if (l.trim()) {
+      agentCoreLogs.push(`[${timestamp}] ${l}`);
+    }
+  }
+  while (agentCoreLogs.length > MAX_LOG_LINES) {
+    agentCoreLogs.shift();
+  }
+  mainWindow?.webContents.send('agent-core-log', line);
 }
 
 // ── Tray ───────────────────────────────────────────────────────────────────────
@@ -362,7 +449,8 @@ function buildTrayMenu(): void {
       label: agentCoreProcess ? trayText('restart_core') : trayText('start_core'),
       click: () => {
         stopAgentCore();
-        setTimeout(spawnAgentCore, 500);
+        lastSpawnTime = 0;
+        setTimeout(spawnAgentCore, 1500);
       },
     },
     { type: 'separator' },
@@ -398,13 +486,72 @@ function createTray(): void {
 
 // ── Window ─────────────────────────────────────────────────────────────────────
 
+function createAppIcon(): NativeImage {
+  const size = 256;
+  const buf = Buffer.alloc(size * size * 4, 0);
+  const brandR = 99, brandG = 102, brandB = 241;
+  const cornerR = size * 0.22;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      if (isInsideRoundedRect(x, y, 4, 4, size - 8, size - 8, cornerR)) {
+        buf[idx] = brandR; buf[idx + 1] = brandG; buf[idx + 2] = brandB; buf[idx + 3] = 255;
+
+        const lx = x - size * 0.28;
+        const ly = y - size * 0.22;
+        const ew = size * 0.44;
+        const eh = size * 0.56;
+        const barW = ew * 0.18;
+        const hBarH = eh * 0.14;
+
+        const isE = (lx >= 0 && lx <= barW && ly >= 0 && ly <= eh) ||
+                    (lx >= 0 && lx <= ew && ly >= 0 && ly <= hBarH) ||
+                    (lx >= 0 && lx <= ew * 0.85 && ly >= eh * 0.43 && ly <= eh * 0.43 + hBarH) ||
+                    (lx >= 0 && lx <= ew && ly >= eh - hBarH && ly <= eh);
+
+        if (isE) {
+          buf[idx] = 255; buf[idx + 1] = 255; buf[idx + 2] = 255; buf[idx + 3] = 255;
+        }
+      }
+    }
+  }
+  return nativeImage.createFromBuffer(buf, { width: size, height: size });
+}
+
+function isInsideRoundedRect(px: number, py: number, rx: number, ry: number, rw: number, rh: number, cr: number): boolean {
+  const x = px - rx;
+  const y = py - ry;
+  if (x < 0 || x > rw || y < 0 || y > rh) return false;
+  if (x < cr && y < cr) {
+    const dx = x - cr, dy = y - cr;
+    return dx * dx + dy * dy <= cr * cr;
+  }
+  if (x > rw - cr && y < cr) {
+    const dx = x - (rw - cr), dy = y - cr;
+    return dx * dx + dy * dy <= cr * cr;
+  }
+  if (x < cr && y > rh - cr) {
+    const dx = x - cr, dy = y - (rh - cr);
+    return dx * dx + dy * dy <= cr * cr;
+  }
+  if (x > rw - cr && y > rh - cr) {
+    const dx = x - (rw - cr), dy = y - (rh - cr);
+    return dx * dx + dy * dy <= cr * cr;
+  }
+  return true;
+}
+
 function createWindow(): void {
+  const appIcon = createAppIcon();
+
   mainWindow = new BrowserWindow({
     width: 960,
     height: 680,
     minWidth: 720,
     minHeight: 500,
     title: 'EnvNexus Agent',
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
@@ -478,7 +625,8 @@ function registerIPC(): void {
 
   ipcMain.handle('restart-agent-core', () => {
     stopAgentCore();
-    setTimeout(spawnAgentCore, 500);
+    lastSpawnTime = 0;
+    setTimeout(spawnAgentCore, 1500);
     return { ok: true };
   });
 
@@ -487,6 +635,14 @@ function registerIPC(): void {
   ipcMain.handle('get-recent-sessions', () =>
     localAPIRequest('GET', '/local/v1/sessions/recent')
   );
+
+  ipcMain.handle('get-agent-core-logs', () => agentCoreLogs.join('\n'));
+
+  ipcMain.handle('get-detected-agent-path', () => {
+    const settings = loadSettings();
+    if (settings.agentCorePath) return settings.agentCorePath;
+    return findAgentCoreBinary();
+  });
 }
 
 // ── Health polling ─────────────────────────────────────────────────────────────
@@ -536,6 +692,34 @@ function initAutoUpdate(): void {
     }, 4 * 60 * 60 * 1000);
   } catch {
     console.log('[updater] electron-updater not available (dev mode)');
+  }
+}
+
+// ── Config sync from agent.enx ────────────────────────────────────────────────
+
+function syncSettingsFromEnxConfig(): void {
+  const agentDataDir = getAgentDataDir();
+  const enxPaths = [
+    path.join(agentDataDir, 'agent.enx'),
+    path.join(path.dirname(app.getPath('exe')), 'agent.enx'),
+    path.join(process.resourcesPath || '', 'agent.enx'),
+  ];
+
+  for (const enxPath of enxPaths) {
+    try {
+      if (!fs.existsSync(enxPath)) continue;
+      const cfg = parseTOMLConfig(fs.readFileSync(enxPath, 'utf-8'));
+      if (!cfg.platform_url) continue;
+
+      const settings = loadSettings();
+      const isDefault = !settings.platformURL || settings.platformURL === DEFAULT_SETTINGS.platformURL;
+      if (isDefault && cfg.platform_url !== settings.platformURL) {
+        settings.platformURL = cfg.platform_url;
+        saveSettings(settings);
+        console.log('[config-sync] Updated platformURL from agent.enx:', cfg.platform_url);
+      }
+      return;
+    } catch {}
   }
 }
 
@@ -624,10 +808,27 @@ function importBundledConfig(): void {
   }
 }
 
+// ── Single instance lock ────────────────────────────────────────────────────────
+
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
   importBundledConfig();
+  syncSettingsFromEnxConfig();
   registerIPC();
   createTray();
   createWindow();
