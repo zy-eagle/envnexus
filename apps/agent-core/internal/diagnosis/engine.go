@@ -180,7 +180,7 @@ func (e *Engine) stepIntentParse(ctx context.Context, input string) (*DiagnosisP
 	}
 
 	prompt := fmt.Sprintf(`You are an IT diagnostic assistant. Analyze the user's problem description and return a JSON object with:
-- "problem_type": one of "network", "dns", "service", "performance", "disk", "auth", "general"
+- "problem_type": one of "network", "dns", "service", "performance", "disk", "auth", "install", "general"
 - "scope": one of "local", "network", "system"
 - "risk_bias": one of "conservative", "moderate", "aggressive"
 
@@ -215,10 +215,11 @@ func (e *Engine) stepEvidencePlan(plan *DiagnosisPlan) []string {
 	toolMapping := map[string][]string{
 		"network":     {"read_network_config", "read_proxy_config", "read_system_info", "ping_host", "dns_lookup", "read_route_table", "read_env_vars"},
 		"dns":         {"read_network_config", "read_system_info", "dns_lookup", "read_env_vars"},
-		"service":     {"read_system_info", "read_process_list", "read_env_vars", "http_check"},
+		"service":     {"read_system_info", "read_process_list", "read_env_vars", "http_check", "read_event_log", "check_runtime_deps"},
 		"performance": {"read_system_info", "read_process_list", "read_disk_usage"},
-		"disk":        {"read_system_info", "read_disk_usage"},
+		"disk":        {"read_system_info", "read_disk_usage", "read_dir_list"},
 		"auth":        {"read_system_info", "read_env_vars", "check_tls_cert"},
+		"install":     {"read_system_info", "read_disk_usage", "read_installed_apps", "check_runtime_deps", "read_event_log", "read_env_vars", "read_file_info"},
 		"general":     {"read_system_info", "read_network_config", "read_proxy_config", "read_env_vars"},
 	}
 
@@ -376,6 +377,14 @@ func (e *Engine) heuristicPlan(input string) *DiagnosisPlan {
 	case strings.Contains(lower, "auth") || strings.Contains(lower, "认证") || strings.Contains(lower, "登录") ||
 		strings.Contains(lower, "password") || strings.Contains(lower, "密码") || strings.Contains(lower, "权限"):
 		plan.ProblemType = "auth"
+	case strings.Contains(lower, "install") || strings.Contains(lower, "安装") || strings.Contains(lower, "setup") ||
+		strings.Contains(lower, "卸载") || strings.Contains(lower, "uninstall") || strings.Contains(lower, "依赖") ||
+		strings.Contains(lower, "dependency") || strings.Contains(lower, "runtime") || strings.Contains(lower, "运行时") ||
+		strings.Contains(lower, "dll") || strings.Contains(lower, "缺少") || strings.Contains(lower, "missing") ||
+		strings.Contains(lower, "版本") || strings.Contains(lower, "version") || strings.Contains(lower, "兼容") ||
+		strings.Contains(lower, "compatible"):
+		plan.ProblemType = "install"
+		plan.Scope = "local"
 	}
 
 	if host := ipOrHostRe.FindString(input); host != "" {
