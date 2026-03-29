@@ -63,7 +63,7 @@ build-desktop: build-agents
 	@echo "Step 3: Compiling TypeScript..."
 	cd apps/agent-desktop && npm run build
 	@echo "Step 4: Building installers..."
-	cd apps/agent-desktop && npm run dist
+	cd apps/agent-desktop && npm run dist:win && npm run dist:linux
 	@echo "Desktop installers built in apps/agent-desktop/release/"
 
 run-platform:
