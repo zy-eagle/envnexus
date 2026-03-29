@@ -10,6 +10,7 @@ type DownloadPackage struct {
 	Platform              string
 	Arch                  string
 	Version               string
+	PackageType           string `gorm:"column:package_type"`
 	PackageName           string
 	DownloadURL           string
 	ArtifactPath          string

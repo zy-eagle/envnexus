@@ -13,6 +13,7 @@ interface DownloadPackage {
   platform: string;
   arch: string;
   version: string;
+  package_type: string;
   package_name: string;
   download_url: string;
   checksum: string;
@@ -63,6 +64,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     platform: 'linux',
     arch: 'amd64',
     version: '0.1.0',
+    package_type: 'installer' as 'installer' | 'portable',
     activation_auto: true,
     activation_manual: false,
     max_devices: 1,
@@ -413,6 +415,50 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                       className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
+
+                  {/* Package Type */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{t.packageType}</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label
+                        className={`relative flex flex-col p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                          formData.package_type === 'installer'
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="package_type"
+                          value="installer"
+                          checked={formData.package_type === 'installer'}
+                          onChange={() => setFormData({ ...formData, package_type: 'installer' })}
+                          className="sr-only"
+                        />
+                        <span className="text-sm font-medium text-gray-900">{t.packageTypeInstaller}</span>
+                        <span className="text-xs text-gray-500 mt-1">{t.packageTypeInstallerDesc}</span>
+                      </label>
+                      <label
+                        className={`relative flex flex-col p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                          formData.package_type === 'portable'
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="package_type"
+                          value="portable"
+                          checked={formData.package_type === 'portable'}
+                          onChange={() => setFormData({ ...formData, package_type: 'portable' })}
+                          className="sr-only"
+                        />
+                        <span className="text-sm font-medium text-gray-900">{t.packageTypePortable}</span>
+                        <span className="text-xs text-gray-500 mt-1">{t.packageTypePortableDesc}</span>
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="flex justify-end space-x-3 mt-6">
                     <button
                       type="button"
@@ -579,7 +625,14 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
                 <tr key={pkg.id}>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900 truncate" title={pkg.package_name}>{pkg.package_name}</td>
                   <td className="px-4 py-3 text-sm text-gray-500 truncate" title={agentProfileName(pkg.agent_profile_id)}>{agentProfileName(pkg.agent_profile_id)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{pkg.platform}/{pkg.arch}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    <div>{pkg.platform}/{pkg.arch}</div>
+                    {pkg.package_type === 'portable' && (
+                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                        {t.packageTypePortable}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-500">{pkg.version}</td>
                   <td className="px-4 py-3 text-sm">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${

@@ -57,11 +57,40 @@ func (b *Bootstrapper) SetDataDir(dir string) {
 }
 
 func DefaultConfigDir() string {
+	if dir := portableDataDir(); dir != "" {
+		return dir
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = "."
 	}
 	return filepath.Join(homeDir, ".envnexus", "agent")
+}
+
+// portableDataDir returns the data directory when a `.portable` marker
+// exists next to the executable or in a parent directory (ZIP/portable distribution).
+// When bundled inside Electron, the binary lives at resources/bin/enx-agent.exe
+// while .portable is at the app root, so we check up to 3 levels.
+func portableDataDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(exePath)
+	for i := 0; i < 4; i++ {
+		marker := filepath.Join(dir, ".portable")
+		if _, err := os.Stat(marker); err == nil {
+			dataDir := filepath.Join(dir, "data")
+			os.MkdirAll(dataDir, 0o755)
+			return dataDir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 func (b *Bootstrapper) ApplyCLIOverrides(o config.CLIOverrides) {

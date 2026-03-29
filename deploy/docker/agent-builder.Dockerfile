@@ -60,12 +60,27 @@ RUN cp bin/enx-agent-linux-amd64 bin/enx-agent && \
 #   - NSIS/wine tools: already cached
 WORKDIR /project/apps/agent-desktop
 RUN echo "=== Building Windows NSIS installer ===" && \
-    npx electron-builder --win --x64 \
-        --config.directories.output=/installers/win \
+    npx electron-builder --win nsis --x64 \
+        --config.directories.output=/installers/win-nsis \
         --config.extraResources.0.from=../../bin/ \
         --config.extraResources.0.to=bin \
         --config.extraResources.0.filter[0]=enx-agent.exe \
     2>&1 | tail -15 && \
+    echo "=== Building Windows Portable ZIP ===" && \
+    npx electron-builder --win zip --x64 \
+        --config.directories.output=/installers/win-zip \
+        --config.extraResources.0.from=../../bin/ \
+        --config.extraResources.0.to=bin \
+        --config.extraResources.0.filter[0]=enx-agent.exe \
+    2>&1 | tail -15 && \
+    echo "=== Injecting .portable marker into ZIP ===" && \
+    echo "portable" > /tmp/.portable && \
+    for f in /installers/win-zip/*.zip; do \
+        if [ -f "$f" ]; then \
+            (cd /tmp && zip -g "$f" .portable) && \
+            echo "  ✓ Injected .portable into $(basename $f)"; \
+        fi; \
+    done && \
     echo "=== Building Linux AppImage ===" && \
     npx electron-builder --linux --x64 \
         --config.directories.output=/installers/linux \
@@ -76,10 +91,13 @@ RUN echo "=== Building Windows NSIS installer ===" && \
     echo "=== Normalizing output filenames ===" && \
     mkdir -p /out/installers && \
     win_found=false && \
-    for f in /installers/win/*.exe; do \
+    for f in /installers/win-nsis/*.exe; do \
         if [ -f "$f" ]; then cp "$f" /out/installers/EnvNexus-Agent-Setup-windows-amd64.exe && win_found=true && break; fi; \
     done && \
     if [ "$win_found" = "false" ]; then echo "ERROR: Windows NSIS installer was NOT produced!" && exit 1; fi && \
+    for f in /installers/win-zip/*.zip; do \
+        [ -f "$f" ] && cp "$f" /out/installers/EnvNexus-Agent-Portable-windows-amd64.zip && break; \
+    done; \
     for f in /installers/linux/*.AppImage; do \
         [ -f "$f" ] && cp "$f" /out/installers/EnvNexus-Agent-linux-amd64.AppImage && break; \
     done; \

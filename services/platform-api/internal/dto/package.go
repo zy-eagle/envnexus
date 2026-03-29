@@ -8,6 +8,7 @@ type CreatePackageRequest struct {
 	Platform         string `json:"platform" binding:"required"`
 	Arch             string `json:"arch" binding:"required"`
 	Version          string `json:"version" binding:"required"`
+	PackageType      string `json:"package_type"`
 	ActivationMode   string `json:"activation_mode"`
 	MaxDevices       int    `json:"max_devices"`
 }
@@ -20,6 +21,7 @@ type PackageResponse struct {
 	Platform         string    `json:"platform"`
 	Arch             string    `json:"arch"`
 	Version          string    `json:"version"`
+	PackageType      string    `json:"package_type"`
 	PackageName      string    `json:"package_name"`
 	DownloadURL      string    `json:"download_url"`
 	Checksum         string    `json:"checksum"`

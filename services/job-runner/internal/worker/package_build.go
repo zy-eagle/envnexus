@@ -37,6 +37,7 @@ type packageBuildPayload struct {
 	TenantID        string `json:"tenant_id"`
 	Platform        string `json:"platform"`
 	Arch            string `json:"arch"`
+	PackageType     string `json:"package_type,omitempty"`
 	ActivationMode  string `json:"activation_mode,omitempty"`
 	ActivationKey   string `json:"activation_key,omitempty"`
 	EnrollmentToken string `json:"enrollment_token,omitempty"`
@@ -170,9 +171,18 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 	w.updateBuildProgress(ctx, p.PackageID, "config", 15)
 	configENX := w.buildConfigENX(p)
 
+	packageType := p.PackageType
+	if packageType == "" {
+		packageType = "installer"
+	}
+
 	w.updateBuildProgress(ctx, p.PackageID, "downloading", 25)
-	installerData, installerName, err := w.downloadInstaller(ctx, p.Platform, p.Arch)
+	installerData, installerName, err := w.downloadInstallerForType(ctx, p.Platform, p.Arch, packageType)
 	if err != nil {
+		if packageType == "portable" {
+			slog.Warn("Portable package not found, falling back to raw binary", "error", err)
+			return w.buildFallbackPackage(ctx, p, configENX, artifactPath)
+		}
 		if p.Platform != "linux" {
 			return fmt.Errorf("desktop installer not found for %s/%s — please run agent-builder first to produce the installer: %w", p.Platform, p.Arch, err)
 		}
@@ -182,6 +192,10 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 
 	w.updateBuildProgress(ctx, p.PackageID, "packaging", 55)
 
+	if packageType == "portable" {
+		return w.buildPortablePackage(ctx, p, installerData, configENX, artifactPath)
+	}
+
 	folderPrefix := fmt.Sprintf("EnvNexus-Agent-%s-%s/", p.Platform, p.Arch)
 
 	pr, pw := io.Pipe()
@@ -189,7 +203,7 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 
 	go func() {
 		_, err := w.minioClient.PutObject(ctx, w.bucket, artifactPath,
-			pr, -1, // Use -1 to let MinIO handle unknown size (since zip headers add unpredictable overhead)
+			pr, -1,
 			minio.PutObjectOptions{ContentType: "application/zip"},
 		)
 		uploadErrCh <- err
@@ -221,10 +235,19 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 	return w.markReady(ctx, p.PackageID, artifactPath)
 }
 
+func (w *PackageBuildWorker) downloadInstallerForType(ctx context.Context, platform, arch, packageType string) ([]byte, string, error) {
+	candidates := installerCandidatesForType(platform, arch, packageType)
+	return w.downloadFromCandidates(ctx, candidates, platform, arch)
+}
+
 // downloadInstaller tries to fetch the desktop installer from MinIO.
 // Uses StatObject first for fast existence check, then downloads only the matching file.
 func (w *PackageBuildWorker) downloadInstaller(ctx context.Context, platform, arch string) ([]byte, string, error) {
 	candidates := installerCandidates(platform, arch)
+	return w.downloadFromCandidates(ctx, candidates, platform, arch)
+}
+
+func (w *PackageBuildWorker) downloadFromCandidates(ctx context.Context, candidates []string, platform, arch string) ([]byte, string, error) {
 
 	var foundKey string
 	var foundSize int64
@@ -258,17 +281,24 @@ func (w *PackageBuildWorker) downloadInstaller(ctx context.Context, platform, ar
 }
 
 func installerCandidates(platform, arch string) []string {
+	return installerCandidatesForType(platform, arch, "installer")
+}
+
+func installerCandidatesForType(platform, arch, packageType string) []string {
+	if packageType == "portable" {
+		return portableCandidates(platform, arch)
+	}
 	switch platform {
 	case "windows":
 		return []string{
-			fmt.Sprintf("EnvNexus Agent Setup 0.2.0.exe"), // The exact name uploaded by host build
+			"EnvNexus Agent Setup 0.2.0.exe",
 			fmt.Sprintf("EnvNexus-Agent-Setup-windows-%s.exe", arch),
 			fmt.Sprintf("EnvNexus-Agent-Setup-%s.exe", arch),
 			"EnvNexus-Agent-Setup-windows-amd64.exe",
 		}
 	case "linux":
 		return []string{
-			fmt.Sprintf("EnvNexus Agent-0.2.0.AppImage"), // The exact name uploaded by host build
+			"EnvNexus Agent-0.2.0.AppImage",
 			fmt.Sprintf("EnvNexus-Agent-linux-%s.AppImage", arch),
 			fmt.Sprintf("EnvNexus-Agent-%s.AppImage", arch),
 			"EnvNexus-Agent-linux-amd64.AppImage",
@@ -277,6 +307,28 @@ func installerCandidates(platform, arch string) []string {
 		return []string{
 			fmt.Sprintf("EnvNexus-Agent-darwin-%s.dmg", arch),
 			fmt.Sprintf("EnvNexus-Agent-%s.dmg", arch),
+		}
+	}
+	return nil
+}
+
+func portableCandidates(platform, arch string) []string {
+	switch platform {
+	case "windows":
+		return []string{
+			"EnvNexus Agent-0.2.0-win.zip",
+			fmt.Sprintf("EnvNexus-Agent-Portable-windows-%s.zip", arch),
+			"EnvNexus-Agent-Portable-windows-amd64.zip",
+		}
+	case "linux":
+		return []string{
+			fmt.Sprintf("EnvNexus-Agent-Portable-linux-%s.tar.gz", arch),
+			fmt.Sprintf("EnvNexus-Agent-linux-%s.tar.gz", arch),
+		}
+	case "darwin":
+		return []string{
+			fmt.Sprintf("EnvNexus-Agent-Portable-darwin-%s.zip", arch),
+			fmt.Sprintf("EnvNexus-Agent-darwin-%s.zip", arch),
 		}
 	}
 	return nil
@@ -297,6 +349,73 @@ func createStoreEntry(w *zip.Writer, name string, data []byte) error {
 	}
 	_, err = fw.Write(data)
 	return err
+}
+
+// buildPortablePackage takes the base portable ZIP and injects agent.enx into it
+// so the user only needs to extract once — everything is ready to run.
+func (w *PackageBuildWorker) buildPortablePackage(ctx context.Context, p packageBuildPayload, baseZipData, configENX []byte, artifactPath string) error {
+	reader, err := zip.NewReader(bytes.NewReader(baseZipData), int64(len(baseZipData)))
+	if err != nil {
+		return fmt.Errorf("failed to read portable base ZIP: %w", err)
+	}
+
+	pr, pw := io.Pipe()
+	uploadErrCh := make(chan error, 1)
+
+	go func() {
+		_, err := w.minioClient.PutObject(ctx, w.bucket, artifactPath,
+			pr, -1,
+			minio.PutObjectOptions{ContentType: "application/zip"},
+		)
+		uploadErrCh <- err
+	}()
+
+	zw := zip.NewWriter(pw)
+	var zipErr error
+
+	for _, entry := range reader.File {
+		if zipErr != nil {
+			break
+		}
+		header := entry.FileHeader
+		fw, err := zw.CreateHeader(&header)
+		if err != nil {
+			zipErr = err
+			break
+		}
+		if !entry.FileInfo().IsDir() {
+			rc, err := entry.Open()
+			if err != nil {
+				zipErr = err
+				break
+			}
+			_, zipErr = io.Copy(fw, rc)
+			rc.Close()
+		}
+	}
+
+	if zipErr == nil {
+		zipErr = createStoreEntry(zw, "agent.enx", configENX)
+	}
+	if zipErr == nil {
+		zipErr = zw.Close()
+	}
+	pw.CloseWithError(zipErr)
+
+	w.updateBuildProgress(ctx, p.PackageID, "uploading", 85)
+
+	if uploadErr := <-uploadErrCh; uploadErr != nil {
+		if zipErr != nil {
+			return fmt.Errorf("zip creation failed: %v; upload also failed: %w", zipErr, uploadErr)
+		}
+		return fmt.Errorf("failed to upload portable package: %w", uploadErr)
+	}
+	if zipErr != nil {
+		return fmt.Errorf("failed to create portable package: %w", zipErr)
+	}
+
+	w.updateBuildProgress(ctx, p.PackageID, "done", 100)
+	return w.markReady(ctx, p.PackageID, artifactPath)
 }
 
 // buildFallbackPackage creates a ZIP with raw binary + agent.enx when no installer is available.

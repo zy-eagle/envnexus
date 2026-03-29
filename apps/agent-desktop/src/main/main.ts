@@ -45,12 +45,31 @@ const DEFAULT_SETTINGS: Settings = {
   autoStart: true,
 };
 
-const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
+// Portable mode: when a `.portable` marker file exists next to the exe,
+// all data (settings, agent data, logs) lives alongside the binary
+// instead of in %APPDATA% or system-level directories.
+const PORTABLE_BASE_DIR = path.dirname(app.getPath('exe'));
+const IS_PORTABLE = fs.existsSync(path.join(PORTABLE_BASE_DIR, '.portable'));
 
-// Agent data directory: aligned with the app's install location.
-// On Windows (NSIS install): C:\Program Files\EnvNexus Agent\data
-// Fallback: ~/.envnexus/agent
+function isPortableMode(): boolean {
+  return IS_PORTABLE;
+}
+
+function getPortableBaseDir(): string {
+  return PORTABLE_BASE_DIR;
+}
+
+const SETTINGS_FILE = isPortableMode()
+  ? path.join(getPortableBaseDir(), 'settings.json')
+  : path.join(app.getPath('userData'), 'settings.json');
+
 function getAgentDataDir(): string {
+  if (isPortableMode()) {
+    const dataDir = path.join(getPortableBaseDir(), 'data');
+    fs.mkdirSync(dataDir, { recursive: true });
+    return dataDir;
+  }
+
   const appDir = path.dirname(app.getPath('exe'));
   const dataDir = path.join(appDir, 'data');
   try {

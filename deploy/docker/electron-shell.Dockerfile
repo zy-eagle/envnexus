@@ -15,6 +15,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 FROM electronuserland/builder:wine
 
+RUN apt-get -qq update && apt-get -qq install -y zip >/dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /project/apps/agent-desktop
 
 # Layer 1: Dependencies — cached until package.json changes

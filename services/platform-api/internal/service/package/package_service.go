@@ -34,7 +34,16 @@ func NewService(pkgRepo repository.PackageRepository, enrollRepo repository.Enro
 }
 
 func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.CreatePackageRequest) (*dto.PackageResponse, error) {
-	pkgName := fmt.Sprintf("EnvNexus-Agent-%s-%s-%s.zip", req.Platform, req.Arch, req.Version)
+	packageType := req.PackageType
+	if packageType == "" {
+		packageType = "installer"
+	}
+
+	typeLabel := ""
+	if packageType == "portable" {
+		typeLabel = "-Portable"
+	}
+	pkgName := fmt.Sprintf("EnvNexus-Agent%s-%s-%s-%s.zip", typeLabel, req.Platform, req.Arch, req.Version)
 	artifactPath := fmt.Sprintf("packages/%s/%s", tenantID, pkgName)
 
 	activationMode := req.ActivationMode
@@ -61,6 +70,7 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 		Platform:          req.Platform,
 		Arch:              req.Arch,
 		Version:           req.Version,
+		PackageType:       packageType,
 		PackageName:       pkgName,
 		DownloadURL:       "",
 		ArtifactPath:      artifactPath,
@@ -204,6 +214,7 @@ func (s *Service) toResponse(ctx context.Context, pkg *domain.DownloadPackage) *
 		Platform:         pkg.Platform,
 		Arch:             pkg.Arch,
 		Version:          pkg.Version,
+		PackageType:      pkg.PackageType,
 		PackageName:      pkg.PackageName,
 		DownloadURL:      downloadURL,
 		Checksum:         pkg.Checksum,
