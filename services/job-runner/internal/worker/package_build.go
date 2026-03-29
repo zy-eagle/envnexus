@@ -183,11 +183,10 @@ func (w *PackageBuildWorker) buildPackage(ctx context.Context, jobID string, pay
 
 	pr, pw := io.Pipe()
 	uploadErrCh := make(chan error, 1)
-	estimatedSize := int64(len(installerData) + len(configENX) + 1024)
 
 	go func() {
 		_, err := w.minioClient.PutObject(ctx, w.bucket, artifactPath,
-			pr, estimatedSize,
+			pr, -1, // Use -1 to let MinIO handle unknown size (since zip headers add unpredictable overhead)
 			minio.PutObjectOptions{ContentType: "application/zip"},
 		)
 		uploadErrCh <- err
@@ -259,12 +258,14 @@ func installerCandidates(platform, arch string) []string {
 	switch platform {
 	case "windows":
 		return []string{
+			fmt.Sprintf("EnvNexus Agent Setup 0.2.0.exe"), // The exact name uploaded by host build
 			fmt.Sprintf("EnvNexus-Agent-Setup-windows-%s.exe", arch),
 			fmt.Sprintf("EnvNexus-Agent-Setup-%s.exe", arch),
 			"EnvNexus-Agent-Setup-windows-amd64.exe",
 		}
 	case "linux":
 		return []string{
+			fmt.Sprintf("EnvNexus Agent-0.2.0.AppImage"), // The exact name uploaded by host build
 			fmt.Sprintf("EnvNexus-Agent-linux-%s.AppImage", arch),
 			fmt.Sprintf("EnvNexus-Agent-%s.AppImage", arch),
 			"EnvNexus-Agent-linux-amd64.AppImage",
@@ -324,11 +325,10 @@ func (w *PackageBuildWorker) buildFallbackPackage(ctx context.Context, p package
 
 	pr, pw := io.Pipe()
 	uploadErrCh := make(chan error, 1)
-	estimatedSize := int64(len(binaryData) + len(configENX) + 1024)
 
 	go func() {
 		_, err := w.minioClient.PutObject(ctx, w.bucket, artifactPath,
-			pr, estimatedSize,
+			pr, -1, // Use -1 to let MinIO handle unknown size (since zip headers add unpredictable overhead)
 			minio.PutObjectOptions{ContentType: "application/zip"},
 		)
 		uploadErrCh <- err
