@@ -64,12 +64,12 @@ export default function Sidebar() {
   const tenantLinks = [
     { href: `/tenants/${tid}/devices`, icon: 'devices', label: t.devices },
     { href: `/tenants/${tid}/sessions`, icon: 'sessions', label: t.sessions },
+    { href: `/tenants/${tid}/governance`, icon: 'governance', label: t.governance },
     { href: `/tenants/${tid}/audit-events`, icon: 'audit', label: t.auditEvents },
-    { href: `/tenants/${tid}/download-packages`, icon: 'download', label: t.downloadPackages },
     { href: `/tenants/${tid}/model-profiles`, icon: 'model', label: t.modelProfiles },
     { href: `/tenants/${tid}/policy-profiles`, icon: 'policy', label: t.policyProfiles },
     { href: `/tenants/${tid}/agent-profiles`, icon: 'agent', label: t.agentProfiles },
-    { href: `/tenants/${tid}/governance`, icon: 'governance', label: t.governance },
+    { href: `/tenants/${tid}/download-packages`, icon: 'download', label: t.downloadPackages },
   ];
 
   return (

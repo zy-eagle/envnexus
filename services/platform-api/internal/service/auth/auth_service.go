@@ -197,6 +197,28 @@ func (s *Service) RefreshAccessToken(ctx context.Context, refreshTokenStr string
 	}, nil
 }
 
+func (s *Service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return domain.ErrIncorrectPassword
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return domain.ErrInternalError
+	}
+
+	user.PasswordHash = string(hashed)
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return domain.ErrInternalError
+	}
+	return nil
+}
+
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(bytes), err

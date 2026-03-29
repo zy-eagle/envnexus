@@ -51,4 +51,5 @@ var (
 	ErrBindingNotFound       = NewAppError("binding_not_found", "device binding not found", http.StatusNotFound)
 	ErrBindingRevoked        = NewAppError("binding_revoked", "device binding has been revoked", http.StatusForbidden)
 	ErrFingerprintMismatch   = NewAppError("fingerprint_mismatch", "hardware fingerprint does not match", http.StatusForbidden)
+	ErrIncorrectPassword     = NewAppError("incorrect_password", "current password is incorrect", http.StatusBadRequest)
 )

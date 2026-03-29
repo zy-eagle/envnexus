@@ -30,6 +30,7 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/metrics"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
 	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/governance"
 	package_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/package"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/policy_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/rbac"
@@ -94,6 +95,7 @@ func main() {
 		webhookDelRepo    repository.WebhookDeliveryRepository
 		toolInvRepo       repository.ToolInvocationRepository
 		bindingRepo       repository.DeviceBindingRepository
+		govRepo           repository.GovernanceRepository
 	)
 
 	var gormDB *gorm.DB
@@ -122,6 +124,7 @@ func main() {
 		webhookDelRepo = repository.NewMySQLWebhookDeliveryRepository(db)
 		toolInvRepo = repository.NewMySQLToolInvocationRepository(db)
 		bindingRepo = repository.NewMySQLDeviceBindingRepository(db)
+		govRepo = repository.NewMySQLGovernanceRepository(db)
 		slog.Info("connected to MySQL database")
 
 		if err := migrations.Run(db); err != nil {
@@ -176,6 +179,7 @@ func main() {
 		sessionService.SetToolInvocationRepository(toolInvRepo)
 	}
 	rbacService := rbac.NewService(roleRepo, rbindingRepo)
+	governanceService := governance.NewService(govRepo)
 	webhookService := webhook.NewService(webhookSubRepo, webhookDelRepo)
 	var metricsService *metrics.Service
 	var licenseService *license.Service
@@ -214,6 +218,7 @@ func main() {
 	sessionHandler := httphandler.NewSessionHandler(sessionService)
 	auditHandler := httphandler.NewAuditHandler(auditService)
 	rbacHandler := httphandler.NewRBACHandler(rbacService)
+	governanceHandler := httphandler.NewGovernanceHandler(governanceService)
 	webhookHandler := httphandler.NewWebhookHandler(webhookService)
 	var metricsHandler *httphandler.MetricsHandler
 	var licenseHandler *httphandler.LicenseHandler
@@ -229,6 +234,7 @@ func main() {
 	agentLifecycleHandler := agent.NewLifecycleHandler(deviceService, agentProfileRepo, modelProfileRepo, policyProfileRepo)
 	agentApprovalHandler := agent.NewApprovalHandler(sessionService)
 	agentActivateHandler := agent.NewActivateHandler(bindingService)
+	agentGovernanceHandler := agent.NewGovernanceHandler(governanceService)
 
 	// --- Router ---
 	router := gin.Default()
@@ -305,6 +311,7 @@ func main() {
 	protectedV1.Use(middleware.JWTAuth(jwtSecret))
 	{
 		protectedV1.GET("/me", func(c *gin.Context) { authHandler.Me(c) })
+		protectedV1.PUT("/me/password", func(c *gin.Context) { authHandler.ChangePassword(c) })
 		tenantHandler.RegisterRoutes(protectedV1)
 		tokenHandler.RegisterRoutes(protectedV1)
 		pkgHandler.RegisterRoutes(protectedV1)
@@ -315,6 +322,7 @@ func main() {
 		sessionHandler.RegisterRoutes(protectedV1)
 		auditHandler.RegisterRoutes(protectedV1)
 		rbacHandler.RegisterRoutes(protectedV1)
+		governanceHandler.RegisterRoutes(protectedV1)
 		webhookHandler.RegisterRoutes(protectedV1)
 		if metricsHandler != nil {
 			metricsHandler.RegisterRoutes(protectedV1)
@@ -340,6 +348,7 @@ func main() {
 	agentAuditHandler.RegisterRoutes(agentDeviceGroup)
 	agentLifecycleHandler.RegisterRoutes(agentDeviceGroup)
 	agentApprovalHandler.RegisterRoutes(agentDeviceGroup)
+	agentGovernanceHandler.RegisterRoutes(agentDeviceGroup)
 
 	// --- Server ---
 	server := &http.Server{

@@ -84,6 +84,26 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	})
 }
 
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		mw.RespondError(c, mw.ErrUnauthorizedFromContext())
+		return
+	}
+
+	var req dto.ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+
+	if err := h.authService.ChangePassword(c.Request.Context(), userID.(string), req.CurrentPassword, req.NewPassword); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"message": "password changed successfully"})
+}
+
 func (h *AuthHandler) Bootstrap(c *gin.Context) {
 	mw.RespondSuccess(c, http.StatusOK, gin.H{
 		"platform":    "EnvNexus",
