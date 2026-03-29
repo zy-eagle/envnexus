@@ -26,10 +26,11 @@ RUN --mount=type=cache,target=/root/.npm \
     npm install --prefer-offline --no-audit --no-fund && \
     echo "✓ npm install complete"
 
-# Layer 2: Source + assets + TypeScript compile
+# Layer 2: Source + assets + build scripts + TypeScript compile
 COPY apps/agent-desktop/tsconfig.json ./
 COPY apps/agent-desktop/src/ ./src/
 COPY apps/agent-desktop/assets/ ./assets/
+COPY apps/agent-desktop/build/ ./build/
 
 RUN npx tsc && echo "✓ TypeScript compiled"
 
