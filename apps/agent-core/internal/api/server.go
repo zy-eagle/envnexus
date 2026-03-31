@@ -37,6 +37,7 @@ type LocalServer struct {
 	platformConnected bool
 	chatApprovals     sync.Map
 	chatCancelFuncs   sync.Map
+	chatAutoApprove   sync.Map
 }
 
 func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine, diagEngine *diagnosis.Engine, llmRouter *router.Router, toolRegistry *tools.Registry) *LocalServer {
@@ -82,6 +83,7 @@ func (s *LocalServer) Start() error {
 		api.POST("/chat", s.handleChat)
 		api.POST("/chat/approve", s.handleChatApprove)
 		api.POST("/chat/cancel", s.handleChatCancel)
+		api.POST("/chat/auto-approve", s.handleChatAutoApprove)
 		api.POST("/diagnostics/export", s.handleDiagnosticsExport)
 		api.GET("/sessions/recent", s.handleRecentSessions)
 	}
@@ -329,6 +331,7 @@ func (s *LocalServer) handleChat(c *gin.Context) {
 	chatSessionID := fmt.Sprintf("chat-session-%d", time.Now().UnixNano())
 	s.chatCancelFuncs.Store(chatSessionID, cancel)
 	defer s.chatCancelFuncs.Delete(chatSessionID)
+	defer s.chatAutoApprove.Delete(chatSessionID)
 
 	writeSSE("session", gin.H{"session_id": chatSessionID})
 
@@ -340,6 +343,15 @@ func (s *LocalServer) handleChat(c *gin.Context) {
 			writeSSE(string(evt.Type), evt.Content)
 		}),
 		agent.WithApprovalHandler(func(req agent.ApprovalRequest) agent.ApprovalResponse {
+			if _, autoApproved := s.chatAutoApprove.Load(chatSessionID); autoApproved {
+				slog.Info("[api] Auto-approved tool execution", "session_id", chatSessionID, "tool", req.ToolName)
+				writeSSE("auto_approved", gin.H{
+					"tool_name": req.ToolName,
+					"params":    req.Params,
+				})
+				return agent.ApprovalResponse{Approved: true}
+			}
+
 			approvalID := fmt.Sprintf("chat-%d", time.Now().UnixNano())
 			ch := make(chan bool, 1)
 			s.chatApprovals.Store(approvalID, ch)
@@ -425,4 +437,27 @@ func (s *LocalServer) handleChatCancel(c *gin.Context) {
 	cancelFunc()
 	slog.Info("[api] Chat session cancelled", "session_id", req.SessionID)
 	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
+}
+
+type ChatAutoApproveRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+	Enabled   bool   `json:"enabled"`
+}
+
+func (s *LocalServer) handleChatAutoApprove(c *gin.Context) {
+	var req ChatAutoApproveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Enabled {
+		s.chatAutoApprove.Store(req.SessionID, true)
+		slog.Info("[api] Auto-approve enabled for chat session", "session_id", req.SessionID)
+	} else {
+		s.chatAutoApprove.Delete(req.SessionID)
+		slog.Info("[api] Auto-approve disabled for chat session", "session_id", req.SessionID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "auto_approve": req.Enabled})
 }

@@ -812,9 +812,20 @@ function registerIPC(): void {
 
   let activeChatRequest: http.ClientRequest | null = null;
   let activeChatSessionId: string | null = null;
+  let chatCancelling = false;
 
   ipcMain.handle('send-chat', (_e, messages: Array<{ role: string; content: string }>) => {
+    chatCancelling = false;
     return new Promise((resolve) => {
+      let resolved = false;
+      const safeResolve = (val: any) => {
+        if (resolved) return;
+        resolved = true;
+        activeChatRequest = null;
+        activeChatSessionId = null;
+        resolve(val);
+      };
+
       const postData = JSON.stringify({ messages });
       const req = http.request({
         hostname: '127.0.0.1',
@@ -842,17 +853,11 @@ function registerIPC(): void {
                 if (currentEvent === 'session') {
                   activeChatSessionId = data.session_id || null;
                 } else if (currentEvent === 'done') {
-                  activeChatRequest = null;
-                  activeChatSessionId = null;
-                  resolve(data);
+                  safeResolve(data);
                 } else if (currentEvent === 'error') {
-                  activeChatRequest = null;
-                  activeChatSessionId = null;
-                  resolve(data);
+                  safeResolve(data);
                 } else if (currentEvent === 'cancelled') {
-                  activeChatRequest = null;
-                  activeChatSessionId = null;
-                  resolve({ cancelled: true, message: data.message || 'Cancelled' });
+                  safeResolve({ cancelled: true, message: data.message || 'Cancelled' });
                 } else if (mainWindow) {
                   mainWindow.webContents.send('chat-event', { type: currentEvent, content: data });
                 }
@@ -862,26 +867,29 @@ function registerIPC(): void {
           }
         });
         res.on('end', () => {
-          activeChatRequest = null;
-          activeChatSessionId = null;
+          if (chatCancelling) {
+            safeResolve({ cancelled: true, message: 'Cancelled' });
+            return;
+          }
           if (buffer.includes('data: ')) {
             const dataLine = buffer.split('\n').find(l => l.startsWith('data: '));
             if (dataLine) {
-              try { resolve(JSON.parse(dataLine.slice(6))); } catch { /* ignore */ }
+              try { safeResolve(JSON.parse(dataLine.slice(6))); return; } catch { /* ignore */ }
             }
           }
+          safeResolve({ error: 'Connection closed unexpectedly' });
         });
       });
       req.on('error', (e) => {
-        activeChatRequest = null;
-        activeChatSessionId = null;
-        resolve({ error: `agent-core not reachable: ${e.message}` });
+        if (chatCancelling) {
+          safeResolve({ cancelled: true, message: 'Cancelled' });
+        } else {
+          safeResolve({ error: `agent-core not reachable: ${e.message}` });
+        }
       });
       req.setTimeout(660000, () => {
         req.destroy();
-        activeChatRequest = null;
-        activeChatSessionId = null;
-        resolve({ error: 'chat timed out (660s)' });
+        safeResolve({ error: 'chat timed out (660s)' });
       });
       activeChatRequest = req;
       req.write(postData);
@@ -890,22 +898,33 @@ function registerIPC(): void {
   });
 
   ipcMain.handle('cancel-chat', async () => {
+    chatCancelling = true;
     if (activeChatSessionId) {
       try {
         await localAPIRequest('POST', '/local/v1/chat/cancel', { session_id: activeChatSessionId }, 3000);
       } catch { /* best effort */ }
     }
-    if (activeChatRequest) {
-      activeChatRequest.destroy();
-      activeChatRequest = null;
-    }
-    activeChatSessionId = null;
+    setTimeout(() => {
+      if (activeChatRequest) {
+        activeChatRequest.destroy();
+        activeChatRequest = null;
+      }
+      activeChatSessionId = null;
+    }, 2000);
     return { ok: true };
   });
 
   ipcMain.handle('chat-approve', (_e, approvalId: string, approved: boolean) =>
     safeLocalAPI('POST', '/local/v1/chat/approve', { approval_id: approvalId, approved })
   );
+
+  ipcMain.handle('chat-auto-approve', (_e, enabled: boolean) => {
+    if (!activeChatSessionId) return { error: 'no active chat session' };
+    return safeLocalAPI('POST', '/local/v1/chat/auto-approve', {
+      session_id: activeChatSessionId,
+      enabled,
+    });
+  });
 
   ipcMain.handle('get-settings', () => loadSettings());
 

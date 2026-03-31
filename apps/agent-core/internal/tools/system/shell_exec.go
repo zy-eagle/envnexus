@@ -11,45 +11,44 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 )
 
-// safeReadOnlyCommands lists commands that are safe to run without user approval.
+// safeReadOnlyCommands lists commands that are genuinely read-only diagnostics.
 // Commands NOT in this list will trigger the approval flow — no hard blocking.
+//
+// IMPORTANT: Only add commands here that CANNOT modify system state.
+// Commands like net, sc, schtasks, netsh, iptables, systemctl, docker, kubectl
+// are excluded because they have write sub-commands.
 var safeReadOnlyCommands = map[string]map[string]bool{
 	"windows": {
 		"ipconfig": true, "netstat": true, "nslookup": true, "ping": true,
-		"tracert": true, "pathping": true, "route": true, "arp": true,
-		"getmac": true, "nbtstat": true, "netsh": true,
+		"tracert": true, "pathping": true, "arp": true,
+		"getmac": true, "nbtstat": true,
 		"hostname": true, "systeminfo": true, "tasklist": true, "whoami": true,
-		"net": true, "wmic": true, "sc": true, "schtasks": true, "certutil": true,
-		"findstr": true, "type": true, "dir": true, "set": true, "where": true,
-		"echo": true, "ver": true, "vol": true, "tree": true,
+		"findstr": true, "type": true, "dir": true, "where": true,
+		"echo": true, "ver": true, "vol": true, "tree": true, "set": true,
 	},
 	"linux": {
-		"ip": true, "ifconfig": true, "netstat": true, "ss": true,
+		"ifconfig": true, "netstat": true, "ss": true,
 		"nslookup": true, "dig": true, "ping": true, "traceroute": true,
-		"tracepath": true, "route": true, "arp": true, "ethtool": true,
-		"nmcli": true, "resolvectl": true, "iptables": true, "nft": true, "curl": true,
-		"hostname": true, "hostnamectl": true, "uname": true, "uptime": true,
+		"tracepath": true, "arp": true, "ethtool": true,
+		"hostname": true, "uname": true, "uptime": true,
 		"free": true, "df": true, "ps": true, "lsof": true, "whoami": true,
-		"id": true, "dmesg": true, "lsblk": true, "timedatectl": true,
-		"systemctl": true, "journalctl": true, "env": true, "printenv": true,
+		"id": true, "dmesg": true, "lsblk": true,
+		"journalctl": true, "env": true, "printenv": true,
 		"cat": true, "head": true, "tail": true, "grep": true, "ls": true,
 		"stat": true, "wc": true, "awk": true, "find": true, "which": true,
 		"file": true, "du": true, "top": true, "htop": true,
-		"docker": true, "crictl": true, "kubectl": true,
 	},
 	"darwin": {
 		"ifconfig": true, "netstat": true, "nslookup": true, "dig": true,
-		"ping": true, "traceroute": true, "route": true, "arp": true,
-		"scutil": true, "networksetup": true, "curl": true,
+		"ping": true, "traceroute": true, "arp": true,
+		"scutil": true,
 		"hostname": true, "uname": true, "uptime": true, "df": true,
 		"ps": true, "lsof": true, "whoami": true, "id": true,
 		"system_profiler": true, "sw_vers": true, "dscacheutil": true,
-		"pmset": true, "diskutil": true, "launchctl": true,
 		"env": true, "printenv": true,
 		"cat": true, "head": true, "tail": true, "grep": true, "ls": true,
 		"stat": true, "wc": true, "awk": true, "find": true, "which": true,
 		"file": true, "du": true, "top": true, "htop": true,
-		"docker": true, "kubectl": true,
 	},
 }
 

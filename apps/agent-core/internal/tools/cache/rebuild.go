@@ -149,7 +149,7 @@ func resolveCacheDir(cacheType string) (string, error) {
 		case "windows":
 			return filepath.Join(os.Getenv("LOCALAPPDATA"), "Temp"), nil
 		case "linux":
-			return "/var/cache", nil
+			return filepath.Join(homeDir, ".cache"), nil
 		case "darwin":
 			return filepath.Join(homeDir, "Library", "Caches"), nil
 		}
@@ -172,9 +172,7 @@ func resolveCacheDir(cacheType string) (string, error) {
 			return filepath.Join(homeDir, ".cache", "pip"), nil
 		}
 	case "docker":
-		if runtime.GOOS == "linux" {
-			return "/var/lib/docker/tmp", nil
-		}
+		return filepath.Join(homeDir, ".cache", "docker"), nil
 	case "app":
 		return filepath.Join(homeDir, ".envnexus", "cache"), nil
 	}
@@ -198,11 +196,14 @@ func isAllowedCacheDir(dir string) bool {
 			)
 		}
 	}
-	if runtime.GOOS == "linux" {
-		allowedPrefixes = append(allowedPrefixes, "/var/cache")
+
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return false
 	}
 	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(dir, prefix) {
+		absPrefix, _ := filepath.Abs(prefix)
+		if strings.HasPrefix(absDir, absPrefix) {
 			return true
 		}
 	}

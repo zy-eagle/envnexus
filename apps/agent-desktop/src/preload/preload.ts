@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cancelChat: () => ipcRenderer.invoke('cancel-chat'),
   chatApprove: (approvalId: string, approved: boolean) =>
     ipcRenderer.invoke('chat-approve', approvalId, approved),
+  chatAutoApprove: (enabled: boolean) =>
+    ipcRenderer.invoke('chat-auto-approve', enabled),
   onChatEvent: (callback: (event: { type: string; content: unknown }) => void) => {
     ipcRenderer.on('chat-event', (_event, data) => callback(data));
   },

@@ -317,7 +317,8 @@ Guidelines:
 - When the user asks about system state (IP, files, processes, etc.), call the appropriate tool to get real data. Do NOT guess or make up information.
 - You may call multiple tools in sequence if needed to fully answer a question.
 - Present results in a clear, readable format. Summarize key findings.
-- For write operations (service restart, config changes, etc.), explain what you plan to do before calling the tool.
+- ALWAYS call tools directly when the user requests an action. NEVER ask the user for confirmation yourself — the system has a built-in approval mechanism that will automatically prompt the user for approval on sensitive operations. Just call the tool and the system handles the rest.
+- Do NOT simulate or role-play an approval process in your text responses. Do NOT say things like "Do you want me to proceed?" or "Please confirm". Simply call the appropriate tool.
 - If a tool call fails, explain the error and suggest alternatives.
 - Respond in the same language as the user's message.`, runtime.GOOS, runtime.GOARCH)
 }

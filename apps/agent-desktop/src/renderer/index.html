@@ -422,6 +422,31 @@
     }
     #chat-cancel:hover { background: var(--red-700, #b91c1c); }
 
+    #chat-auto-approve-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 12px; background: var(--slate-50, #f8fafc);
+      border: 1px solid var(--border); border-top: none;
+      font-size: 12px; color: var(--slate-500, #64748b);
+    }
+    #chat-auto-approve-row label { cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+    #chat-auto-approve-toggle {
+      position: relative; width: 32px; height: 18px; background: var(--slate-300, #cbd5e1);
+      border-radius: 9px; border: none; cursor: pointer; transition: background 0.2s; padding: 0;
+    }
+    #chat-auto-approve-toggle::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 14px; height: 14px; background: white; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    #chat-auto-approve-toggle.active { background: var(--emerald-600, #059669); }
+    #chat-auto-approve-toggle.active::after { transform: translateX(14px); }
+
+    .msg-auto-approved {
+      background: var(--emerald-50, #ecfdf5); border: 1px solid var(--emerald-200, #a7f3d0);
+      border-radius: var(--radius-sm); padding: 8px 12px; margin: 4px 0;
+      font-size: 12px; color: var(--emerald-700, #047857);
+    }
+
     /* ── Findings ──────────────────────────────────────────────────────── */
     .finding {
       background: var(--card-bg);
@@ -667,6 +692,12 @@
           👋 你好！我是 EnvNexus 本地 AI 助手。你可以问我任何关于这台机器的问题，我会调用工具获取真实数据来回答。
         </div>
       </div>
+      <div id="chat-auto-approve-row">
+        <label>
+          <button id="chat-auto-approve-toggle" onclick="toggleAutoApprove()" title=""></button>
+          <span id="chat-auto-approve-label">允许本次会话所有命令</span>
+        </label>
+      </div>
       <div id="chat-input-row">
         <input id="chat-input" type="text" placeholder="问我任何问题，例如：查看本机 IP、检查磁盘空间、ping 一下 baidu.com..." onkeydown="handleChatKey(event)">
         <button id="chat-send" onclick="sendChatRequest()">发送</button>
@@ -818,6 +849,11 @@ const i18n = {
     chat_approval_title: '需要您的授权',
     chat_cancel: '取消',
     chat_cancelled: '会话已取消',
+    chat_auto_approve: '允许本次会话所有命令',
+    chat_auto_approve_on: '✓ 已开启自动批准',
+    chat_auto_approve_off: '已关闭自动批准',
+    chat_auto_approved: '自动批准',
+    chat_approve_and_allow_all: '✓ 批准并允许后续所有',
     chat_conn_error: '无法连接到 agent-core。请确保 agent-core 正在运行。',
     approvals_title: '待审批操作', approvals_refresh: '↻ 刷新',
     approvals_empty: '暂无待审批操作', approvals_risk: '风险',
@@ -886,6 +922,11 @@ const i18n = {
     chat_approval_title: 'Approval Required',
     chat_cancel: 'Cancel',
     chat_cancelled: 'Chat cancelled',
+    chat_auto_approve: 'Allow all commands in this session',
+    chat_auto_approve_on: '✓ Auto-approve enabled',
+    chat_auto_approve_off: 'Auto-approve disabled',
+    chat_auto_approved: 'Auto-approved',
+    chat_approve_and_allow_all: '✓ Approve & allow all',
     chat_conn_error: 'Cannot connect to agent-core. Make sure agent-core is running.',
     approvals_title: 'Pending Approvals', approvals_refresh: '↻ Refresh',
     approvals_empty: 'No pending approvals', approvals_risk: 'Risk',
@@ -960,6 +1001,8 @@ function applyLanguage(lang) {
   document.getElementById('chat-input').placeholder = t('diag_placeholder');
   document.getElementById('chat-send').textContent = t('diag_send');
   document.getElementById('chat-cancel').textContent = t('chat_cancel');
+  document.getElementById('chat-auto-approve-label').textContent = t('chat_auto_approve');
+  document.getElementById('chat-auto-approve-toggle').title = t('chat_auto_approve');
   const welcomeEl = document.getElementById('chat-welcome');
   if (welcomeEl) welcomeEl.textContent = t('diag_welcome');
 
@@ -1131,9 +1174,19 @@ function addApprovalCard(data) {
     ${paramsStr ? `<pre style="max-height:80px; margin-bottom:8px; font-size:11px;">${escapeHtml(paramsStr)}</pre>` : ''}
     <div class="approval-btns">
       <button class="btn btn-success" onclick="chatApprove('${data.approval_id}', true, this)">${t('approvals_approve')}</button>
+      <button class="btn btn-success" style="background:var(--emerald-600,#059669);" onclick="chatApproveAndAllowAll('${data.approval_id}', this)">${t('chat_approve_and_allow_all')}</button>
       <button class="btn btn-danger" onclick="chatApprove('${data.approval_id}', false, this)">${t('approvals_reject')}</button>
     </div>
   `;
+  document.getElementById('chat-messages').appendChild(div);
+  document.getElementById('chat-messages').scrollTop = 99999;
+  return div;
+}
+
+function addAutoApprovedCard(data) {
+  const div = document.createElement('div');
+  div.className = 'msg-auto-approved';
+  div.innerHTML = `✓ ${t('chat_auto_approved')}: <strong>${escapeHtml(data.tool_name || '?')}</strong>`;
   document.getElementById('chat-messages').appendChild(div);
   document.getElementById('chat-messages').scrollTop = 99999;
   return div;
@@ -1144,6 +1197,8 @@ function escapeHtml(str) {
   d.textContent = str || '';
   return d.innerHTML;
 }
+
+let isAutoApproveEnabled = false;
 
 async function chatApprove(approvalId, approved, btn) {
   btn.disabled = true;
@@ -1156,6 +1211,45 @@ async function chatApprove(approvalId, approved, btn) {
     }
   } catch (e) {
     btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
+  }
+}
+
+async function chatApproveAndAllowAll(approvalId, btn) {
+  btn.disabled = true;
+  btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = true);
+  try {
+    await api.chatApprove(approvalId, true);
+    const card = document.getElementById(`chat-approval-${approvalId}`);
+    if (card) {
+      card.innerHTML = `<div style="text-align:center; padding:8px; color:var(--emerald-700); font-weight:600;">${t('approvals_approved')}</div>`;
+    }
+    await setAutoApprove(true);
+  } catch (e) {
+    btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
+  }
+}
+
+async function toggleAutoApprove() {
+  await setAutoApprove(!isAutoApproveEnabled);
+}
+
+async function setAutoApprove(enabled) {
+  isAutoApproveEnabled = enabled;
+  updateAutoApproveUI();
+  addMsg(enabled ? `🔓 ${t('chat_auto_approve_on')}` : `🔒 ${t('chat_auto_approve_off')}`, 'system');
+  try {
+    await api.chatAutoApprove(enabled);
+  } catch { /* backend sync is best-effort; frontend handles it */ }
+}
+
+function updateAutoApproveUI() {
+  const toggle = document.getElementById('chat-auto-approve-toggle');
+  if (toggle) {
+    if (isAutoApproveEnabled) {
+      toggle.classList.add('active');
+    } else {
+      toggle.classList.remove('active');
+    }
   }
 }
 
@@ -1192,7 +1286,17 @@ if (api.onChatEvent) {
       }
       case 'approval_required': {
         if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
-        addApprovalCard(evt.content || {});
+        const approvalData = evt.content || {};
+        if (isAutoApproveEnabled && approvalData.approval_id) {
+          addAutoApprovedCard(approvalData);
+          api.chatApprove(approvalData.approval_id, true).catch(() => {});
+        } else {
+          addApprovalCard(approvalData);
+        }
+        break;
+      }
+      case 'auto_approved': {
+        addAutoApprovedCard(evt.content || {});
         break;
       }
       case 'message': {
@@ -1234,7 +1338,7 @@ async function sendChatRequest() {
     if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
 
     if (data && data.cancelled) {
-      addMsg(`⏹ ${t('chat_cancelled')}`, 'system');
+      // UI already updated by cancelChatRequest — skip duplicate message
     } else if (data && data.error) {
       addMsg(`⚠ ${escapeHtml(data.error)}`, 'system');
     } else {
@@ -1249,11 +1353,14 @@ async function sendChatRequest() {
     addMsg(`⚠ ${t('chat_conn_error')}<br><small>${escapeHtml(e.message || '')}</small>`, 'system');
   }
 
-  setChatBusy(false);
+  if (isChatBusy) setChatBusy(false);
 }
 
 async function cancelChatRequest() {
   if (!isChatBusy) return;
+  if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+  addMsg(`⏹ ${t('chat_cancelled')}`, 'system');
+  setChatBusy(false);
   try {
     await api.cancelChat();
   } catch { /* best effort */ }
