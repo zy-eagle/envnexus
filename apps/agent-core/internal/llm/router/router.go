@@ -9,25 +9,52 @@ import (
 )
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+}
+
+type ToolDefinition struct {
+	Type     string       `json:"type"`
+	Function FunctionDef  `json:"function"`
+}
+
+type FunctionDef struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Parameters  interface{} `json:"parameters"`
+}
+
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionCall `json:"function"`
+}
+
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type CompletionRequest struct {
-	Messages    []Message `json:"messages"`
-	Model       string    `json:"model,omitempty"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Temperature float64   `json:"temperature,omitempty"`
-	Stream      bool      `json:"stream,omitempty"`
+	Messages    []Message        `json:"messages"`
+	Tools       []ToolDefinition `json:"tools,omitempty"`
+	Model       string           `json:"model,omitempty"`
+	MaxTokens   int              `json:"max_tokens,omitempty"`
+	Temperature float64          `json:"temperature,omitempty"`
+	Stream      bool             `json:"stream,omitempty"`
 }
 
 type CompletionResponse struct {
-	Content      string `json:"content"`
-	Model        string `json:"model"`
-	Provider     string `json:"provider"`
-	PromptTokens int    `json:"prompt_tokens"`
-	CompTokens   int    `json:"completion_tokens"`
-	DurationMs   int64  `json:"duration_ms"`
+	Content      string     `json:"content"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	Model        string     `json:"model"`
+	Provider     string     `json:"provider"`
+	PromptTokens int        `json:"prompt_tokens"`
+	CompTokens   int        `json:"completion_tokens"`
+	DurationMs   int64      `json:"duration_ms"`
 }
 
 type Provider interface {

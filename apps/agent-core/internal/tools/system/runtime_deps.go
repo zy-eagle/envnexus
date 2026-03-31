@@ -20,6 +20,18 @@ func (t *CheckRuntimeDepsTool) Description() string  { return "Checks if common 
 func (t *CheckRuntimeDepsTool) IsReadOnly() bool     { return true }
 func (t *CheckRuntimeDepsTool) RiskLevel() string    { return "L0" }
 
+func (t *CheckRuntimeDepsTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"filter": {
+				Type:        "string",
+				Description: "Filter dependencies by name substring",
+			},
+		},
+	}
+}
+
 type runtimeCheck struct {
 	Name    string
 	Binary  string

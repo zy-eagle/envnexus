@@ -178,6 +178,19 @@ func (t *ShellExecTool) Description() string {
 func (t *ShellExecTool) IsReadOnly() bool  { return true }
 func (t *ShellExecTool) RiskLevel() string { return "L1" }
 
+func (t *ShellExecTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"command": {
+				Type:        "string",
+				Description: "Diagnostic command to execute. Only whitelisted commands are allowed (e.g. ipconfig, netstat, ping, systeminfo, ls, ps, df)",
+			},
+		},
+		Required: []string{"command"},
+	}
+}
+
 func (t *ShellExecTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	command, _ := params["command"].(string)
 	if command == "" {

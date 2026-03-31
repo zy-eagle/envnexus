@@ -339,6 +339,43 @@
       padding: 8px 16px;
     }
     .msg-time { font-size: 10px; opacity: 0.5; margin-top: 4px; }
+    .msg-tool {
+      background: var(--slate-100);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      margin: 4px 0;
+      font-size: 12px;
+      align-self: flex-start;
+      max-width: 85%;
+    }
+    .msg-tool .tool-header {
+      display: flex; align-items: center; gap: 6px;
+      font-weight: 600; color: var(--slate-700); margin-bottom: 4px;
+    }
+    .msg-tool .tool-status { font-size: 11px; color: var(--slate-500); }
+    .msg-tool .tool-output {
+      background: var(--slate-800); color: #e2e8f0;
+      padding: 8px 10px; border-radius: 6px; margin-top: 6px;
+      font-family: 'Cascadia Code','Fira Code','Consolas',monospace;
+      font-size: 11px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    }
+    .msg-approval {
+      background: var(--amber-50);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin: 6px 0;
+      align-self: flex-start;
+      max-width: 85%;
+    }
+    .msg-approval .approval-title {
+      font-weight: 600; color: var(--amber-700); font-size: 13px; margin-bottom: 6px;
+    }
+    .msg-approval .approval-detail {
+      font-size: 12px; color: var(--slate-600); margin-bottom: 10px;
+    }
+    .msg-approval .approval-btns { display: flex; gap: 8px; }
 
     #chat-input-row {
       display: flex;
@@ -608,24 +645,19 @@
     </div>
   </div>
 
-  <!-- Diagnosis -->
+  <!-- Diagnosis / Chat -->
   <div id="page-diagnosis" class="page">
-    <div class="page-title" id="diag-title">诊断对话</div>
-    <div style="border-radius:var(--radius); overflow:hidden; box-shadow:var(--card-shadow);">
-      <div id="chat-messages">
+    <div class="page-title" id="diag-title">智能对话</div>
+    <div style="border-radius:var(--radius); overflow:hidden; box-shadow:var(--card-shadow); display:flex; flex-direction:column; height:calc(100vh - 100px);">
+      <div id="chat-messages" style="flex:1; height:auto;">
         <div class="msg msg-system" id="chat-welcome">
-          👋 你好！我是 EnvNexus 本地 AI 诊断助手。告诉我你遇到了什么问题，我来帮你诊断。
+          👋 你好！我是 EnvNexus 本地 AI 助手。你可以问我任何关于这台机器的问题，我会调用工具获取真实数据来回答。
         </div>
       </div>
       <div id="chat-input-row">
-        <input id="chat-input" type="text" placeholder="描述你的问题，例如：网络无法连接、服务启动失败..." onkeydown="handleChatKey(event)">
-        <button id="chat-send" onclick="sendDiagnosisRequest()">发送</button>
+        <input id="chat-input" type="text" placeholder="问我任何问题，例如：查看本机 IP、检查磁盘空间、ping 一下 baidu.com..." onkeydown="handleChatKey(event)">
+        <button id="chat-send" onclick="sendChatRequest()">发送</button>
       </div>
-    </div>
-
-    <div id="findings-section" style="display:none; margin-top:20px;">
-      <div class="page-title" id="diag-results-title" style="font-size:14px; margin-bottom:12px;">诊断结果</div>
-      <div id="findings-list"></div>
     </div>
   </div>
 
@@ -737,7 +769,7 @@
 // ── i18n ──────────────────────────────────────────────────────────────────────
 const i18n = {
   zh: {
-    nav_dashboard: '仪表盘', nav_diagnosis: '诊断对话', nav_approvals: '待审批',
+    nav_dashboard: '仪表盘', nav_diagnosis: '智能对话', nav_approvals: '待审批',
     nav_history: '历史会话', nav_logs: '运行日志', nav_settings: '设置',
     status_online: '在线', status_offline: '离线', status_connecting: '连接中...',
     dash_title: '仪表盘',
@@ -762,23 +794,15 @@ const i18n = {
     dash_activation_mode: '激活模式', dash_current_session: '当前会话',
     dash_pending: '待审批',
     dash_conn_error: '无法连接到 agent-core：',
-    diag_title: '诊断对话',
-    diag_welcome: '👋 你好！我是 EnvNexus 本地 AI 诊断助手。告诉我你遇到了什么问题，我来帮你诊断。',
-    diag_placeholder: '描述你的问题，例如：网络无法连接、服务启动失败...',
-    diag_send: '发送', diag_analyzing: '分析中...', diag_results: '诊断结果',
-    diag_done: '诊断完成',
-    diag_error: '⚠ 诊断服务返回错误',
-    diag_conn_error: '⚠ 无法连接到 agent-core 诊断服务。请确保 agent-core 正在运行。',
-    diag_step_intent_parse: '正在分析问题类型...',
-    diag_step_intent_parse_fallback: '使用本地启发式分析...',
-    diag_step_plan_ready: '诊断计划就绪',
-    diag_step_evidence_collect: '正在采集系统信息...',
-    diag_step_evidence_done: '信息采集完成',
-    diag_step_reasoning: '正在生成诊断结论...',
-    diag_step_reasoning_fallback: '使用本地分析引擎...',
-    diag_step_complete: '诊断完成',
+    diag_title: '智能对话',
+    diag_welcome: '👋 你好！我是 EnvNexus 本地 AI 助手。你可以问我任何关于这台机器的问题，我会调用工具获取真实数据来回答。',
+    diag_placeholder: '问我任何问题，例如：查看本机 IP、检查磁盘空间、ping 一下 baidu.com...',
+    diag_send: '发送',
     diag_finding: '发现', diag_recommend: '建议：',
-    diag_type: '问题类型', diag_confidence: '置信度',
+    chat_thinking: '思考中...',
+    chat_tool_running: '执行中...',
+    chat_approval_title: '需要您的授权',
+    chat_conn_error: '无法连接到 agent-core。请确保 agent-core 正在运行。',
     approvals_title: '待审批操作', approvals_refresh: '↻ 刷新',
     approvals_empty: '暂无待审批操作', approvals_risk: '风险',
     approvals_approve: '✓ 批准', approvals_reject: '✗ 拒绝',
@@ -811,7 +835,7 @@ const i18n = {
     unknown_error: '未知错误',
   },
   en: {
-    nav_dashboard: 'Dashboard', nav_diagnosis: 'Diagnosis', nav_approvals: 'Approvals',
+    nav_dashboard: 'Dashboard', nav_diagnosis: 'AI Chat', nav_approvals: 'Approvals',
     nav_history: 'History', nav_logs: 'Logs', nav_settings: 'Settings',
     status_online: 'Online', status_offline: 'Offline', status_connecting: 'Connecting...',
     dash_title: 'Dashboard',
@@ -836,23 +860,15 @@ const i18n = {
     dash_activation_mode: 'Activation Mode', dash_current_session: 'Current Session',
     dash_pending: 'Pending',
     dash_conn_error: 'Cannot connect to agent-core: ',
-    diag_title: 'Diagnosis Chat',
-    diag_welcome: '👋 Hi! I\'m the EnvNexus local AI diagnostic assistant. Tell me what issue you\'re experiencing and I\'ll help diagnose it.',
-    diag_placeholder: 'Describe your issue, e.g.: network unreachable, service won\'t start...',
-    diag_send: 'Send', diag_analyzing: 'Analyzing...', diag_results: 'Diagnosis Results',
-    diag_done: 'Diagnosis complete',
-    diag_error: '⚠ Diagnosis service returned an error',
-    diag_conn_error: '⚠ Cannot connect to agent-core diagnosis service. Make sure agent-core is running.',
-    diag_step_intent_parse: 'Analyzing problem type...',
-    diag_step_intent_parse_fallback: 'Using local heuristic analysis...',
-    diag_step_plan_ready: 'Diagnosis plan ready',
-    diag_step_evidence_collect: 'Collecting system information...',
-    diag_step_evidence_done: 'Evidence collected',
-    diag_step_reasoning: 'Generating diagnosis...',
-    diag_step_reasoning_fallback: 'Using local analysis engine...',
-    diag_step_complete: 'Diagnosis complete',
+    diag_title: 'AI Chat',
+    diag_welcome: '👋 Hi! I\'m the EnvNexus local AI assistant. Ask me anything about this machine and I\'ll use tools to get real data for you.',
+    diag_placeholder: 'Ask me anything, e.g.: show my IP, check disk space, ping baidu.com...',
+    diag_send: 'Send',
     diag_finding: 'Finding', diag_recommend: 'Suggestion: ',
-    diag_type: 'Problem Type', diag_confidence: 'Confidence',
+    chat_thinking: 'Thinking...',
+    chat_tool_running: 'Running...',
+    chat_approval_title: 'Approval Required',
+    chat_conn_error: 'Cannot connect to agent-core. Make sure agent-core is running.',
     approvals_title: 'Pending Approvals', approvals_refresh: '↻ Refresh',
     approvals_empty: 'No pending approvals', approvals_risk: 'Risk',
     approvals_approve: '✓ Approve', approvals_reject: '✗ Reject',
@@ -925,7 +941,6 @@ function applyLanguage(lang) {
   document.getElementById('diag-title').textContent = t('diag_title');
   document.getElementById('chat-input').placeholder = t('diag_placeholder');
   document.getElementById('chat-send').textContent = t('diag_send');
-  document.getElementById('diag-results-title').textContent = t('diag_results');
   const welcomeEl = document.getElementById('chat-welcome');
   if (welcomeEl) welcomeEl.textContent = t('diag_welcome');
 
@@ -1062,31 +1077,10 @@ async function loadDashboard() {
   }
 }
 
-// ── Chat / Diagnosis ──────────────────────────────────────────────────────────
+// ── Chat (Agent Loop) ─────────────────────────────────────────────────────────
 let chatHistory = [];
-let activeThinkingMsg = null;
-
-const diagStepLabels = {
-  intent_parse: 'diag_step_intent_parse',
-  intent_parse_fallback: 'diag_step_intent_parse_fallback',
-  plan_ready: 'diag_step_plan_ready',
-  evidence_collect: 'diag_step_evidence_collect',
-  evidence_done: 'diag_step_evidence_done',
-  reasoning: 'diag_step_reasoning',
-  reasoning_fallback: 'diag_step_reasoning_fallback',
-  complete: 'diag_step_complete',
-};
-
-if (api.onDiagnosisProgress) {
-  api.onDiagnosisProgress((data) => {
-    if (activeThinkingMsg && data.step) {
-      const label = t(diagStepLabels[data.step] || '') || data.detail || data.step;
-      activeThinkingMsg.querySelector('div').innerHTML =
-        `<span class="loading"></span> ${label}`;
-      document.getElementById('chat-messages').scrollTop = 99999;
-    }
-  });
-}
+let isChatBusy = false;
+let activeThinkingEl = null;
 
 function addMsg(text, type) {
   const div = document.createElement('div');
@@ -1097,72 +1091,141 @@ function addMsg(text, type) {
   return div;
 }
 
-function handleChatKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDiagnosisRequest(); }
+function addToolCard(toolName, status, detail) {
+  const div = document.createElement('div');
+  div.className = 'msg-tool';
+  const statusIcon = status === 'running' ? '<span class="loading"></span>' : status === 'ok' ? '✅' : status === 'rejected' ? '🚫' : '❌';
+  div.innerHTML = `<div class="tool-header">${statusIcon} <span>🔧 ${escapeHtml(toolName)}</span></div><div class="tool-status">${escapeHtml(detail || status)}</div>`;
+  document.getElementById('chat-messages').appendChild(div);
+  document.getElementById('chat-messages').scrollTop = 99999;
+  return div;
 }
 
-async function sendDiagnosisRequest() {
+function addApprovalCard(data) {
+  const div = document.createElement('div');
+  div.className = 'msg-approval';
+  div.id = `chat-approval-${data.approval_id}`;
+  const paramsStr = data.params ? JSON.stringify(data.params, null, 2) : '';
+  div.innerHTML = `
+    <div class="approval-title">⚠ ${t('chat_approval_title')}: ${escapeHtml(data.tool_name)}</div>
+    <div class="approval-detail">${escapeHtml(data.description || '')}<br>${t('approvals_risk')}: ${riskBadge(data.risk_level)}</div>
+    ${paramsStr ? `<pre style="max-height:80px; margin-bottom:8px; font-size:11px;">${escapeHtml(paramsStr)}</pre>` : ''}
+    <div class="approval-btns">
+      <button class="btn btn-success" onclick="chatApprove('${data.approval_id}', true, this)">${t('approvals_approve')}</button>
+      <button class="btn btn-danger" onclick="chatApprove('${data.approval_id}', false, this)">${t('approvals_reject')}</button>
+    </div>
+  `;
+  document.getElementById('chat-messages').appendChild(div);
+  document.getElementById('chat-messages').scrollTop = 99999;
+  return div;
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+
+async function chatApprove(approvalId, approved, btn) {
+  btn.disabled = true;
+  btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = true);
+  try {
+    await api.chatApprove(approvalId, approved);
+    const card = document.getElementById(`chat-approval-${approvalId}`);
+    if (card) {
+      card.innerHTML = `<div style="text-align:center; padding:8px; color:${approved ? 'var(--emerald-700)' : 'var(--red-700)'}; font-weight:600;">${approved ? t('approvals_approved') : t('approvals_rejected')}</div>`;
+    }
+  } catch (e) {
+    btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
+  }
+}
+
+if (api.onChatEvent) {
+  api.onChatEvent((evt) => {
+    const chatBox = document.getElementById('chat-messages');
+    switch (evt.type) {
+      case 'thinking': {
+        const detail = evt.content?.detail || 'Thinking...';
+        if (activeThinkingEl) {
+          activeThinkingEl.querySelector('div').innerHTML = `<span class="loading"></span> ${escapeHtml(detail)}`;
+        } else {
+          activeThinkingEl = addMsg(`<span class="loading"></span> ${escapeHtml(detail)}`, 'agent');
+        }
+        break;
+      }
+      case 'tool_start': {
+        if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+        const c = evt.content || {};
+        addToolCard(c.tool_name || '?', 'running', t('chat_tool_running'));
+        break;
+      }
+      case 'tool_result': {
+        const c = evt.content || {};
+        const cards = chatBox.querySelectorAll('.msg-tool');
+        const lastCard = cards[cards.length - 1];
+        if (lastCard) {
+          const statusIcon = c.status === 'ok' || c.status === 'success' ? '✅' : c.status === 'rejected' ? '🚫' : '❌';
+          lastCard.querySelector('.tool-header').innerHTML = `${statusIcon} <span>🔧 ${escapeHtml(c.tool_name || '?')}</span>`;
+          lastCard.querySelector('.tool-status').textContent = c.summary || c.status || '';
+          if (c.duration_ms) lastCard.querySelector('.tool-status').textContent += ` (${c.duration_ms}ms)`;
+        }
+        break;
+      }
+      case 'approval_required': {
+        if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+        addApprovalCard(evt.content || {});
+        break;
+      }
+      case 'message': {
+        if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+        break;
+      }
+    }
+    chatBox.scrollTop = 99999;
+  });
+}
+
+function handleChatKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatRequest(); }
+}
+
+async function sendChatRequest() {
+  if (isChatBusy) return;
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  addMsg(text, 'user');
+  isChatBusy = true;
+  document.getElementById('chat-send').disabled = true;
+
+  addMsg(escapeHtml(text), 'user');
   chatHistory.push({ role: 'user', content: text });
 
-  const thinkingMsg = addMsg(`<span class="loading"></span> ${t('diag_analyzing')}`, 'agent');
-  activeThinkingMsg = thinkingMsg;
+  activeThinkingEl = addMsg(`<span class="loading"></span> ${t('chat_thinking')}`, 'agent');
 
   try {
-    const data = await api.sendDiagnose(text, chatHistory);
-    activeThinkingMsg = null;
-    if (data && data.error) throw new Error(data.error);
-    const diag = data.diagnosis || data;
-    const findings = diag.findings || [];
-    const actions = diag.recommended_actions || [];
-    const summary = diag.problem_type
-      ? `${t('diag_type')}: ${diag.problem_type} (${t('diag_confidence')}: ${Math.round((diag.confidence || 0) * 100)}%)`
-      : '';
-    let responseText = summary;
-    if (findings.length > 0) {
-      responseText += (responseText ? '\n\n' : '') + findings.map(f => `• ${f.summary || f.source || ''}`).join('\n');
+    const data = await api.sendChat(chatHistory);
+    if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+
+    if (data && data.error) {
+      addMsg(`⚠ ${escapeHtml(data.error)}`, 'system');
+    } else {
+      const content = data?.content || '';
+      if (content) {
+        addMsg(`<div style="white-space:pre-wrap;">${escapeHtml(content)}</div>`, 'agent');
+        chatHistory.push({ role: 'assistant', content });
+      }
     }
-    if (actions.length > 0) {
-      responseText += '\n\n' + t('diag_recommend') + actions.map(a => `${a.description} (${a.risk_level || 'L0'})`).join('; ');
-    }
-    if (diag.next_step) {
-      responseText += '\n\n📋 ' + diag.next_step;
-    }
-    thinkingMsg.innerHTML = `<div style="white-space:pre-wrap;">${responseText || diag.response || diag.message || t('diag_done')}</div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
-    chatHistory.push({ role: 'assistant', content: responseText || '' });
-    if (findings.length > 0) renderFindings(findings);
   } catch (e) {
-    activeThinkingMsg = null;
-    thinkingMsg.innerHTML = `<div>${t('diag_conn_error')}<br><small style="color:var(--slate-400)">${e.message || ''}</small></div><div class="msg-time">${new Date().toLocaleTimeString()}</div>`;
+    if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+    addMsg(`⚠ ${t('chat_conn_error')}<br><small>${escapeHtml(e.message || '')}</small>`, 'system');
   }
+
+  isChatBusy = false;
+  document.getElementById('chat-send').disabled = false;
 }
 
 let latestFindings = [];
-
-function renderFindings(findings) {
-  latestFindings = findings;
-  const section = document.getElementById('findings-section');
-  const list = document.getElementById('findings-list');
-  section.style.display = 'block';
-  list.innerHTML = '';
-  findings.forEach(f => {
-    const div = document.createElement('div');
-    const level = f.level || f.severity || 'info';
-    const levelClass = level === 'error' || level === 'critical' ? 'critical' : level === 'ok' ? 'ok' : '';
-    div.className = `finding ${levelClass}`;
-    div.innerHTML = `
-      <div class="finding-title">${f.title || f.check_name || f.source || t('diag_finding')}</div>
-      <div class="finding-detail">${f.description || f.detail || f.summary || ''}</div>
-      ${f.recommended_action ? `<div style="font-size:12px; margin-top:6px; color:var(--indigo-600)">${t('diag_recommend')}${f.recommended_action}</div>` : ''}
-    `;
-    list.appendChild(div);
-  });
-  renderDashboardFindings(findings);
-}
 
 function renderDashboardFindings(findings) {
   const container = document.getElementById('latest-findings');

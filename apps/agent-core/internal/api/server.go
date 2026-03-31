@@ -7,15 +7,19 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/activation"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/agent"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/device"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/governance"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/router"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 )
 
 type LocalServer struct {
@@ -24,19 +28,24 @@ type LocalServer struct {
 	identityManager   *device.IdentityManager
 	policyEngine      *policy.Engine
 	diagEngine        *diagnosis.Engine
+	llmRouter         *router.Router
+	toolRegistry      *tools.Registry
 	activationMgr     *activation.Manager
 	governanceEngine  *governance.Engine
 	localStore        *store.Store
 	startTime         time.Time
 	platformConnected bool
+	chatApprovals     sync.Map
 }
 
-func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine, diagEngine *diagnosis.Engine) *LocalServer {
+func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine, diagEngine *diagnosis.Engine, llmRouter *router.Router, toolRegistry *tools.Registry) *LocalServer {
 	return &LocalServer{
 		port:            port,
 		identityManager: identityManager,
 		policyEngine:    policyEngine,
 		diagEngine:      diagEngine,
+		llmRouter:       llmRouter,
+		toolRegistry:    toolRegistry,
 		startTime:       time.Now(),
 	}
 }
@@ -69,6 +78,8 @@ func (s *LocalServer) Start() error {
 		api.GET("/approvals/pending", s.handleGetPendingApprovals)
 		api.POST("/approvals/:id/resolve", s.handleResolveApproval)
 		api.POST("/diagnose", s.handleDiagnose)
+		api.POST("/chat", s.handleChat)
+		api.POST("/chat/approve", s.handleChatApprove)
 		api.POST("/diagnostics/export", s.handleDiagnosticsExport)
 		api.GET("/sessions/recent", s.handleRecentSessions)
 	}
@@ -265,4 +276,118 @@ func (s *LocalServer) handleRecentSessions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"sessions": result})
+}
+
+type ChatRequest struct {
+	Messages []ChatMessage `json:"messages" binding:"required"`
+}
+
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func (s *LocalServer) handleChat(c *gin.Context) {
+	var req ChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if s.llmRouter == nil || s.toolRegistry == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "LLM router or tool registry not configured"})
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
+		return
+	}
+
+	writeSSE := func(event string, data interface{}) {
+		jsonData, _ := json.Marshal(data)
+		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, jsonData)
+		flusher.Flush()
+	}
+
+	messages := make([]router.Message, len(req.Messages))
+	for i, m := range req.Messages {
+		messages[i] = router.Message{Role: m.Role, Content: m.Content}
+	}
+
+	chatCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	loop := agent.NewLoop(
+		s.llmRouter,
+		s.toolRegistry,
+		agent.WithMaxIterations(10),
+		agent.WithEventHandler(func(evt agent.Event) {
+			writeSSE(string(evt.Type), evt.Content)
+		}),
+		agent.WithApprovalHandler(func(req agent.ApprovalRequest) agent.ApprovalResponse {
+			approvalID := fmt.Sprintf("chat-%d", time.Now().UnixNano())
+			ch := make(chan bool, 1)
+			s.chatApprovals.Store(approvalID, ch)
+			defer s.chatApprovals.Delete(approvalID)
+
+			writeSSE("approval_required", gin.H{
+				"approval_id": approvalID,
+				"tool_name":   req.ToolName,
+				"description": req.Description,
+				"risk_level":  req.RiskLevel,
+				"params":      req.Params,
+			})
+
+			select {
+			case approved := <-ch:
+				return agent.ApprovalResponse{Approved: approved}
+			case <-chatCtx.Done():
+				return agent.ApprovalResponse{Approved: false}
+			case <-time.After(5 * time.Minute):
+				return agent.ApprovalResponse{Approved: false}
+			}
+		}),
+	)
+
+	content, err := loop.Run(chatCtx, messages)
+	if err != nil {
+		writeSSE("error", gin.H{"error": err.Error()})
+		return
+	}
+
+	writeSSE("done", gin.H{"content": content})
+}
+
+type ChatApproveRequest struct {
+	ApprovalID string `json:"approval_id" binding:"required"`
+	Approved   bool   `json:"approved"`
+}
+
+func (s *LocalServer) handleChatApprove(c *gin.Context) {
+	var req ChatApproveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	val, ok := s.chatApprovals.Load(req.ApprovalID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "approval not found or expired"})
+		return
+	}
+
+	ch := val.(chan bool)
+	select {
+	case ch <- req.Approved:
+		c.JSON(http.StatusOK, gin.H{"status": "resolved"})
+	default:
+		c.JSON(http.StatusConflict, gin.H{"error": "approval already resolved"})
+	}
 }

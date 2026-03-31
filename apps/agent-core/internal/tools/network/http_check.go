@@ -20,6 +20,17 @@ func (t *HTTPCheckTool) Description() string  { return "Tests HTTP/HTTPS endpoin
 func (t *HTTPCheckTool) IsReadOnly() bool     { return true }
 func (t *HTTPCheckTool) RiskLevel() string    { return "L0" }
 
+func (t *HTTPCheckTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"url":    {Type: "string", Description: "HTTP/HTTPS endpoint URL to check"},
+			"method": {Type: "string", Description: "HTTP method, default GET"},
+		},
+		Required: []string{"url"},
+	}
+}
+
 func (t *HTTPCheckTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	url, _ := params["url"].(string)
 	if url == "" {

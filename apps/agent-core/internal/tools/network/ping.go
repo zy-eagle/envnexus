@@ -20,6 +20,17 @@ func (t *PingTool) Description() string  { return "Tests TCP connectivity to a h
 func (t *PingTool) IsReadOnly() bool     { return true }
 func (t *PingTool) RiskLevel() string    { return "L0" }
 
+func (t *PingTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {Type: "string", Description: "Target host or IP address"},
+			"port": {Type: "string", Description: "TCP port to test connectivity, default 80"},
+		},
+		Required: []string{"host"},
+	}
+}
+
 func (t *PingTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	host, _ := params["host"].(string)
 	if host == "" {

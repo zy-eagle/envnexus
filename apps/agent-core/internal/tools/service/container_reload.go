@@ -17,6 +17,25 @@ func NewContainerReloadTool() *ContainerReloadTool { return &ContainerReloadTool
 func (t *ContainerReloadTool) Name() string     { return "container.reload" }
 func (t *ContainerReloadTool) IsReadOnly() bool  { return false }
 func (t *ContainerReloadTool) RiskLevel() string { return "L2" }
+
+func (t *ContainerReloadTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"target": {
+				Type:        "string",
+				Description: "Container name/ID or process name to reload",
+			},
+			"mode": {
+				Type:        "string",
+				Description: "Reload mode, default docker",
+				Enum:        []string{"docker", "process", "systemd"},
+			},
+		},
+		Required: []string{"target"},
+	}
+}
+
 func (t *ContainerReloadTool) Description() string {
 	return "Reload a Docker container or send SIGHUP to a process to apply config changes. " +
 		"Params: target (container name/id or process name), mode (docker|process|systemd). Default mode: docker."

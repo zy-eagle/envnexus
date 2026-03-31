@@ -20,6 +20,22 @@ func (t *PostgresCheckTool) Description() string {
 func (t *PostgresCheckTool) IsReadOnly() bool  { return true }
 func (t *PostgresCheckTool) RiskLevel() string { return "L0" }
 
+func (t *PostgresCheckTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {
+				Type:        "string",
+				Description: "PostgreSQL host, default 127.0.0.1",
+			},
+			"port": {
+				Type:        "string",
+				Description: "PostgreSQL port, default 5432",
+			},
+		},
+	}
+}
+
 func (t *PostgresCheckTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	host, _ := params["host"].(string)
 	if host == "" {

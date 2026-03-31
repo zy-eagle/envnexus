@@ -19,6 +19,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('diagnosis-progress', (_event, data) => callback(data));
   },
 
+  // Chat (Agent Loop)
+  sendChat: (messages: Array<{ role: string; content: string }>) =>
+    ipcRenderer.invoke('send-chat', messages),
+  chatApprove: (approvalId: string, approved: boolean) =>
+    ipcRenderer.invoke('chat-approve', approvalId, approved),
+  onChatEvent: (callback: (event: { type: string; content: unknown }) => void) => {
+    ipcRenderer.on('chat-event', (_event, data) => callback(data));
+  },
+  removeChatEventListeners: () => {
+    ipcRenderer.removeAllListeners('chat-event');
+  },
+
   // Settings
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('save-settings', settings),

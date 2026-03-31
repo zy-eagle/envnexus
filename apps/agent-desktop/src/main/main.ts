@@ -677,6 +677,64 @@ function registerIPC(): void {
     });
   });
 
+  ipcMain.handle('send-chat', (_e, messages: Array<{ role: string; content: string }>) => {
+    return new Promise((resolve) => {
+      const postData = JSON.stringify({ messages });
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: 17700,
+        path: '/local/v1/chat',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+          'Accept': 'text/event-stream',
+        },
+      }, (res) => {
+        let buffer = '';
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          let currentEvent = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ') && currentEvent) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (currentEvent === 'done') {
+                  resolve(data);
+                } else if (currentEvent === 'error') {
+                  resolve(data);
+                } else if (mainWindow) {
+                  mainWindow.webContents.send('chat-event', { type: currentEvent, content: data });
+                }
+              } catch { /* ignore parse errors */ }
+              currentEvent = '';
+            }
+          }
+        });
+        res.on('end', () => {
+          if (buffer.includes('data: ')) {
+            const dataLine = buffer.split('\n').find(l => l.startsWith('data: '));
+            if (dataLine) {
+              try { resolve(JSON.parse(dataLine.slice(6))); } catch { /* ignore */ }
+            }
+          }
+        });
+      });
+      req.on('error', (e) => resolve({ error: `agent-core not reachable: ${e.message}` }));
+      req.setTimeout(660000, () => { req.destroy(); resolve({ error: 'chat timed out (660s)' }); });
+      req.write(postData);
+      req.end();
+    });
+  });
+
+  ipcMain.handle('chat-approve', (_e, approvalId: string, approved: boolean) =>
+    safeLocalAPI('POST', '/local/v1/chat/approve', { approval_id: approvalId, approved })
+  );
+
   ipcMain.handle('get-settings', () => loadSettings());
 
   ipcMain.handle('save-settings', (_e, settings: Settings) => {

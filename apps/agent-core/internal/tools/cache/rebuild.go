@@ -21,6 +21,19 @@ func (t *RebuildTool) Description() string  { return "Clears and rebuilds a spec
 func (t *RebuildTool) IsReadOnly() bool     { return false }
 func (t *RebuildTool) RiskLevel() string    { return "L2" }
 
+func (t *RebuildTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"cache_type": {
+				Type:        "string",
+				Description: "Cache type to rebuild, default system",
+				Enum:        []string{"system", "browser", "npm", "pip", "docker", "app"},
+			},
+		},
+	}
+}
+
 func (t *RebuildTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

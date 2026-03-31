@@ -20,6 +20,19 @@ func (t *RestartTool) Description() string  { return "Restarts a specified syste
 func (t *RestartTool) IsReadOnly() bool     { return false }
 func (t *RestartTool) RiskLevel() string    { return "L2" }
 
+func (t *RestartTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"service_name": {
+				Type:        "string",
+				Description: "Name of the system service to restart",
+			},
+		},
+		Required: []string{"service_name"},
+	}
+}
+
 func (t *RestartTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

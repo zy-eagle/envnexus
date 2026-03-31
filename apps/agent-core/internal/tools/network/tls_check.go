@@ -19,6 +19,17 @@ func (t *TLSCheckTool) Description() string  { return "Checks TLS/SSL certificat
 func (t *TLSCheckTool) IsReadOnly() bool     { return true }
 func (t *TLSCheckTool) RiskLevel() string    { return "L0" }
 
+func (t *TLSCheckTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {Type: "string", Description: "Host to check TLS certificate"},
+			"port": {Type: "string", Description: "TLS port, default 443"},
+		},
+		Required: []string{"host"},
+	}
+}
+
 func (t *TLSCheckTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	host, _ := params["host"].(string)
 	if host == "" {

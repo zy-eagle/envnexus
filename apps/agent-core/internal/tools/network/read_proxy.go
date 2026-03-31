@@ -34,6 +34,10 @@ func (t *ReadProxyConfigTool) RiskLevel() string {
 	return "L0"
 }
 
+func (t *ReadProxyConfigTool) Parameters() *tools.ParamSchema {
+	return tools.NoParams()
+}
+
 func (t *ReadProxyConfigTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

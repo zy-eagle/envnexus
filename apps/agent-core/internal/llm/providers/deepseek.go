@@ -67,14 +67,10 @@ func (p *DeepSeekProvider) Complete(ctx context.Context, req *router.CompletionR
 		temp = 0.3
 	}
 
-	messages := make([]openaiMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		messages[i] = openaiMessage{Role: m.Role, Content: m.Content}
-	}
-
 	body := openaiRequest{
 		Model:       model,
-		Messages:    messages,
+		Messages:    convertMessagesToOpenAI(req.Messages),
+		Tools:       convertToolsToOpenAI(req.Tools),
 		MaxTokens:   maxTokens,
 		Temperature: temp,
 	}
@@ -118,19 +114,23 @@ func (p *DeepSeekProvider) Complete(ctx context.Context, req *router.CompletionR
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	content := oResp.Choices[0].Message.Content
-	reasoning := oResp.Choices[0].Message.ReasoningContent
+	msg := oResp.Choices[0].Message
+	toolCalls := convertToolCallsFromOpenAI(msg.ToolCalls)
+
+	content := msg.Content
+	reasoning := msg.ReasoningContent
 	if content == "" && reasoning != "" {
 		slog.Debug("[deepseek] content empty but reasoning_content present, using reasoning_content",
 			"reasoning_len", len(reasoning))
 		content = reasoning
 	}
-	if content == "" {
+	if content == "" && len(toolCalls) == 0 {
 		return nil, fmt.Errorf("empty content in response (raw: %s)", string(respBody[:min(len(respBody), 500)]))
 	}
 
 	return &router.CompletionResponse{
 		Content:      content,
+		ToolCalls:    toolCalls,
 		Model:        oResp.Model,
 		PromptTokens: oResp.Usage.PromptTokens,
 		CompTokens:   oResp.Usage.CompletionTokens,

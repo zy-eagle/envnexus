@@ -20,6 +20,22 @@ func (t *ReadEventLogTool) Description() string  { return "Reads recent system e
 func (t *ReadEventLogTool) IsReadOnly() bool     { return true }
 func (t *ReadEventLogTool) RiskLevel() string    { return "L0" }
 
+func (t *ReadEventLogTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"source": {
+				Type:        "string",
+				Description: "Log source or unit name",
+			},
+			"count": {
+				Type:        "number",
+				Description: "Maximum number of log entries, default 30, max 100",
+			},
+		},
+	}
+}
+
 func (t *ReadEventLogTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	source, _ := params["source"].(string)
 	count := 30

@@ -22,6 +22,22 @@ func (t *RedisCheckTool) Description() string {
 func (t *RedisCheckTool) IsReadOnly() bool  { return true }
 func (t *RedisCheckTool) RiskLevel() string { return "L0" }
 
+func (t *RedisCheckTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {
+				Type:        "string",
+				Description: "Redis host, default 127.0.0.1",
+			},
+			"port": {
+				Type:        "string",
+				Description: "Redis port, default 6379",
+			},
+		},
+	}
+}
+
 func (t *RedisCheckTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	host, _ := params["host"].(string)
 	if host == "" {

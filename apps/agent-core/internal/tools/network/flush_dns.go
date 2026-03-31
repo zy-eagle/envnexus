@@ -22,6 +22,10 @@ func (t *FlushDNSTool) Description() string  { return "Flushes the local DNS res
 func (t *FlushDNSTool) IsReadOnly() bool     { return false }
 func (t *FlushDNSTool) RiskLevel() string    { return "L2" }
 
+func (t *FlushDNSTool) Parameters() *tools.ParamSchema {
+	return tools.NoParams()
+}
+
 func (t *FlushDNSTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

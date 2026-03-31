@@ -20,6 +20,10 @@ func (t *RouteTableTool) Description() string  { return "Reads the system routin
 func (t *RouteTableTool) IsReadOnly() bool     { return true }
 func (t *RouteTableTool) RiskLevel() string    { return "L0" }
 
+func (t *RouteTableTool) Parameters() *tools.ParamSchema {
+	return tools.NoParams()
+}
+
 func (t *RouteTableTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 	cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

@@ -31,6 +31,28 @@ func NewConfigModifyTool() *ConfigModifyTool { return &ConfigModifyTool{} }
 func (t *ConfigModifyTool) Name() string     { return "config.modify" }
 func (t *ConfigModifyTool) IsReadOnly() bool  { return false }
 func (t *ConfigModifyTool) RiskLevel() string { return "L1" }
+
+func (t *ConfigModifyTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"file": {
+				Type:        "string",
+				Description: "Path to env file, default /tmp/enx_agent.env",
+			},
+			"key": {
+				Type:        "string",
+				Description: "Configuration key to modify, must be in allowlist",
+			},
+			"value": {
+				Type:        "string",
+				Description: "New value, empty to remove the key",
+			},
+		},
+		Required: []string{"key"},
+	}
+}
+
 func (t *ConfigModifyTool) Description() string {
 	return "Modify a whitelisted configuration key in the agent environment file. " +
 		"Params: file (path to env file), key (must be in allowlist), value (new value)."

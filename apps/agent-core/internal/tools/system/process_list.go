@@ -23,6 +23,10 @@ func (t *ReadProcessListTool) Description() string  { return "Read list of runni
 func (t *ReadProcessListTool) IsReadOnly() bool      { return true }
 func (t *ReadProcessListTool) RiskLevel() string     { return "L0" }
 
+func (t *ReadProcessListTool) Parameters() *tools.ParamSchema {
+	return tools.NoParams()
+}
+
 func (t *ReadProcessListTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

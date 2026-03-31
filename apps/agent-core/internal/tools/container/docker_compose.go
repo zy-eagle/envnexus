@@ -22,6 +22,27 @@ func (t *DockerComposeTool) Description() string {
 func (t *DockerComposeTool) IsReadOnly() bool  { return true }
 func (t *DockerComposeTool) RiskLevel() string { return "L0" }
 
+func (t *DockerComposeTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"action": {
+				Type:        "string",
+				Description: "Compose action, default ps",
+				Enum:        []string{"ps", "logs", "config"},
+			},
+			"project_dir": {
+				Type:        "string",
+				Description: "Docker Compose project directory",
+			},
+			"service": {
+				Type:        "string",
+				Description: "Service name for logs action",
+			},
+		},
+	}
+}
+
 func (t *DockerComposeTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	// Try both "docker compose" (v2) and "docker-compose" (v1)
 	composeBin := findComposeBin()

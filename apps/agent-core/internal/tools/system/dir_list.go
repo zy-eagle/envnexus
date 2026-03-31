@@ -20,6 +20,19 @@ func (t *ReadDirListTool) Description() string  { return "Lists files and subdir
 func (t *ReadDirListTool) IsReadOnly() bool     { return true }
 func (t *ReadDirListTool) RiskLevel() string    { return "L0" }
 
+func (t *ReadDirListTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"path": {
+				Type:        "string",
+				Description: "Directory path to list contents",
+			},
+		},
+		Required: []string{"path"},
+	}
+}
+
 const maxDirEntries = 200
 
 func (t *ReadDirListTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {

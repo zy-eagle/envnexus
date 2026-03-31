@@ -22,6 +22,23 @@ func (t *DockerInspectTool) Description() string {
 func (t *DockerInspectTool) IsReadOnly() bool  { return true }
 func (t *DockerInspectTool) RiskLevel() string { return "L0" }
 
+func (t *DockerInspectTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"action": {
+				Type:        "string",
+				Description: "Docker action to perform, default status",
+				Enum:        []string{"status", "ps", "logs", "images", "networks", "volumes"},
+			},
+			"container": {
+				Type:        "string",
+				Description: "Container name or ID, required for logs action",
+			},
+		},
+	}
+}
+
 func (t *DockerInspectTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return &tools.ToolResult{

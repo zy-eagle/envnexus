@@ -19,6 +19,16 @@ func (t *PortScanTool) Description() string  { return "Scans common ports on a h
 func (t *PortScanTool) IsReadOnly() bool     { return true }
 func (t *PortScanTool) RiskLevel() string    { return "L0" }
 
+func (t *PortScanTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {Type: "string", Description: "Target host to scan common ports"},
+		},
+		Required: []string{"host"},
+	}
+}
+
 var commonPorts = []struct {
 	Port    int
 	Service string

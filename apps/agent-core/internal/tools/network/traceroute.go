@@ -20,6 +20,16 @@ func (t *TracerouteTool) Description() string  { return "Traces the network path
 func (t *TracerouteTool) IsReadOnly() bool     { return true }
 func (t *TracerouteTool) RiskLevel() string    { return "L0" }
 
+func (t *TracerouteTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {Type: "string", Description: "Destination host to trace route to"},
+		},
+		Required: []string{"host"},
+	}
+}
+
 func (t *TracerouteTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	host, _ := params["host"].(string)
 	if host == "" {

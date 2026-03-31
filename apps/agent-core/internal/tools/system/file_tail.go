@@ -20,6 +20,23 @@ func (t *ReadFileTailTool) Description() string  { return "Reads the last N line
 func (t *ReadFileTailTool) IsReadOnly() bool     { return true }
 func (t *ReadFileTailTool) RiskLevel() string    { return "L0" }
 
+func (t *ReadFileTailTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"path": {
+				Type:        "string",
+				Description: "File path to read",
+			},
+			"lines": {
+				Type:        "number",
+				Description: "Number of lines from end to read, default 50, max 200",
+			},
+		},
+		Required: []string{"path"},
+	}
+}
+
 const maxTailLines = 200
 const maxTailBytes = 64 * 1024 // 64KB
 

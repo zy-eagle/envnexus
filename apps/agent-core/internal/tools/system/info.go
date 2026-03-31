@@ -31,6 +31,10 @@ func (t *ReadSystemInfoTool) RiskLevel() string {
 	return "L0"
 }
 
+func (t *ReadSystemInfoTool) Parameters() *tools.ParamSchema {
+	return tools.NoParams()
+}
+
 func (t *ReadSystemInfoTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

@@ -49,22 +49,49 @@ func (p *OpenAIProvider) IsAvailable() bool {
 }
 
 type openaiRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openaiMessage `json:"messages"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	Temperature float64         `json:"temperature,omitempty"`
+	Model       string             `json:"model"`
+	Messages    []openaiMessage    `json:"messages"`
+	Tools       []openaiToolDef    `json:"tools,omitempty"`
+	MaxTokens   int                `json:"max_tokens,omitempty"`
+	Temperature float64            `json:"temperature,omitempty"`
 }
 
 type openaiMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string              `json:"role"`
+	Content    *string             `json:"content"`
+	ToolCalls  []openaiToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID string              `json:"tool_call_id,omitempty"`
+	Name       string              `json:"name,omitempty"`
+}
+
+type openaiToolDef struct {
+	Type     string              `json:"type"`
+	Function openaiToolFunction  `json:"function"`
+}
+
+type openaiToolFunction struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Parameters  interface{} `json:"parameters"`
+}
+
+type openaiToolCall struct {
+	ID       string              `json:"id"`
+	Type     string              `json:"type"`
+	Function openaiToolCallFunc  `json:"function"`
+}
+
+type openaiToolCallFunc struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type openaiResponse struct {
 	Choices []struct {
 		Message struct {
-			Content          string `json:"content"`
-			ReasoningContent string `json:"reasoning_content"`
+			Content          string           `json:"content"`
+			ReasoningContent string           `json:"reasoning_content"`
+			ToolCalls        []openaiToolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
@@ -75,6 +102,69 @@ type openaiResponse struct {
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+func convertMessagesToOpenAI(msgs []router.Message) []openaiMessage {
+	result := make([]openaiMessage, 0, len(msgs))
+	for _, m := range msgs {
+		om := openaiMessage{
+			Role:       m.Role,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+		}
+		if m.Content != "" || (m.Role != "assistant" || len(m.ToolCalls) == 0) {
+			s := m.Content
+			om.Content = &s
+		}
+		for _, tc := range m.ToolCalls {
+			om.ToolCalls = append(om.ToolCalls, openaiToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: openaiToolCallFunc{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		result = append(result, om)
+	}
+	return result
+}
+
+func convertToolsToOpenAI(tools []router.ToolDefinition) []openaiToolDef {
+	if len(tools) == 0 {
+		return nil
+	}
+	result := make([]openaiToolDef, len(tools))
+	for i, t := range tools {
+		result[i] = openaiToolDef{
+			Type: t.Type,
+			Function: openaiToolFunction{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				Parameters:  t.Function.Parameters,
+			},
+		}
+	}
+	return result
+}
+
+func convertToolCallsFromOpenAI(calls []openaiToolCall) []router.ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	result := make([]router.ToolCall, len(calls))
+	for i, c := range calls {
+		result[i] = router.ToolCall{
+			ID:   c.ID,
+			Type: c.Type,
+			Function: router.FunctionCall{
+				Name:      c.Function.Name,
+				Arguments: c.Function.Arguments,
+			},
+		}
+	}
+	return result
 }
 
 func (p *OpenAIProvider) Complete(ctx context.Context, req *router.CompletionRequest) (*router.CompletionResponse, error) {
@@ -95,14 +185,10 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *router.CompletionReq
 		temp = 0.3
 	}
 
-	messages := make([]openaiMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		messages[i] = openaiMessage{Role: m.Role, Content: m.Content}
-	}
-
 	body := openaiRequest{
 		Model:       model,
-		Messages:    messages,
+		Messages:    convertMessagesToOpenAI(req.Messages),
+		Tools:       convertToolsToOpenAI(req.Tools),
 		MaxTokens:   maxTokens,
 		Temperature: temp,
 	}
@@ -147,16 +233,20 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *router.CompletionReq
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	content := oResp.Choices[0].Message.Content
-	if content == "" && oResp.Choices[0].Message.ReasoningContent != "" {
-		content = oResp.Choices[0].Message.ReasoningContent
+	msg := oResp.Choices[0].Message
+	toolCalls := convertToolCallsFromOpenAI(msg.ToolCalls)
+
+	content := msg.Content
+	if content == "" && msg.ReasoningContent != "" {
+		content = msg.ReasoningContent
 	}
-	if content == "" {
+	if content == "" && len(toolCalls) == 0 {
 		return nil, fmt.Errorf("empty content in response (raw: %s)", string(respBody[:min(len(respBody), 500)]))
 	}
 
 	return &router.CompletionResponse{
 		Content:      content,
+		ToolCalls:    toolCalls,
 		Model:        oResp.Model,
 		PromptTokens: oResp.Usage.PromptTokens,
 		CompTokens:   oResp.Usage.CompletionTokens,

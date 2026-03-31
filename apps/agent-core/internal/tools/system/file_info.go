@@ -19,6 +19,19 @@ func (t *ReadFileInfoTool) Description() string  { return "Checks if a file or d
 func (t *ReadFileInfoTool) IsReadOnly() bool     { return true }
 func (t *ReadFileInfoTool) RiskLevel() string    { return "L0" }
 
+func (t *ReadFileInfoTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"path": {
+				Type:        "string",
+				Description: "File or directory path to inspect",
+			},
+		},
+		Required: []string{"path"},
+	}
+}
+
 func (t *ReadFileInfoTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	path, _ := params["path"].(string)
 	if path == "" {

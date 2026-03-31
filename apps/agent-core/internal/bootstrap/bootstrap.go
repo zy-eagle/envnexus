@@ -277,7 +277,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	}
 
 	// Step 7: Start local API
-	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine, diagnosisEngine)
+	localServer := api.NewLocalServer(17700, b.identityManager, policyEngine, diagnosisEngine, llmRouter, registry)
 	localServer.SetPlatformConnected(platformReachable)
 	localServer.SetGovernanceEngine(governanceEngine)
 	if activationMgr != nil {

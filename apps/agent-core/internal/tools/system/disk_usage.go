@@ -21,6 +21,10 @@ func (t *ReadDiskUsageTool) Description() string  { return "Read disk usage info
 func (t *ReadDiskUsageTool) IsReadOnly() bool      { return true }
 func (t *ReadDiskUsageTool) RiskLevel() string     { return "L0" }
 
+func (t *ReadDiskUsageTool) Parameters() *tools.ParamSchema {
+	return tools.NoParams()
+}
+
 func (t *ReadDiskUsageTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	start := time.Now()
 

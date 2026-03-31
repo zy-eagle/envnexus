@@ -18,6 +18,25 @@ func NewProxyToggleTool() *ProxyToggleTool { return &ProxyToggleTool{} }
 func (t *ProxyToggleTool) Name() string        { return "proxy.toggle" }
 func (t *ProxyToggleTool) IsReadOnly() bool     { return false }
 func (t *ProxyToggleTool) RiskLevel() string    { return "L1" }
+
+func (t *ProxyToggleTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"action": {
+				Type:        "string",
+				Description: "Action to perform",
+				Enum:        []string{"enable", "disable"},
+			},
+			"proxy_url": {
+				Type:        "string",
+				Description: "Proxy URL, required when action is enable",
+			},
+		},
+		Required: []string{"action"},
+	}
+}
+
 func (t *ProxyToggleTool) Description() string {
 	return "Enable or disable system/application-level HTTP proxy. Params: action (enable|disable), proxy_url (optional, required when enabling)."
 }

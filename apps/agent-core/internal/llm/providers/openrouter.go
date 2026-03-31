@@ -66,14 +66,10 @@ func (p *OpenRouterProvider) Complete(ctx context.Context, req *router.Completio
 		temp = 0.3
 	}
 
-	messages := make([]openaiMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		messages[i] = openaiMessage{Role: m.Role, Content: m.Content}
-	}
-
 	body := openaiRequest{
 		Model:       model,
-		Messages:    messages,
+		Messages:    convertMessagesToOpenAI(req.Messages),
+		Tools:       convertToolsToOpenAI(req.Tools),
 		MaxTokens:   maxTokens,
 		Temperature: temp,
 	}
@@ -119,16 +115,20 @@ func (p *OpenRouterProvider) Complete(ctx context.Context, req *router.Completio
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	content := oResp.Choices[0].Message.Content
-	if content == "" && oResp.Choices[0].Message.ReasoningContent != "" {
-		content = oResp.Choices[0].Message.ReasoningContent
+	msg := oResp.Choices[0].Message
+	toolCalls := convertToolCallsFromOpenAI(msg.ToolCalls)
+
+	content := msg.Content
+	if content == "" && msg.ReasoningContent != "" {
+		content = msg.ReasoningContent
 	}
-	if content == "" {
+	if content == "" && len(toolCalls) == 0 {
 		return nil, fmt.Errorf("empty content in response (raw: %s)", string(respBody[:min(len(respBody), 500)]))
 	}
 
 	return &router.CompletionResponse{
 		Content:      content,
+		ToolCalls:    toolCalls,
 		Model:        oResp.Model,
 		PromptTokens: oResp.Usage.PromptTokens,
 		CompTokens:   oResp.Usage.CompletionTokens,

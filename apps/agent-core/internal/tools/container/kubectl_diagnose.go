@@ -22,6 +22,27 @@ func (t *KubectlDiagnoseTool) Description() string {
 func (t *KubectlDiagnoseTool) IsReadOnly() bool  { return true }
 func (t *KubectlDiagnoseTool) RiskLevel() string { return "L0" }
 
+func (t *KubectlDiagnoseTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"action": {
+				Type:        "string",
+				Description: "Kubernetes diagnostic action, default cluster-info",
+				Enum:        []string{"cluster-info", "get-nodes", "get-pods", "describe-pod", "logs", "get-events", "get-services"},
+			},
+			"namespace": {
+				Type:        "string",
+				Description: "Kubernetes namespace, default 'default'",
+			},
+			"pod": {
+				Type:        "string",
+				Description: "Pod name, required for describe-pod and logs actions",
+			},
+		},
+	}
+}
+
 func (t *KubectlDiagnoseTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		return &tools.ToolResult{

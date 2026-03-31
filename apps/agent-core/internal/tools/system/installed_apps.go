@@ -20,6 +20,18 @@ func (t *ReadInstalledAppsTool) Description() string  { return "Lists installed 
 func (t *ReadInstalledAppsTool) IsReadOnly() bool     { return true }
 func (t *ReadInstalledAppsTool) RiskLevel() string    { return "L0" }
 
+func (t *ReadInstalledAppsTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"filter": {
+				Type:        "string",
+				Description: "Filter installed apps by name substring",
+			},
+		},
+	}
+}
+
 func (t *ReadInstalledAppsTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	filter, _ := params["filter"].(string)
 	start := time.Now()

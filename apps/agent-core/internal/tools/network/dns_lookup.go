@@ -18,6 +18,16 @@ func (t *DNSLookupTool) Description() string  { return "Resolves a domain name t
 func (t *DNSLookupTool) IsReadOnly() bool     { return true }
 func (t *DNSLookupTool) RiskLevel() string    { return "L0" }
 
+func (t *DNSLookupTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {Type: "string", Description: "Domain name or hostname to resolve"},
+		},
+		Required: []string{"host"},
+	}
+}
+
 func (t *DNSLookupTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	host, _ := params["host"].(string)
 	if host == "" {

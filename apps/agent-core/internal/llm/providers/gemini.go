@@ -48,10 +48,21 @@ func (p *GeminiProvider) IsAvailable() bool {
 	return p.apiKey != "" && p.baseURL != ""
 }
 
+type geminiToolDeclaration struct {
+	FunctionDeclarations []geminiFunctionDeclaration `json:"functionDeclarations"`
+}
+
+type geminiFunctionDeclaration struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	Parameters  interface{} `json:"parameters,omitempty"`
+}
+
 type geminiRequest struct {
-	Contents         []geminiContent         `json:"contents"`
-	SystemInstruction *geminiContent          `json:"systemInstruction,omitempty"`
-	GenerationConfig *geminiGenerationConfig  `json:"generationConfig,omitempty"`
+	Contents          []geminiContent           `json:"contents"`
+	SystemInstruction *geminiContent            `json:"systemInstruction,omitempty"`
+	GenerationConfig  *geminiGenerationConfig   `json:"generationConfig,omitempty"`
+	Tools             []geminiToolDeclaration   `json:"tools,omitempty"`
 }
 
 type geminiContent struct {
@@ -60,7 +71,21 @@ type geminiContent struct {
 }
 
 type geminiPart struct {
-	Text string `json:"text"`
+	Text             string                 `json:"text,omitempty"`
+	FunctionCall     *geminiFunctionCall    `json:"functionCall,omitempty"`
+	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
+}
+
+type geminiFunctionCall struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args,omitempty"`
+}
+
+type geminiFunctionResponse struct {
+	Name     string `json:"name"`
+	Response struct {
+		Content interface{} `json:"content"`
+	} `json:"response"`
 }
 
 type geminiGenerationConfig struct {
@@ -71,9 +96,7 @@ type geminiGenerationConfig struct {
 type geminiResponse struct {
 	Candidates []struct {
 		Content struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
+			Parts []geminiResponsePart `json:"parts"`
 		} `json:"content"`
 	} `json:"candidates"`
 	UsageMetadata struct {
@@ -87,6 +110,78 @@ type geminiResponse struct {
 		Message string `json:"message"`
 		Status  string `json:"status"`
 	} `json:"error,omitempty"`
+}
+
+type geminiResponsePart struct {
+	Text         string              `json:"text,omitempty"`
+	FunctionCall *geminiFunctionCall `json:"functionCall,omitempty"`
+}
+
+func convertToolsToGemini(tools []router.ToolDefinition) []geminiToolDeclaration {
+	if len(tools) == 0 {
+		return nil
+	}
+	decls := make([]geminiFunctionDeclaration, 0, len(tools))
+	for _, t := range tools {
+		decls = append(decls, geminiFunctionDeclaration{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  t.Function.Parameters,
+		})
+	}
+	return []geminiToolDeclaration{{FunctionDeclarations: decls}}
+}
+
+func geminiArgsFromRouter(arguments string) json.RawMessage {
+	if arguments == "" {
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(arguments)
+}
+
+func convertMessagesToGemini(msgs []router.Message) ([]geminiContent, error) {
+	var contents []geminiContent
+	for _, m := range msgs {
+		switch m.Role {
+		case "system":
+			continue
+		case "assistant":
+			var parts []geminiPart
+			if m.Content != "" {
+				parts = append(parts, geminiPart{Text: m.Content})
+			}
+			for _, tc := range m.ToolCalls {
+				fn := tc.Function
+				parts = append(parts, geminiPart{
+					FunctionCall: &geminiFunctionCall{
+						Name: fn.Name,
+						Args: geminiArgsFromRouter(fn.Arguments),
+					},
+				})
+			}
+			if len(parts) == 0 {
+				continue
+			}
+			contents = append(contents, geminiContent{Role: "model", Parts: parts})
+		case "tool":
+			if m.Name == "" {
+				return nil, fmt.Errorf("tool message missing function name")
+			}
+			var fr geminiFunctionResponse
+			fr.Name = m.Name
+			fr.Response.Content = m.Content
+			contents = append(contents, geminiContent{
+				Role:  "user",
+				Parts: []geminiPart{{FunctionResponse: &fr}},
+			})
+		default:
+			contents = append(contents, geminiContent{
+				Role:  "user",
+				Parts: []geminiPart{{Text: m.Content}},
+			})
+		}
+	}
+	return contents, nil
 }
 
 func (p *GeminiProvider) Complete(ctx context.Context, req *router.CompletionRequest) (*router.CompletionResponse, error) {
@@ -108,25 +203,17 @@ func (p *GeminiProvider) Complete(ctx context.Context, req *router.CompletionReq
 	}
 
 	var systemInstruction *geminiContent
-	var contents []geminiContent
-
 	for _, m := range req.Messages {
-		switch m.Role {
-		case "system":
+		if m.Role == "system" {
 			systemInstruction = &geminiContent{
 				Parts: []geminiPart{{Text: m.Content}},
 			}
-		case "assistant":
-			contents = append(contents, geminiContent{
-				Role:  "model",
-				Parts: []geminiPart{{Text: m.Content}},
-			})
-		default:
-			contents = append(contents, geminiContent{
-				Role:  "user",
-				Parts: []geminiPart{{Text: m.Content}},
-			})
 		}
+	}
+
+	contents, err := convertMessagesToGemini(req.Messages)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(contents) == 0 {
@@ -134,12 +221,13 @@ func (p *GeminiProvider) Complete(ctx context.Context, req *router.CompletionReq
 	}
 
 	body := geminiRequest{
-		Contents:         contents,
+		Contents:          contents,
 		SystemInstruction: systemInstruction,
 		GenerationConfig: &geminiGenerationConfig{
 			Temperature:     temp,
 			MaxOutputTokens: maxTokens,
 		},
+		Tools: convertToolsToGemini(req.Tools),
 	}
 
 	jsonBody, err := json.Marshal(body)
@@ -179,17 +267,46 @@ func (p *GeminiProvider) Complete(ctx context.Context, req *router.CompletionReq
 		return nil, fmt.Errorf("api error [%s]: %s", gResp.Error.Status, gResp.Error.Message)
 	}
 
-	if len(gResp.Candidates) == 0 || len(gResp.Candidates[0].Content.Parts) == 0 {
+	if len(gResp.Candidates) == 0 {
+		return nil, fmt.Errorf("no content in response")
+	}
+
+	parts := gResp.Candidates[0].Content.Parts
+	if len(parts) == 0 {
 		return nil, fmt.Errorf("no content in response")
 	}
 
 	var content string
-	for _, part := range gResp.Candidates[0].Content.Parts {
-		content += part.Text
+	var toolCalls []router.ToolCall
+	callIdx := 0
+	for _, part := range parts {
+		if part.Text != "" {
+			content += part.Text
+		}
+		if part.FunctionCall != nil {
+			args := string(part.FunctionCall.Args)
+			if args == "" {
+				args = "{}"
+			}
+			toolCalls = append(toolCalls, router.ToolCall{
+				ID:   fmt.Sprintf("gemini-call-%d", callIdx),
+				Type: "function",
+				Function: router.FunctionCall{
+					Name:      part.FunctionCall.Name,
+					Arguments: args,
+				},
+			})
+			callIdx++
+		}
+	}
+
+	if content == "" && len(toolCalls) == 0 {
+		return nil, fmt.Errorf("no content in response")
 	}
 
 	return &router.CompletionResponse{
 		Content:      content,
+		ToolCalls:    toolCalls,
 		Model:        model,
 		PromptTokens: gResp.UsageMetadata.PromptTokenCount,
 		CompTokens:   gResp.UsageMetadata.CandidatesTokenCount,

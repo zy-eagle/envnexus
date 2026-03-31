@@ -20,6 +20,18 @@ func (t *ReadEnvVarsTool) Description() string  { return "Reads environment vari
 func (t *ReadEnvVarsTool) IsReadOnly() bool     { return true }
 func (t *ReadEnvVarsTool) RiskLevel() string    { return "L0" }
 
+func (t *ReadEnvVarsTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"filter": {
+				Type:        "string",
+				Description: "Filter environment variable names by substring",
+			},
+		},
+	}
+}
+
 var sensitiveKeys = []string{
 	"password", "passwd", "secret", "token", "api_key", "apikey",
 	"private_key", "access_key", "credential", "auth",

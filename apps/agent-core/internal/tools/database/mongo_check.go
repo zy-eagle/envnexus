@@ -21,6 +21,22 @@ func (t *MongoCheckTool) Description() string {
 func (t *MongoCheckTool) IsReadOnly() bool  { return true }
 func (t *MongoCheckTool) RiskLevel() string { return "L0" }
 
+func (t *MongoCheckTool) Parameters() *tools.ParamSchema {
+	return &tools.ParamSchema{
+		Type: "object",
+		Properties: map[string]tools.ParamProperty{
+			"host": {
+				Type:        "string",
+				Description: "MongoDB host, default 127.0.0.1",
+			},
+			"port": {
+				Type:        "string",
+				Description: "MongoDB port, default 27017",
+			},
+		},
+	}
+}
+
 func (t *MongoCheckTool) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolResult, error) {
 	host, _ := params["host"].(string)
 	if host == "" {

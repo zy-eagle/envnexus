@@ -60,13 +60,17 @@ func (p *OllamaProvider) IsAvailable() bool {
 type ollamaRequest struct {
 	Model    string          `json:"model"`
 	Messages []ollamaMessage `json:"messages"`
+	Tools    []openaiToolDef `json:"tools,omitempty"`
 	Stream   bool            `json:"stream"`
 	Options  *ollamaOptions  `json:"options,omitempty"`
 }
 
 type ollamaMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content,omitempty"`
+	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Name       string           `json:"name,omitempty"`
 }
 
 type ollamaOptions struct {
@@ -76,8 +80,9 @@ type ollamaOptions struct {
 
 type ollamaResponse struct {
 	Message struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
+		Role      string           `json:"role"`
+		Content   string           `json:"content"`
+		ToolCalls []openaiToolCall `json:"tool_calls,omitempty"`
 	} `json:"message"`
 	Model              string `json:"model"`
 	PromptEvalCount    int    `json:"prompt_eval_count"`
@@ -86,6 +91,32 @@ type ollamaResponse struct {
 	PromptEvalDuration int64  `json:"prompt_eval_duration"`
 	EvalDuration       int64  `json:"eval_duration"`
 	Error              string `json:"error,omitempty"`
+}
+
+func convertMessagesToOllama(msgs []router.Message) []ollamaMessage {
+	result := make([]ollamaMessage, 0, len(msgs))
+	for _, m := range msgs {
+		om := ollamaMessage{
+			Role:       m.Role,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+		}
+		if m.Content != "" || m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			om.Content = m.Content
+		}
+		for _, tc := range m.ToolCalls {
+			om.ToolCalls = append(om.ToolCalls, openaiToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: openaiToolCallFunc{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		result = append(result, om)
+	}
+	return result
 }
 
 func (p *OllamaProvider) Complete(ctx context.Context, req *router.CompletionRequest) (*router.CompletionResponse, error) {
@@ -97,14 +128,10 @@ func (p *OllamaProvider) Complete(ctx context.Context, req *router.CompletionReq
 		model = "llama3.2"
 	}
 
-	messages := make([]ollamaMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		messages[i] = ollamaMessage{Role: m.Role, Content: m.Content}
-	}
-
 	body := ollamaRequest{
 		Model:    model,
-		Messages: messages,
+		Messages: convertMessagesToOllama(req.Messages),
+		Tools:    convertToolsToOpenAI(req.Tools),
 		Stream:   false,
 	}
 	if req.Temperature > 0 || req.MaxTokens > 0 {
@@ -149,8 +176,11 @@ func (p *OllamaProvider) Complete(ctx context.Context, req *router.CompletionReq
 		return nil, fmt.Errorf("ollama error: %s", oResp.Error)
 	}
 
+	toolCalls := convertToolCallsFromOpenAI(oResp.Message.ToolCalls)
+
 	return &router.CompletionResponse{
 		Content:      oResp.Message.Content,
+		ToolCalls:    toolCalls,
 		Model:        oResp.Model,
 		PromptTokens: oResp.PromptEvalCount,
 		CompTokens:   oResp.EvalCount,
