@@ -451,12 +451,27 @@ build_agent_with_fallback() {
 # ── Smart deploy: detect changes and only rebuild what's needed ──────────────
 
 
+cmd_pull_latest() {
+    if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree &>/dev/null; then
+        log_info "Pulling latest code from remote..."
+        local current_branch
+        current_branch=$(git -C "${SCRIPT_DIR}" rev-parse --abbrev-ref HEAD)
+        if git -C "${SCRIPT_DIR}" pull origin "$current_branch" --ff-only; then
+            log_info "Code updated to latest (branch: ${current_branch})"
+        else
+            log_warn "Fast-forward pull failed. You may have local changes — continuing with current code."
+        fi
+        echo ""
+    fi
+}
+
 cmd_smart_deploy() {
     echo -e "${GREEN}${BOLD}========================================${NC}"
     echo -e "${GREEN}${BOLD}   EnvNexus — Smart Deploy              ${NC}"
     echo -e "${GREEN}${BOLD}========================================${NC}"
     echo ""
 
+    cmd_pull_latest
     generate_env
     ensure_gitignore
 
@@ -645,6 +660,7 @@ cmd_deploy_full() {
     echo -e "${GREEN}${BOLD}========================================${NC}"
     echo ""
 
+    cmd_pull_latest
     generate_env
     ensure_gitignore
 
