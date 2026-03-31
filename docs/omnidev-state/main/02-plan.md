@@ -1,70 +1,122 @@
-# 开发计划: Agent Loop (ReAct) 架构改造
+# 开发计划: Agent Loop 架构 + 远程命令下发审批系统
 
 ## 任务总览
 
-共 7 个模块，按依赖顺序执行。
+共 13 个模块，分两大阶段。
 
 ---
 
-## M1: Tool 接口扩展 & Schema 定义
+## 阶段一: Agent Loop (ReAct) 架构 + 安全加固 (已完成 ✅)
+
+### M1: Tool 接口扩展 & Schema 定义
+- [x] M1.1~M1.4 (全部完成)
+
+### M2: LLM Router 协议层扩展
+- [x] M2.1~M2.4 (全部完成)
+
+### M3: LLM Provider 适配
+- [x] M3.1~M3.6 (全部完成)
+
+### M4: Agent Loop 引擎
+- [x] M4.1~M4.6 (全部完成)
+
+### M5: API Server 新端点
+- [x] M5.1~M5.4 (全部完成)
+
+### M6: Desktop 前端适配
+- [x] M6.1~M6.7 (全部完成)
+
+### M7: 安全加固 & Bug 修复
+- [x] M7.1~M7.9 (全部完成)
+
+---
+
+## 阶段二: 远程命令下发审批系统 (待开发)
+
+> 设计文档: `docs/omnidev-state/main/04-design.md` (v2.3)
+>
+> 核心理念: **运维下发命令 → 上级审批（控制台 + IM） → 设备执行**
+> - 审批人在**控制台**的"待审批"页面或 **IM 卡片**中审批
+> - agent-desktop 不参与远程命令审批（移除"待审批"页面）
+> - 客户端本地对话确认保持不变
+
+### M8: 数据基础 — 新增模型 & Migration
 > 依赖: 无 | 优先级: P0
 
-- [x] M1.1 在 `tools/tool.go` 中新增 `ParamSchema` / `ParamProperty` 结构体
-- [x] M1.2 `Tool` 接口新增 `Parameters() *ParamSchema` 方法
-- [x] M1.3 `Registry` 新增 `ToOpenAITools()` 方法，将所有工具转为 Function Calling 格式
-- [x] M1.4 为全部 33 个工具实现 `Parameters()` 方法
+- [ ] M8.1 新增 `domain/command_task.go` — CommandTask 模型
+- [ ] M8.2 新增 `domain/command_execution.go` — CommandExecution 模型
+- [ ] M8.3 新增 `domain/approval_policy.go` — ApprovalPolicy 模型
+- [ ] M8.4 新增 `domain/im_provider.go` — IMProvider 模型
+- [ ] M8.5 新增 `domain/user_notification_channel.go` — UserNotificationChannel 模型
+- [ ] M8.6 Repository 实现 (GORM) — 5 个 Repository
+- [ ] M8.7 SQL Migration 脚本 — 建表
+- [ ] M8.8 新增 `infrastructure/crypto.go` — AES-256-GCM 加密/解密
 
-## M2: LLM Router 协议层扩展
-> 依赖: M1 | 优先级: P0
+### M9: 命令任务核心服务
+> 依赖: M8 | 优先级: P0
 
-- [x] M2.1 `router.go` 新增 `ToolDefinition` / `ToolCall` / `FunctionCall` 结构体
-- [x] M2.2 `CompletionRequest` 增加 `Tools []ToolDefinition` 字段
-- [x] M2.3 `CompletionResponse` 增加 `ToolCalls []ToolCall` 字段
-- [x] M2.4 `Message` 结构体扩展: 支持 `ToolCallID` / `Name` 字段
+- [ ] M9.1 `service/command/command_service.go` — 创建/审批/拒绝/取消/执行
+- [ ] M9.2 `service/command/risk_evaluator.go` — 风险等级评估
+- [ ] M9.3 `service/command/approval_policy_service.go` — 审批策略匹配
+- [ ] M9.4 `handler/http/command_task_handler.go` — 命令任务 REST API
+- [ ] M9.5 `handler/http/approval_policy_handler.go` — 审批策略 REST API
+- [ ] M9.6 路由注册 + 权限校验
 
-## M3: LLM Provider 适配 (Function Calling)
-> 依赖: M2 | 优先级: P0
+### M10: 通知路由 — IM 审批卡片
+> 依赖: M8 | 优先级: P0
 
-- [x] M3.1 OpenAI Provider: 请求体增加 `tools`，响应解析 `tool_calls`
-- [x] M3.2 DeepSeek Provider: OpenAI 兼容协议适配
-- [x] M3.3 OpenRouter Provider: OpenAI 兼容协议适配
-- [x] M3.4 Anthropic Provider: 适配 Anthropic tool_use 协议
-- [x] M3.5 Gemini Provider: 适配 Gemini function calling 协议
-- [x] M3.6 Ollama Provider: 适配 Ollama tools 协议
+- [ ] M10.1 `service/notification/types.go` — Notifier 接口 + 通知类型
+- [ ] M10.2 `service/notification/router.go` — NotificationRouter 路由核心
+- [ ] M10.3 `service/notification/feishu_notifier.go` — 飞书 Notifier (重构现有)
+- [ ] M10.4 `handler/http/im_provider_handler.go` — IM 配置 API
+- [ ] M10.5 `handler/http/notification_channel_handler.go` — 用户通知渠道 API
+- [ ] M10.6 飞书卡片回调扩展 — 支持命令任务审批
 
-## M4: Agent Loop 引擎
-> 依赖: M2, M3 | 优先级: P0
+### M11: agent-core 远程命令执行
+> 依赖: M9 | 优先级: P0
 
-- [x] M4.1 新建 `internal/agent/loop.go`，实现 `Loop` 结构体
-- [x] M4.2 实现 `Run()` 方法: ReAct 循环核心逻辑
-- [x] M4.3 实现工具执行 + 审批机制: ReadOnly 直接执行，Write 暂停等审批
-- [x] M4.4 实现事件回调: Thinking / ToolStart / ToolResult / ApprovalRequired / Message
-- [x] M4.5 实现最大迭代次数限制 (默认 10)
-- [x] M4.6 System Prompt 设计
+- [ ] M11.1 WebSocket 新增 `command.execute` 事件处理
+- [ ] M11.2 命令执行器 — 支持 shell / tool 两种类型
+- [ ] M11.3 WebSocket 新增 `command.result` 事件回报
+- [ ] M11.4 Platform 侧接收结果 → 更新 CommandExecution → 通知运维
 
-## M5: API Server 新端点
-> 依赖: M4 | 优先级: P0
+### M12: 控制台 UI + Desktop 清理
+> 依赖: M9, M10 | 优先级: P1
 
-- [x] M5.1 新增 `POST /local/v1/chat` 端点，SSE 流式输出
-- [x] M5.2 新增 `POST /local/v1/chat/approve` 审批端点
-- [x] M5.3 SSE 事件类型: thinking / tool_start / tool_result / approval_required / message / error / done
-- [x] M5.4 在 `bootstrap.go` 中注入 `llmRouter` 和 `toolRegistry` 到 `LocalServer`
+- [ ] M12.1 侧边栏新增 "命令任务" 入口
+- [ ] M12.2 命令任务列表页 (状态筛选 + 搜索)
+- [ ] M12.3 新建命令任务表单 (选设备 + 填命令 + 选风险等级)
+- [ ] M12.4 任务详情页 (审批状态 + 每台设备执行结果)
+- [ ] M12.5 **待审批页面** — 审批人登录控制台，在此页面审批 (角标 + 列表 + 通过/拒绝)
+- [ ] M12.6 审批策略管理页 (配置审批人: 指定用户或角色)
+- [ ] M12.7 IM 集成管理页 (Settings → 集成管理)
+- [ ] M12.8 用户通知渠道页 (Settings → 通知渠道)
+- [ ] M12.9 i18n 字典更新 (中/英)
+- [ ] M12.10 **agent-desktop 移除"待审批"页面** — 移除侧边栏入口、页面、仪表盘卡片、相关 i18n 和 JS
 
-## M6: Desktop 前端适配
-> 依赖: M5 | 优先级: P1
+### M13: 飞书 Bot 扩展 + 更多 IM 渠道
+> 依赖: M10, M11 | 优先级: P2
 
-- [x] M6.1 `preload.ts` 新增 `sendChat` / `chatApprove` / `onChatEvent` / `removeChatEventListeners` API
-- [x] M6.2 `main.ts` 新增 `send-chat` IPC handler (SSE 解析，转发事件到渲染进程)
-- [x] M6.3 `main.ts` 新增 `chat-approve` IPC handler
-- [x] M6.4 `index.html` 对话页面改用新 chat 端点 (Agent Loop)
-- [x] M6.5 `index.html` 支持显示工具调用过程 (工具卡片: 名称、状态、耗时)
-- [x] M6.6 `index.html` 支持内联审批卡片 (Write 工具触发时弹出批准/拒绝按钮)
-- [x] M6.7 `index.html` i18n 补充新增文案 (中/英)
+- [ ] M13.1 飞书 Bot: `/exec`, `/exec-batch`, `/tasks`, `/task` 命令
+- [ ] M13.2 飞书 Bot: `/bindme`, `/verify` 自助绑定
+- [ ] M13.3 审批卡片扩展 (命令任务审批 — 显示申请人/命令/设备/风险)
+- [ ] M13.4 企业微信集成 `integration/wechat_work/`
+- [ ] M13.5 钉钉集成 `integration/dingtalk/`
 
-## M7: 集成测试 & 收尾
-> 依赖: M6 | 优先级: P2
+---
 
-- [ ] M7.1 端到端测试: 用户发送 "查看 IP" → LLM 调用 read_network_config → 返回结果
-- [ ] M7.2 审批流测试: 用户发送 "重启 nginx" → 弹出审批 → 批准/拒绝
-- [ ] M7.3 多轮对话测试: 连续提问保持上下文
-- [ ] M7.4 LLM 降级测试: 无 LLM 可用时的 fallback 行为
+## 环境变量变更
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `ENX_ENCRYPTION_KEY` | IM 凭据加密密钥 (32 bytes hex) | deploy.sh 自动生成 |
+
+## 数据库变更
+
+| 操作 | 表 |
+|------|-----|
+| CREATE TABLE | `command_tasks` |
+| CREATE TABLE | `command_executions` |
+| CREATE TABLE | `approval_policies` |
+| CREATE TABLE | `im_providers` |
+| CREATE TABLE | `user_notification_channels` |
