@@ -68,6 +68,8 @@ check_env() {
 # If the hash matches the last successful build, the service is skipped.
 
 mkdir -p "$HASH_DIR"
+# Migration: agent-builder hash was split into agent-core + agent-desktop
+rm -f "${HASH_DIR}/agent-builder.hash" 2>/dev/null
 
 compute_hash() {
     local dir="$1"
@@ -535,23 +537,54 @@ cmd_smart_deploy() {
         log_skip "console-web: no changes detected"
     fi
 
-    # 5. agent-builder (agent-core + agent-desktop)
-    #    Electron shell image is built separately and cached as enx-electron-shell.
-    #    agent-builder only needs to cross-compile Go + package installers (fast).
-    local ab_hash
-    ab_hash=$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')
-    if has_changed "agent-builder" "$ab_hash"; then
+    # 5. agent-core + agent-desktop (independent change detection)
+    #    Tracked separately so we can tell exactly what changed:
+    #      - agent-core only  → fast path: recompile Go, repackage with cached shell
+    #      - agent-desktop only → rebuild electron-shell image, repackage with cached Go binaries
+    #      - both changed → full rebuild
+    #      - neither changed → skip entirely
+    local ac_hash ad_hash
+    ac_hash=$(echo "$(compute_hash apps/agent-core)${go_ws_hash}" | sha256sum | awk '{print $1}')
+    ad_hash=$(compute_hash apps/agent-desktop)
+
+    local agent_core_changed=false
+    local agent_desktop_changed=false
+
+    if has_changed "agent-core" "$ac_hash"; then
+        agent_core_changed=true
+    fi
+    if has_changed "agent-desktop" "$ad_hash"; then
+        agent_desktop_changed=true
+    fi
+
+    if $agent_core_changed && $agent_desktop_changed; then
         services_to_build="${services_to_build} agent-builder"
-        log_info "agent-builder: ${YELLOW}source changed, will rebuild & upload${NC}"
+        log_info "agent-core: ${YELLOW}source changed${NC}"
+        log_info "agent-desktop: ${YELLOW}source changed${NC}"
+        log_info "agent-builder: ${YELLOW}both changed, full rebuild & upload${NC}"
+    elif $agent_core_changed; then
+        services_to_build="${services_to_build} agent-builder"
+        log_info "agent-core: ${YELLOW}source changed (Go recompile + repackage)${NC}"
+        log_skip "agent-desktop: no changes detected"
+    elif $agent_desktop_changed; then
+        services_to_build="${services_to_build} agent-builder"
+        log_info "agent-desktop: ${YELLOW}source changed (rebuild electron-shell + repackage)${NC}"
+        log_skip "agent-core: no changes detected"
     else
         services_to_skip="${services_to_skip} agent-builder"
-        log_skip "agent-builder: no changes detected (agent-core + agent-desktop unchanged)"
+        log_skip "agent-core: no changes detected"
+        log_skip "agent-desktop: no changes detected"
     fi
 
     echo ""
 
-    # ── Ensure Electron shell image exists (prerequisite for agent-builder) ──
+    # ── Ensure Electron shell image exists / rebuild if desktop changed ──
     if echo "$services_to_build" | grep -q "agent-builder"; then
+        if $agent_desktop_changed; then
+            log_info "agent-desktop changed — forcing electron-shell image rebuild..."
+            # Clear electron-shell hash to force rebuild
+            rm -f "${HASH_DIR}/electron-shell.hash"
+        fi
         ensure_electron_shell
     fi
 
@@ -580,12 +613,17 @@ cmd_smart_deploy() {
         if $agent_needs_build && [ -n "$other_services" ]; then
             # ── PARALLEL: agent-builder + other services build simultaneously ──
             log_info "Parallel build: agent-builder ║ ${other_services}"
-            log_info "  Track A: agent-builder (Go cross-compile + Electron + upload to MinIO)"
+            if $agent_core_changed && $agent_desktop_changed; then
+                log_info "  Track A: agent-builder (Go recompile + electron-shell rebuild + upload)"
+            elif $agent_core_changed; then
+                log_info "  Track A: agent-builder (Go recompile + repackage, electron-shell cached)"
+            else
+                log_info "  Track A: agent-builder (electron-shell rebuild + repackage, Go cached)"
+            fi
             log_info "  Track B: ${other_services} (image builds)"
             echo ""
 
             # Track A: agent-builder in background (build + run upload) with fallback
-            # Disable 'set -e' inside the subshell so a failure doesn't kill the subshell silently before returning the exit code
             (
                 set +e
                 build_agent_with_fallback
@@ -599,7 +637,8 @@ cmd_smart_deploy() {
             # Wait for agent-builder to finish uploading
             log_info "Waiting for agent-builder upload to complete..."
             if wait $agent_pid 2>/dev/null || [ $? -eq 0 ]; then
-                save_hash "agent-builder" "$ab_hash"
+                save_hash "agent-core" "$ac_hash"
+                save_hash "agent-desktop" "$ad_hash"
                 log_info "agent-builder: ${GREEN}build + upload complete${NC}"
             else
                 log_warn "agent-builder: build or upload failed (other services unaffected)"
@@ -607,9 +646,16 @@ cmd_smart_deploy() {
 
         elif $agent_needs_build; then
             # Only agent-builder needs rebuild, no other services
-            log_info "Building agent-builder (Go cross-compile + Electron installers + upload)..."
+            if $agent_core_changed && $agent_desktop_changed; then
+                log_info "Building agent-builder (full: Go recompile + electron-shell rebuild + upload)..."
+            elif $agent_core_changed; then
+                log_info "Building agent-builder (Go recompile + repackage with cached electron-shell)..."
+            else
+                log_info "Building agent-builder (electron-shell rebuild + repackage with cached Go)..."
+            fi
             if build_agent_with_fallback; then
-                save_hash "agent-builder" "$ab_hash"
+                save_hash "agent-core" "$ac_hash"
+                save_hash "agent-desktop" "$ad_hash"
             else
                 log_warn "agent-builder: build failed, hash NOT saved (will retry next deploy)"
             fi
@@ -715,7 +761,8 @@ cmd_deploy_full() {
     save_hash "job-runner" "$(echo "$(compute_hash services/job-runner)${go_ws_hash}" | sha256sum | awk '{print $1}')"
     save_hash "console-web" "$(compute_hash apps/console-web)"
     if $agent_build_ok; then
-        save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
+        save_hash "agent-core" "$(echo "$(compute_hash apps/agent-core)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+        save_hash "agent-desktop" "$(compute_hash apps/agent-desktop)"
     fi
 
     print_urls
@@ -843,7 +890,10 @@ case "${1:-}" in
         cd "$DEPLOY_DIR"
         set -a; source "${DEPLOY_DIR}/.env"; set +a
         if FORCE_AGENT_UPLOAD=true build_agent_with_fallback; then
-            save_hash "agent-builder" "$(echo "$(compute_hash apps/agent-core)$(compute_hash apps/agent-desktop)" | sha256sum | awk '{print $1}')"
+            local go_ws_hash
+            go_ws_hash=$(compute_go_workspace_hash)
+            save_hash "agent-core" "$(echo "$(compute_hash apps/agent-core)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+            save_hash "agent-desktop" "$(compute_hash apps/agent-desktop)"
             log_info "Agent packages rebuilt and uploaded to MinIO."
         else
             log_error "Agent build failed. Hash NOT saved — will retry next time."
@@ -871,10 +921,11 @@ case "${1:-}" in
         echo "  reset        Delete all data and config, start fresh"
         echo ""
         echo -e "${BOLD}Agent Build Architecture:${NC}"
-        echo "  The agent build is split into two layers for speed and reliability:"
-        echo "  1. Electron Shell (enx-electron-shell image) — built once, includes npm deps"
-        echo "     and electron-builder cache. Rebuild with: ./deploy.sh agents-shell"
-        echo "  2. Agent Core (Go binary) — fast cross-compile (~30s), injected into shell"
+        echo "  agent-core (Go) and agent-desktop (Electron) are tracked independently:"
+        echo "  - Only agent-core changed  → Go recompile (~30s), repackage with cached shell"
+        echo "  - Only agent-desktop changed → Rebuild electron-shell image, repackage"
+        echo "  - Both changed → Full rebuild (Go + electron-shell + package)"
+        echo "  The final installer is always a single file bundling both components."
         echo ""
         echo -e "${DIM}Smart deploy computes content hashes of each service's source code."
         echo -e "If the hash matches the last successful build, the service is skipped.${NC}"

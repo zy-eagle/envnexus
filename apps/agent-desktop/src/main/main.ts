@@ -561,6 +561,139 @@ function isInsideRoundedRect(px: number, py: number, rx: number, ry: number, rw:
   return true;
 }
 
+function menuText(key: string): string {
+  const lang = loadSettings().language || 'zh';
+  const dict: Record<string, Record<string, string>> = {
+    zh: {
+      file: '文件',
+      quit: '退出',
+      edit: '编辑',
+      undo: '撤销',
+      redo: '重做',
+      cut: '剪切',
+      copy: '复制',
+      paste: '粘贴',
+      select_all: '全选',
+      view: '视图',
+      reload: '重新加载',
+      force_reload: '强制重新加载',
+      toggle_devtools: '开发者工具',
+      reset_zoom: '重置缩放',
+      zoom_in: '放大',
+      zoom_out: '缩小',
+      fullscreen: '全屏',
+      window: '窗口',
+      minimize: '最小化',
+      close: '关闭',
+      help: '帮助',
+      about: '关于 EnvNexus Agent',
+      version: '版本',
+      homepage: '项目主页',
+    },
+    en: {
+      file: 'File',
+      quit: 'Quit',
+      edit: 'Edit',
+      undo: 'Undo',
+      redo: 'Redo',
+      cut: 'Cut',
+      copy: 'Copy',
+      paste: 'Paste',
+      select_all: 'Select All',
+      view: 'View',
+      reload: 'Reload',
+      force_reload: 'Force Reload',
+      toggle_devtools: 'Developer Tools',
+      reset_zoom: 'Reset Zoom',
+      zoom_in: 'Zoom In',
+      zoom_out: 'Zoom Out',
+      fullscreen: 'Fullscreen',
+      window: 'Window',
+      minimize: 'Minimize',
+      close: 'Close',
+      help: 'Help',
+      about: 'About EnvNexus Agent',
+      version: 'Version',
+      homepage: 'Project Homepage',
+    },
+  };
+  return (dict[lang] && dict[lang][key]) || dict.en[key] || key;
+}
+
+function buildAppMenu(): void {
+  const isMac = process.platform === 'darwin';
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: menuText('file'),
+      submenu: [
+        {
+          label: menuText('quit'),
+          accelerator: isMac ? 'Cmd+Q' : 'Alt+F4',
+          click: () => { isQuitting = true; stopAgentCore(); app.quit(); },
+        },
+      ],
+    },
+    {
+      label: menuText('edit'),
+      submenu: [
+        { label: menuText('undo'), role: 'undo', accelerator: 'CmdOrCtrl+Z' },
+        { label: menuText('redo'), role: 'redo', accelerator: 'Shift+CmdOrCtrl+Z' },
+        { type: 'separator' },
+        { label: menuText('cut'), role: 'cut', accelerator: 'CmdOrCtrl+X' },
+        { label: menuText('copy'), role: 'copy', accelerator: 'CmdOrCtrl+C' },
+        { label: menuText('paste'), role: 'paste', accelerator: 'CmdOrCtrl+V' },
+        { type: 'separator' },
+        { label: menuText('select_all'), role: 'selectAll', accelerator: 'CmdOrCtrl+A' },
+      ],
+    },
+    {
+      label: menuText('view'),
+      submenu: [
+        { label: menuText('reload'), role: 'reload', accelerator: 'CmdOrCtrl+R' },
+        { label: menuText('force_reload'), role: 'forceReload', accelerator: 'Shift+CmdOrCtrl+R' },
+        { label: menuText('toggle_devtools'), role: 'toggleDevTools', accelerator: 'F12' },
+        { type: 'separator' },
+        { label: menuText('reset_zoom'), role: 'resetZoom', accelerator: 'CmdOrCtrl+0' },
+        { label: menuText('zoom_in'), role: 'zoomIn', accelerator: 'CmdOrCtrl+=' },
+        { label: menuText('zoom_out'), role: 'zoomOut', accelerator: 'CmdOrCtrl+-' },
+        { type: 'separator' },
+        { label: menuText('fullscreen'), role: 'togglefullscreen', accelerator: 'F11' },
+      ],
+    },
+    {
+      label: menuText('window'),
+      submenu: [
+        { label: menuText('minimize'), role: 'minimize' },
+        { label: menuText('close'), role: 'close' },
+      ],
+    },
+    {
+      label: menuText('help'),
+      submenu: [
+        {
+          label: menuText('homepage'),
+          click: () => { shell.openExternal('https://github.com/zy-eagle/envnexus'); },
+        },
+        { type: 'separator' },
+        {
+          label: `${menuText('about')}`,
+          click: () => {
+            dialog.showMessageBox({
+              type: 'info',
+              title: menuText('about'),
+              message: `EnvNexus Agent\n${menuText('version')}: ${app.getVersion()}`,
+            });
+          },
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 function createWindow(): void {
   const appIcon = createAppIcon();
 
@@ -677,6 +810,9 @@ function registerIPC(): void {
     });
   });
 
+  let activeChatRequest: http.ClientRequest | null = null;
+  let activeChatSessionId: string | null = null;
+
   ipcMain.handle('send-chat', (_e, messages: Array<{ role: string; content: string }>) => {
     return new Promise((resolve) => {
       const postData = JSON.stringify({ messages });
@@ -703,10 +839,20 @@ function registerIPC(): void {
             } else if (line.startsWith('data: ') && currentEvent) {
               try {
                 const data = JSON.parse(line.slice(6));
-                if (currentEvent === 'done') {
+                if (currentEvent === 'session') {
+                  activeChatSessionId = data.session_id || null;
+                } else if (currentEvent === 'done') {
+                  activeChatRequest = null;
+                  activeChatSessionId = null;
                   resolve(data);
                 } else if (currentEvent === 'error') {
+                  activeChatRequest = null;
+                  activeChatSessionId = null;
                   resolve(data);
+                } else if (currentEvent === 'cancelled') {
+                  activeChatRequest = null;
+                  activeChatSessionId = null;
+                  resolve({ cancelled: true, message: data.message || 'Cancelled' });
                 } else if (mainWindow) {
                   mainWindow.webContents.send('chat-event', { type: currentEvent, content: data });
                 }
@@ -716,6 +862,8 @@ function registerIPC(): void {
           }
         });
         res.on('end', () => {
+          activeChatRequest = null;
+          activeChatSessionId = null;
           if (buffer.includes('data: ')) {
             const dataLine = buffer.split('\n').find(l => l.startsWith('data: '));
             if (dataLine) {
@@ -724,11 +872,35 @@ function registerIPC(): void {
           }
         });
       });
-      req.on('error', (e) => resolve({ error: `agent-core not reachable: ${e.message}` }));
-      req.setTimeout(660000, () => { req.destroy(); resolve({ error: 'chat timed out (660s)' }); });
+      req.on('error', (e) => {
+        activeChatRequest = null;
+        activeChatSessionId = null;
+        resolve({ error: `agent-core not reachable: ${e.message}` });
+      });
+      req.setTimeout(660000, () => {
+        req.destroy();
+        activeChatRequest = null;
+        activeChatSessionId = null;
+        resolve({ error: 'chat timed out (660s)' });
+      });
+      activeChatRequest = req;
       req.write(postData);
       req.end();
     });
+  });
+
+  ipcMain.handle('cancel-chat', async () => {
+    if (activeChatSessionId) {
+      try {
+        await localAPIRequest('POST', '/local/v1/chat/cancel', { session_id: activeChatSessionId }, 3000);
+      } catch { /* best effort */ }
+    }
+    if (activeChatRequest) {
+      activeChatRequest.destroy();
+      activeChatRequest = null;
+    }
+    activeChatSessionId = null;
+    return { ok: true };
   });
 
   ipcMain.handle('chat-approve', (_e, approvalId: string, approved: boolean) =>
@@ -739,6 +911,8 @@ function registerIPC(): void {
 
   ipcMain.handle('save-settings', (_e, settings: Settings) => {
     saveSettings(settings);
+    buildAppMenu();
+    buildTrayMenu();
     return { ok: true };
   });
 
@@ -1017,6 +1191,7 @@ app.whenReady().then(() => {
   importBundledConfig();
   syncSettingsFromEnxConfig();
   registerIPC();
+  buildAppMenu();
   createTray();
   createWindow();
   startHealthPolling();

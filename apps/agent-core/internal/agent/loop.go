@@ -101,6 +101,10 @@ func (l *Loop) Run(ctx context.Context, messages []router.Message) (string, erro
 	fullMessages = append(fullMessages, messages...)
 
 	for i := 0; i < l.maxIterations; i++ {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
 		slog.Info("[agent] Loop iteration", "iteration", i+1, "messages", len(fullMessages))
 
 		l.emit(Event{Type: EventThinking, Content: map[string]interface{}{
@@ -133,6 +137,9 @@ func (l *Loop) Run(ctx context.Context, messages []router.Message) (string, erro
 		fullMessages = append(fullMessages, assistantMsg)
 
 		for _, tc := range resp.ToolCalls {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 			toolResult := l.executeTool(ctx, tc)
 
 			resultJSON, _ := json.Marshal(toolResult)
@@ -187,7 +194,16 @@ func (l *Loop) executeTool(ctx context.Context, tc router.ToolCall) map[string]i
 		return result
 	}
 
-	if !tool.IsReadOnly() {
+	needsApproval := !tool.IsReadOnly()
+	if checker, ok := tool.(tools.ApprovalChecker); ok {
+		params := make(map[string]interface{})
+		if tc.Function.Arguments != "" {
+			_ = json.Unmarshal([]byte(tc.Function.Arguments), &params)
+		}
+		needsApproval = checker.NeedsApproval(params)
+	}
+
+	if needsApproval {
 		approved := l.requestApproval(tool, tc)
 		if !approved {
 			result := map[string]interface{}{

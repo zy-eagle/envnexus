@@ -36,6 +36,7 @@ type LocalServer struct {
 	startTime         time.Time
 	platformConnected bool
 	chatApprovals     sync.Map
+	chatCancelFuncs   sync.Map
 }
 
 func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine, diagEngine *diagnosis.Engine, llmRouter *router.Router, toolRegistry *tools.Registry) *LocalServer {
@@ -80,6 +81,7 @@ func (s *LocalServer) Start() error {
 		api.POST("/diagnose", s.handleDiagnose)
 		api.POST("/chat", s.handleChat)
 		api.POST("/chat/approve", s.handleChatApprove)
+		api.POST("/chat/cancel", s.handleChatCancel)
 		api.POST("/diagnostics/export", s.handleDiagnosticsExport)
 		api.GET("/sessions/recent", s.handleRecentSessions)
 	}
@@ -324,6 +326,12 @@ func (s *LocalServer) handleChat(c *gin.Context) {
 	chatCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	chatSessionID := fmt.Sprintf("chat-session-%d", time.Now().UnixNano())
+	s.chatCancelFuncs.Store(chatSessionID, cancel)
+	defer s.chatCancelFuncs.Delete(chatSessionID)
+
+	writeSSE("session", gin.H{"session_id": chatSessionID})
+
 	loop := agent.NewLoop(
 		s.llmRouter,
 		s.toolRegistry,
@@ -358,6 +366,10 @@ func (s *LocalServer) handleChat(c *gin.Context) {
 
 	content, err := loop.Run(chatCtx, messages)
 	if err != nil {
+		if chatCtx.Err() == context.Canceled {
+			writeSSE("cancelled", gin.H{"message": "Chat cancelled by user"})
+			return
+		}
 		writeSSE("error", gin.H{"error": err.Error()})
 		return
 	}
@@ -390,4 +402,27 @@ func (s *LocalServer) handleChatApprove(c *gin.Context) {
 	default:
 		c.JSON(http.StatusConflict, gin.H{"error": "approval already resolved"})
 	}
+}
+
+type ChatCancelRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+}
+
+func (s *LocalServer) handleChatCancel(c *gin.Context) {
+	var req ChatCancelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	val, ok := s.chatCancelFuncs.Load(req.SessionID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "chat session not found or already finished"})
+		return
+	}
+
+	cancelFunc := val.(context.CancelFunc)
+	cancelFunc()
+	slog.Info("[api] Chat session cancelled", "session_id", req.SessionID)
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }

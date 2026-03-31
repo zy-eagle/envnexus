@@ -39,6 +39,14 @@ type Tool interface {
 	Execute(ctx context.Context, params map[string]interface{}) (*ToolResult, error)
 }
 
+// ApprovalChecker is an optional interface that tools can implement
+// to provide per-invocation approval decisions based on actual parameters.
+// If a tool implements this, the agent loop calls NeedsApproval before execution.
+// If not implemented, the loop falls back to !IsReadOnly().
+type ApprovalChecker interface {
+	NeedsApproval(params map[string]interface{}) bool
+}
+
 type Registry struct {
 	tools map[string]Tool
 }

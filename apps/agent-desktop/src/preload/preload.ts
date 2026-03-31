@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Chat (Agent Loop)
   sendChat: (messages: Array<{ role: string; content: string }>) =>
     ipcRenderer.invoke('send-chat', messages),
+  cancelChat: () => ipcRenderer.invoke('cancel-chat'),
   chatApprove: (approvalId: string, approved: boolean) =>
     ipcRenderer.invoke('chat-approve', approvalId, approved),
   onChatEvent: (callback: (event: { type: string; content: unknown }) => void) => {

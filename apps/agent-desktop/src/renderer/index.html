@@ -408,6 +408,19 @@
       transition: background 0.15s;
     }
     #chat-send:hover { background: var(--indigo-700); }
+    #chat-cancel {
+      padding: 12px 20px;
+      background: var(--red-600, #dc2626);
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: var(--font);
+      transition: background 0.15s;
+      display: none;
+    }
+    #chat-cancel:hover { background: var(--red-700, #b91c1c); }
 
     /* ── Findings ──────────────────────────────────────────────────────── */
     .finding {
@@ -657,6 +670,7 @@
       <div id="chat-input-row">
         <input id="chat-input" type="text" placeholder="问我任何问题，例如：查看本机 IP、检查磁盘空间、ping 一下 baidu.com..." onkeydown="handleChatKey(event)">
         <button id="chat-send" onclick="sendChatRequest()">发送</button>
+        <button id="chat-cancel" onclick="cancelChatRequest()">取消</button>
       </div>
     </div>
   </div>
@@ -802,6 +816,8 @@ const i18n = {
     chat_thinking: '思考中...',
     chat_tool_running: '执行中...',
     chat_approval_title: '需要您的授权',
+    chat_cancel: '取消',
+    chat_cancelled: '会话已取消',
     chat_conn_error: '无法连接到 agent-core。请确保 agent-core 正在运行。',
     approvals_title: '待审批操作', approvals_refresh: '↻ 刷新',
     approvals_empty: '暂无待审批操作', approvals_risk: '风险',
@@ -868,6 +884,8 @@ const i18n = {
     chat_thinking: 'Thinking...',
     chat_tool_running: 'Running...',
     chat_approval_title: 'Approval Required',
+    chat_cancel: 'Cancel',
+    chat_cancelled: 'Chat cancelled',
     chat_conn_error: 'Cannot connect to agent-core. Make sure agent-core is running.',
     approvals_title: 'Pending Approvals', approvals_refresh: '↻ Refresh',
     approvals_empty: 'No pending approvals', approvals_risk: 'Risk',
@@ -941,6 +959,7 @@ function applyLanguage(lang) {
   document.getElementById('diag-title').textContent = t('diag_title');
   document.getElementById('chat-input').placeholder = t('diag_placeholder');
   document.getElementById('chat-send').textContent = t('diag_send');
+  document.getElementById('chat-cancel').textContent = t('chat_cancel');
   const welcomeEl = document.getElementById('chat-welcome');
   if (welcomeEl) welcomeEl.textContent = t('diag_welcome');
 
@@ -1187,6 +1206,14 @@ if (api.onChatEvent) {
 
 function handleChatKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatRequest(); }
+  if (e.key === 'Escape' && isChatBusy) { e.preventDefault(); cancelChatRequest(); }
+}
+
+function setChatBusy(busy) {
+  isChatBusy = busy;
+  document.getElementById('chat-send').style.display = busy ? 'none' : '';
+  document.getElementById('chat-cancel').style.display = busy ? '' : 'none';
+  document.getElementById('chat-input').disabled = busy;
 }
 
 async function sendChatRequest() {
@@ -1195,8 +1222,7 @@ async function sendChatRequest() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  isChatBusy = true;
-  document.getElementById('chat-send').disabled = true;
+  setChatBusy(true);
 
   addMsg(escapeHtml(text), 'user');
   chatHistory.push({ role: 'user', content: text });
@@ -1207,7 +1233,9 @@ async function sendChatRequest() {
     const data = await api.sendChat(chatHistory);
     if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
 
-    if (data && data.error) {
+    if (data && data.cancelled) {
+      addMsg(`⏹ ${t('chat_cancelled')}`, 'system');
+    } else if (data && data.error) {
       addMsg(`⚠ ${escapeHtml(data.error)}`, 'system');
     } else {
       const content = data?.content || '';
@@ -1221,8 +1249,14 @@ async function sendChatRequest() {
     addMsg(`⚠ ${t('chat_conn_error')}<br><small>${escapeHtml(e.message || '')}</small>`, 'system');
   }
 
-  isChatBusy = false;
-  document.getElementById('chat-send').disabled = false;
+  setChatBusy(false);
+}
+
+async function cancelChatRequest() {
+  if (!isChatBusy) return;
+  try {
+    await api.cancelChat();
+  } catch { /* best effort */ }
 }
 
 let latestFindings = [];
