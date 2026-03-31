@@ -16,7 +16,7 @@ type RebuildTool struct{}
 
 func NewRebuildTool() *RebuildTool { return &RebuildTool{} }
 
-func (t *RebuildTool) Name() string        { return "cache.rebuild" }
+func (t *RebuildTool) Name() string        { return "cache_rebuild" }
 func (t *RebuildTool) Description() string  { return "Clears and rebuilds a specified cache directory" }
 func (t *RebuildTool) IsReadOnly() bool     { return false }
 func (t *RebuildTool) RiskLevel() string    { return "L2" }

@@ -28,7 +28,7 @@ type ConfigModifyTool struct{}
 
 func NewConfigModifyTool() *ConfigModifyTool { return &ConfigModifyTool{} }
 
-func (t *ConfigModifyTool) Name() string     { return "config.modify" }
+func (t *ConfigModifyTool) Name() string     { return "config_modify" }
 func (t *ConfigModifyTool) IsReadOnly() bool  { return false }
 func (t *ConfigModifyTool) RiskLevel() string { return "L1" }
 

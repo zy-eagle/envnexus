@@ -454,14 +454,14 @@ func (e *Engine) localReasoning(plan *DiagnosisPlan, evidence map[string]interfa
 	switch plan.ProblemType {
 	case "dns":
 		actions = append(actions, ActionDraft{
-			ToolName:    "dns.flush_cache",
+			ToolName:    "dns_flush_cache",
 			Description: "Flush DNS cache to resolve stale entries",
 			RiskLevel:   "L2",
 			Params:      map[string]interface{}{},
 		})
 	case "service":
 		actions = append(actions, ActionDraft{
-			ToolName:    "service.restart",
+			ToolName:    "service_restart",
 			Description: "Restart the affected service",
 			RiskLevel:   "L2",
 			Params:      map[string]interface{}{},

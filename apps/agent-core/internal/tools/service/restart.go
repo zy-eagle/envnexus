@@ -15,7 +15,7 @@ type RestartTool struct{}
 
 func NewRestartTool() *RestartTool { return &RestartTool{} }
 
-func (t *RestartTool) Name() string        { return "service.restart" }
+func (t *RestartTool) Name() string        { return "service_restart" }
 func (t *RestartTool) Description() string  { return "Restarts a specified system service" }
 func (t *RestartTool) IsReadOnly() bool     { return false }
 func (t *RestartTool) RiskLevel() string    { return "L2" }

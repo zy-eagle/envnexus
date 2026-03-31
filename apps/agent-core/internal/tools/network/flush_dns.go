@@ -17,7 +17,7 @@ func NewFlushDNSTool() *FlushDNSTool {
 	return &FlushDNSTool{}
 }
 
-func (t *FlushDNSTool) Name() string        { return "dns.flush_cache" }
+func (t *FlushDNSTool) Name() string        { return "dns_flush_cache" }
 func (t *FlushDNSTool) Description() string  { return "Flushes the local DNS resolver cache" }
 func (t *FlushDNSTool) IsReadOnly() bool     { return false }
 func (t *FlushDNSTool) RiskLevel() string    { return "L2" }

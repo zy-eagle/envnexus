@@ -15,7 +15,7 @@ type ProxyToggleTool struct{}
 
 func NewProxyToggleTool() *ProxyToggleTool { return &ProxyToggleTool{} }
 
-func (t *ProxyToggleTool) Name() string        { return "proxy.toggle" }
+func (t *ProxyToggleTool) Name() string        { return "proxy_toggle" }
 func (t *ProxyToggleTool) IsReadOnly() bool     { return false }
 func (t *ProxyToggleTool) RiskLevel() string    { return "L1" }
 

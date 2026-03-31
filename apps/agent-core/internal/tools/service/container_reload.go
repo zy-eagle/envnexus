@@ -14,7 +14,7 @@ type ContainerReloadTool struct{}
 
 func NewContainerReloadTool() *ContainerReloadTool { return &ContainerReloadTool{} }
 
-func (t *ContainerReloadTool) Name() string     { return "container.reload" }
+func (t *ContainerReloadTool) Name() string     { return "container_reload" }
 func (t *ContainerReloadTool) IsReadOnly() bool  { return false }
 func (t *ContainerReloadTool) RiskLevel() string { return "L2" }
 
