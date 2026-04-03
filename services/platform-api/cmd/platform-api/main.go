@@ -24,13 +24,15 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/agent_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/audit"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
+	command_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/command"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
+	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/governance"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/license"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/metrics"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
-	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/governance"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/notification"
 	package_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/package"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/policy_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/rbac"
@@ -96,6 +98,11 @@ func main() {
 		toolInvRepo       repository.ToolInvocationRepository
 		bindingRepo       repository.DeviceBindingRepository
 		govRepo           repository.GovernanceRepository
+		cmdTaskRepo       repository.CommandTaskRepository
+		cmdExecRepo       repository.CommandExecutionRepository
+		approvalPolRepo   repository.ApprovalPolicyRepository
+		imProviderRepo    repository.IMProviderRepository
+		notifChannelRepo  repository.UserNotificationChannelRepository
 	)
 
 	var gormDB *gorm.DB
@@ -125,6 +132,11 @@ func main() {
 		toolInvRepo = repository.NewMySQLToolInvocationRepository(db)
 		bindingRepo = repository.NewMySQLDeviceBindingRepository(db)
 		govRepo = repository.NewMySQLGovernanceRepository(db)
+		cmdTaskRepo = repository.NewMySQLCommandTaskRepository(db)
+		cmdExecRepo = repository.NewMySQLCommandExecutionRepository(db)
+		approvalPolRepo = repository.NewMySQLApprovalPolicyRepository(db)
+		imProviderRepo = repository.NewMySQLIMProviderRepository(db)
+		notifChannelRepo = repository.NewMySQLUserNotificationChannelRepository(db)
 		slog.Info("connected to MySQL database")
 
 		if err := migrations.Run(db); err != nil {
@@ -181,6 +193,21 @@ func main() {
 	rbacService := rbac.NewService(roleRepo, rbindingRepo)
 	governanceService := governance.NewService(govRepo)
 	webhookService := webhook.NewService(webhookSubRepo, webhookDelRepo)
+
+	// --- Command Approval Module ---
+	encryptionKey := os.Getenv("ENX_ENCRYPTION_KEY")
+	var cryptoService *infrastructure.CryptoService
+	if encryptionKey != "" {
+		var err error
+		cryptoService, err = infrastructure.NewCryptoService(encryptionKey)
+		if err != nil {
+			slog.Warn("Failed to initialize encryption, IM credentials will be stored in plaintext", "error", err)
+		}
+	}
+	approvalPolicyService := command_svc.NewApprovalPolicyService(approvalPolRepo)
+	commandService := command_svc.NewService(cmdTaskRepo, cmdExecRepo, approvalPolicyService, auditRepo, rbacService, gatewayClient)
+	notificationRouter := notification.NewRouter(notifChannelRepo, imProviderRepo)
+	_ = notificationRouter
 	var metricsService *metrics.Service
 	var licenseService *license.Service
 	if gormDB != nil {
@@ -220,6 +247,9 @@ func main() {
 	rbacHandler := httphandler.NewRBACHandler(rbacService)
 	governanceHandler := httphandler.NewGovernanceHandler(governanceService)
 	webhookHandler := httphandler.NewWebhookHandler(webhookService)
+	commandTaskHandler := httphandler.NewCommandTaskHandler(commandService)
+	approvalPolicyHandler := httphandler.NewApprovalPolicyHandler(approvalPolicyService)
+	imProviderHandler := httphandler.NewIMProviderHandler(imProviderRepo, notifChannelRepo, cryptoService)
 	var metricsHandler *httphandler.MetricsHandler
 	var licenseHandler *httphandler.LicenseHandler
 	if metricsService != nil {
@@ -324,6 +354,9 @@ func main() {
 		rbacHandler.RegisterRoutes(protectedV1)
 		governanceHandler.RegisterRoutes(protectedV1)
 		webhookHandler.RegisterRoutes(protectedV1)
+		commandTaskHandler.RegisterRoutes(protectedV1)
+		approvalPolicyHandler.RegisterRoutes(protectedV1)
+		imProviderHandler.RegisterRoutes(protectedV1)
 		if metricsHandler != nil {
 			metricsHandler.RegisterRoutes(protectedV1)
 		}
@@ -337,6 +370,10 @@ func main() {
 		feishuGroup := router.Group("/webhook")
 		feishuHandler.RegisterRoutes(feishuGroup)
 	}
+
+	// Internal service-to-service API (session-gateway -> platform-api)
+	internalV1 := router.Group("/internal/v1")
+	commandTaskHandler.RegisterInternalRoutes(internalV1)
 
 	// Agent API (device token or open for enrollment/activation)
 	agentEnrollHandler.RegisterRoutes(router.Group(""))

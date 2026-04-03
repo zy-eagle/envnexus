@@ -52,4 +52,13 @@ var (
 	ErrBindingRevoked        = NewAppError("binding_revoked", "device binding has been revoked", http.StatusForbidden)
 	ErrFingerprintMismatch   = NewAppError("fingerprint_mismatch", "hardware fingerprint does not match", http.StatusForbidden)
 	ErrIncorrectPassword     = NewAppError("incorrect_password", "current password is incorrect", http.StatusBadRequest)
+
+	ErrCommandTaskNotFound         = NewAppError("command_task_not_found", "command task not found", http.StatusNotFound)
+	ErrCommandTaskInvalidState     = NewAppError("command_task_invalid_state", "command task is in an invalid state for this operation", http.StatusConflict)
+	ErrCommandTaskExpired          = NewAppError("command_task_expired", "command task has expired", http.StatusConflict)
+	ErrApprovalPolicyNotFound      = NewAppError("approval_policy_not_found", "approval policy not found", http.StatusNotFound)
+	ErrIMProviderNotFound          = NewAppError("im_provider_not_found", "IM provider not found", http.StatusNotFound)
+	ErrNotificationChannelNotFound = NewAppError("notification_channel_not_found", "notification channel not found", http.StatusNotFound)
+	ErrInsufficientPermission      = NewAppError("insufficient_permission", "you do not have permission for this operation", http.StatusForbidden)
+	ErrSeparationOfDutyViolation   = NewAppError("sod_violation", "creator cannot approve their own task", http.StatusForbidden)
 )

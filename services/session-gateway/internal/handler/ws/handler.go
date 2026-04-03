@@ -210,6 +210,36 @@ func (m *SessionManager) HandleSessionEvent(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "device not connected to this instance and no Redis available"})
 }
 
+// POST /api/v1/devices/:deviceId/events — platform-api dispatches events to a specific device
+func (m *SessionManager) HandleDeviceEvent(c *gin.Context) {
+	deviceID := c.Param("deviceId")
+	if deviceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing device_id"})
+		return
+	}
+
+	var envelope EventEnvelope
+	if err := c.ShouldBindJSON(&envelope); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	envelope.DeviceID = deviceID
+
+	if err := m.SendToDevice(deviceID, envelope); err == nil {
+		c.JSON(http.StatusOK, gin.H{"status": "delivered"})
+		return
+	}
+
+	if m.redisClient != nil {
+		m.redisClient.PublishSessionEvent(envelope)
+		c.JSON(http.StatusAccepted, gin.H{"status": "forwarded_via_pubsub"})
+		return
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "device not connected to this instance and no Redis available"})
+}
+
 // GET /ws/v1/sessions/:deviceId?token=... — agent connects with session token
 func (m *SessionManager) HandleAgentConnection(c *gin.Context) {
 	deviceID := c.Param("deviceId")
@@ -382,6 +412,10 @@ func (m *SessionManager) handleAgentEvent(dc *DeviceConnection, evt EventEnvelop
 		slog.Info("Approval requested from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
+	case "command.result":
+		slog.Info("Command result from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
+		go m.forwardCommandResult(dc, evt)
+
 	case "activation_heartbeat":
 		slog.Info("Activation heartbeat from device", "device_id", dc.DeviceID)
 		go m.forwardActivationHeartbeat(dc, evt)
@@ -458,5 +492,30 @@ func (m *SessionManager) forwardActivationHeartbeat(dc *DeviceConnection, evt Ev
 
 	if result.Data.Status == "revoked" {
 		slog.Info("Activation revoked for device", "device_id", dc.DeviceID)
+	}
+}
+
+func (m *SessionManager) forwardCommandResult(dc *DeviceConnection, evt EventEnvelope) {
+	if m.platformURL == "" {
+		slog.Warn("Cannot forward command.result: platform URL not configured", "device_id", dc.DeviceID)
+		return
+	}
+
+	body, err := json.Marshal(evt)
+	if err != nil {
+		slog.Warn("Failed to marshal command.result", "device_id", dc.DeviceID, "error", err)
+		return
+	}
+
+	url := m.platformURL + "/internal/v1/command-results"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("Failed to forward command.result to platform", "device_id", dc.DeviceID, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		slog.Warn("Platform rejected command.result", "device_id", dc.DeviceID, "status", resp.StatusCode)
 	}
 }

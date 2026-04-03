@@ -744,14 +744,6 @@ function registerIPC(): void {
     safeLocalAPI('GET', '/local/v1/runtime/status')
   );
 
-  ipcMain.handle('get-pending-approvals', () =>
-    safeLocalAPI('GET', '/local/v1/approvals/pending')
-  );
-
-  ipcMain.handle('resolve-approval', (_e, id: string, approved: boolean) =>
-    safeLocalAPI('POST', `/local/v1/approvals/${id}/resolve`, { approved })
-  );
-
   ipcMain.handle('export-diagnostics', () =>
     safeLocalAPI('POST', '/local/v1/diagnostics/export', {})
   );

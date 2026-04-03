@@ -172,6 +172,7 @@
 
     /* ── Grid ─────────────────────────────────────────────────────────── */
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
     .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 
     /* ── Page title ───────────────────────────────────────────────────── */
@@ -593,13 +594,6 @@
       </span>
       <span class="nav-label">诊断对话</span>
     </div>
-    <div class="nav-item" data-page="approvals" onclick="navigate('approvals')">
-      <span class="icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </span>
-      <span class="nav-label">待审批</span>
-      <span class="nav-badge" id="approval-count" style="display:none">0</span>
-    </div>
     <div class="nav-item" data-page="history" onclick="navigate('history')">
       <span class="icon">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -633,7 +627,7 @@
       ⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。
     </div>
 
-    <div class="grid-4">
+    <div class="grid-3">
       <div class="card">
         <div class="card-title" id="card-title-conn">连接状态</div>
         <div class="card-value" id="dash-status" style="font-size:16px">—</div>
@@ -643,11 +637,6 @@
         <div class="card-title" id="card-title-activation">激活状态</div>
         <div class="card-value" id="dash-activation" style="font-size:16px">—</div>
         <div class="card-sub" id="dash-activation-mode">—</div>
-      </div>
-      <div class="card">
-        <div class="card-title" id="card-title-approvals">待审批</div>
-        <div class="card-value" id="dash-approvals" style="color:var(--amber-500)">—</div>
-        <div class="card-sub" id="card-sub-approvals">需要确认</div>
       </div>
       <div class="card">
         <div class="card-title" id="card-title-governance">治理基线</div>
@@ -703,17 +692,6 @@
         <button id="chat-send" onclick="sendChatRequest()">发送</button>
         <button id="chat-cancel" onclick="cancelChatRequest()">取消</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Approvals -->
-  <div id="page-approvals" class="page">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-      <div class="page-title" id="approvals-page-title" style="margin:0">待审批操作</div>
-      <button class="btn btn-secondary" id="approvals-refresh-btn" onclick="loadApprovals()">↻ 刷新</button>
-    </div>
-    <div id="approvals-list">
-      <div class="loading"></div>
     </div>
   </div>
 
@@ -814,13 +792,12 @@
 // ── i18n ──────────────────────────────────────────────────────────────────────
 const i18n = {
   zh: {
-    nav_dashboard: '仪表盘', nav_diagnosis: '智能对话', nav_approvals: '待审批',
+    nav_dashboard: '仪表盘', nav_diagnosis: '智能对话',
     nav_history: '历史会话', nav_logs: '运行日志', nav_settings: '设置',
     status_online: '在线', status_offline: '离线', status_connecting: '连接中...',
     dash_title: '仪表盘',
     dash_offline_alert: '⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。',
     dash_conn_status: '连接状态', dash_activation_status: '激活状态',
-    dash_pending_approvals: '待审批', dash_need_confirm: '需要确认',
     dash_governance_baseline: '治理基线',
     dash_activated: '已激活', dash_not_activated: '未激活',
     dash_mode_prefix: '模式: ',
@@ -887,13 +864,12 @@ const i18n = {
     unknown_error: '未知错误',
   },
   en: {
-    nav_dashboard: 'Dashboard', nav_diagnosis: 'AI Chat', nav_approvals: 'Approvals',
+    nav_dashboard: 'Dashboard', nav_diagnosis: 'AI Chat',
     nav_history: 'History', nav_logs: 'Logs', nav_settings: 'Settings',
     status_online: 'Online', status_offline: 'Offline', status_connecting: 'Connecting...',
     dash_title: 'Dashboard',
     dash_offline_alert: '⚠ agent-core is unreachable. Running in offline (read-only) mode.',
     dash_conn_status: 'Connection', dash_activation_status: 'Activation',
-    dash_pending_approvals: 'Pending', dash_need_confirm: 'Need confirmation',
     dash_governance_baseline: 'Governance',
     dash_activated: 'Activated', dash_not_activated: 'Not Activated',
     dash_mode_prefix: 'Mode: ',
@@ -977,7 +953,6 @@ function applyLanguage(lang) {
 
   document.querySelector('[data-page="dashboard"] .nav-label').textContent = t('nav_dashboard');
   document.querySelector('[data-page="diagnosis"] .nav-label').textContent = t('nav_diagnosis');
-  document.querySelector('[data-page="approvals"] .nav-label').textContent = t('nav_approvals');
   document.querySelector('[data-page="history"] .nav-label').textContent = t('nav_history');
   document.querySelector('[data-page="logs"] .nav-label').textContent = t('nav_logs');
   document.querySelector('[data-page="settings"] .nav-label').textContent = t('nav_settings');
@@ -986,8 +961,6 @@ function applyLanguage(lang) {
   document.getElementById('offline-alert').textContent = t('dash_offline_alert');
   document.getElementById('card-title-conn').textContent = t('dash_conn_status');
   document.getElementById('card-title-activation').textContent = t('dash_activation_status');
-  document.getElementById('card-title-approvals').textContent = t('dash_pending_approvals');
-  document.getElementById('card-sub-approvals').textContent = t('dash_need_confirm');
   document.getElementById('card-title-governance').textContent = t('dash_governance_baseline');
   document.getElementById('device-code-label').textContent = t('dash_device_code_title');
   document.getElementById('device-code-hint').textContent = t('dash_device_code_hint');
@@ -1006,8 +979,6 @@ function applyLanguage(lang) {
   const welcomeEl = document.getElementById('chat-welcome');
   if (welcomeEl) welcomeEl.textContent = t('diag_welcome');
 
-  document.getElementById('approvals-page-title').textContent = t('approvals_title');
-  document.getElementById('approvals-refresh-btn').textContent = t('approvals_refresh');
   document.getElementById('history-title').textContent = t('history_title');
 
   document.getElementById('logs-title').textContent = t('logs_title');
@@ -1041,7 +1012,6 @@ function applyLanguage(lang) {
     const pageId = activePage.id.replace('page-', '');
     if (pageId === 'dashboard') loadDashboard();
     if (pageId === 'history') loadHistory();
-    if (pageId === 'approvals') loadApprovals();
     if (pageId === 'logs') loadLogs();
   }
 }
@@ -1055,7 +1025,6 @@ function navigate(page) {
   document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
   document.getElementById(`page-${page}`)?.classList.add('active');
 
-  if (page === 'approvals') loadApprovals();
   if (page === 'history') loadHistory();
   if (page === 'logs') loadLogs();
   if (page === 'settings') loadSettings_();
@@ -1121,12 +1090,6 @@ async function loadDashboard() {
       <div class="info-row"><span class="info-key">${t('dash_current_session')}</span><span class="info-value">${fmt(status.active_session_id)}</span></div>
       <div class="info-row"><span class="info-key">${t('dash_pending')}</span><span class="info-value">${fmt(status.pending_approvals)}</span></div>
     `;
-
-    const count = parseInt(status.pending_approvals) || 0;
-    document.getElementById('dash-approvals').textContent = count;
-    const badge = document.getElementById('approval-count');
-    badge.textContent = count;
-    badge.style.display = count > 0 ? 'inline-block' : 'none';
 
     if (typeof renderDashboardFindings === 'function' && latestFindings.length > 0) {
       renderDashboardFindings(latestFindings);
@@ -1389,77 +1352,6 @@ function renderDashboardFindings(findings) {
   });
 }
 
-// ── Approvals ─────────────────────────────────────────────────────────────────
-async function loadApprovals() {
-  const container = document.getElementById('approvals-list');
-  container.innerHTML = '<div style="padding:20px; text-align:center;"><div class="loading"></div></div>';
-
-  try {
-    const data = await api.getPendingApprovals();
-    if (data && data.error) throw new Error(data.error);
-    const pending = data.pending_approvals || [];
-
-    const badge = document.getElementById('approval-count');
-    badge.textContent = pending.length;
-    badge.style.display = pending.length > 0 ? 'inline-block' : 'none';
-    document.getElementById('dash-approvals').textContent = pending.length;
-
-    if (pending.length === 0) {
-      container.innerHTML = `<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">${t('approvals_empty')}</div></div>`;
-      return;
-    }
-
-    container.innerHTML = '';
-    pending.forEach(item => {
-      const div = document.createElement('div');
-      div.className = 'approval-card';
-      div.id = `approval-${item.ID}`;
-
-      let paramsHTML = '';
-      if (item.Params) {
-        try { paramsHTML = `<pre style="max-height:80px;">${JSON.stringify(item.Params, null, 2)}</pre>`; }
-        catch { paramsHTML = `<pre>${JSON.stringify(item.Params)}</pre>`; }
-      }
-
-      div.innerHTML = `
-        <div class="approval-header">
-          <div>
-            <div class="approval-tool">🔧 ${item.ToolName || item.tool_name}</div>
-            <div class="approval-meta">ID: ${item.ID || item.id} · ${t('approvals_risk')}: ${riskBadge(item.RiskLevel || item.risk_level)}</div>
-          </div>
-          <span class="badge badge-orange">${item.Status || item.status || 'pending'}</span>
-        </div>
-        ${item.Reason ? `<p style="font-size:13px; margin-bottom:8px; color:var(--slate-600)">${item.Reason}</p>` : ''}
-        ${paramsHTML}
-        <div class="approval-actions">
-          <button class="btn btn-success" onclick="resolveApproval('${item.ID || item.id}', true, this)">${t('approvals_approve')}</button>
-          <button class="btn btn-danger" onclick="resolveApproval('${item.ID || item.id}', false, this)">${t('approvals_reject')}</button>
-        </div>
-      `;
-      container.appendChild(div);
-    });
-  } catch (e) {
-    container.innerHTML = `<div class="alert alert-error">${t('approvals_error')}${e.details || e.message || t('unknown_error')}</div>`;
-  }
-}
-
-async function resolveApproval(id, approved, btn) {
-  btn.disabled = true;
-  btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = true);
-  try {
-    await api.resolveApproval(id, approved);
-    const card = document.getElementById(`approval-${id}`);
-    if (card) {
-      card.innerHTML = `<div style="text-align:center; padding:12px; color:${approved ? 'var(--emerald-700)' : 'var(--red-700)'}; font-weight:600;">${approved ? t('approvals_approved') : t('approvals_rejected')}</div>`;
-      setTimeout(() => card.remove(), 1500);
-    }
-    setTimeout(loadApprovals, 1600);
-  } catch (e) {
-    alert(t('approvals_resolve_error') + (e.details || e.message || t('unknown_error')));
-    btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
-  }
-}
-
 // ── History ───────────────────────────────────────────────────────────────────
 async function loadHistory() {
   const container = document.getElementById('history-list');
@@ -1663,10 +1555,6 @@ setInterval(async () => {
     const status = await api.getAgentStatus();
     if (status && status.error) throw new Error(status.error);
     setStatus('online');
-    const count = parseInt(status.pending_approvals) || 0;
-    const badge = document.getElementById('approval-count');
-    badge.textContent = count;
-    badge.style.display = count > 0 ? 'inline-block' : 'none';
   } catch {
     setStatus('offline');
   }

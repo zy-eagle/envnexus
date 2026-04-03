@@ -1,0 +1,191 @@
+package http
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/command"
+)
+
+type CommandTaskHandler struct {
+	commandService *command.Service
+}
+
+func NewCommandTaskHandler(commandService *command.Service) *CommandTaskHandler {
+	return &CommandTaskHandler{commandService: commandService}
+}
+
+func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
+	tasks := router.Group("/tenants/:tenantId/command-tasks")
+	{
+		tasks.POST("", h.CreateTask)
+		tasks.GET("", h.ListTasks)
+		tasks.GET("/:taskId", h.GetTask)
+		tasks.POST("/:taskId/approve", h.ApproveTask)
+		tasks.POST("/:taskId/deny", h.DenyTask)
+		tasks.POST("/:taskId/cancel", h.CancelTask)
+	}
+	approvals := router.Group("/tenants/:tenantId/pending-approvals")
+	{
+		approvals.GET("", h.ListPendingApprovals)
+		approvals.GET("/count", h.CountPendingApprovals)
+	}
+}
+
+// RegisterInternalRoutes registers routes for internal service-to-service communication
+// (e.g., session-gateway forwarding command results). No JWT auth required.
+func (h *CommandTaskHandler) RegisterInternalRoutes(router *gin.RouterGroup) {
+	router.POST("/command-results", h.HandleCommandResult)
+}
+
+func (h *CommandTaskHandler) CreateTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	userID := c.GetString("user_id")
+	var req dto.CreateCommandTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+	resp, err := h.commandService.CreateTask(c.Request.Context(), tenantID, userID, req)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusCreated, resp)
+}
+
+func (h *CommandTaskHandler) GetTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	taskID := c.Param("taskId")
+	resp, err := h.commandService.GetTask(c.Request.Context(), tenantID, taskID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *CommandTaskHandler) ListTasks(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	filters := repository.CommandTaskFilters{
+		Status:    c.Query("status"),
+		CreatedBy: c.Query("created_by"),
+		RiskLevel: c.Query("risk_level"),
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	resp, err := h.commandService.ListTasks(c.Request.Context(), tenantID, filters, limit, offset)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *CommandTaskHandler) ApproveTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	taskID := c.Param("taskId")
+	approverID := c.GetString("user_id")
+	var req dto.ApproveCommandTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req = dto.ApproveCommandTaskRequest{}
+	}
+	if err := h.commandService.ApproveTask(c.Request.Context(), tenantID, taskID, approverID, req.Note); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "approved"})
+}
+
+func (h *CommandTaskHandler) DenyTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	taskID := c.Param("taskId")
+	approverID := c.GetString("user_id")
+	var req dto.DenyCommandTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req = dto.DenyCommandTaskRequest{}
+	}
+	if err := h.commandService.DenyTask(c.Request.Context(), tenantID, taskID, approverID, req.Reason); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "denied"})
+}
+
+func (h *CommandTaskHandler) CancelTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	taskID := c.Param("taskId")
+	userID := c.GetString("user_id")
+	if err := h.commandService.CancelTask(c.Request.Context(), tenantID, taskID, userID); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "cancelled"})
+}
+
+func (h *CommandTaskHandler) ListPendingApprovals(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	userID := c.GetString("user_id")
+	resp, err := h.commandService.ListPendingApprovals(c.Request.Context(), tenantID, userID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *CommandTaskHandler) CountPendingApprovals(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	userID := c.GetString("user_id")
+	count, err := h.commandService.CountPendingApprovals(c.Request.Context(), tenantID, userID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, dto.PendingApprovalCountResponse{Count: count})
+}
+
+func (h *CommandTaskHandler) HandleCommandResult(c *gin.Context) {
+	var envelope struct {
+		EventType string `json:"event_type"`
+		DeviceID  string `json:"device_id"`
+		SessionID string `json:"session_id"`
+		Payload   struct {
+			ExecutionID string  `json:"execution_id"`
+			Status      string  `json:"status"`
+			Output      *string `json:"output"`
+			Error       *string `json:"error"`
+			ExitCode    *int    `json:"exit_code"`
+			DurationMs  *int    `json:"duration_ms"`
+		} `json:"payload"`
+	}
+
+	if err := c.ShouldBindJSON(&envelope); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if envelope.Payload.ExecutionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing execution_id in payload"})
+		return
+	}
+
+	err := h.commandService.HandleExecutionResult(
+		c.Request.Context(),
+		envelope.Payload.ExecutionID,
+		envelope.Payload.Status,
+		envelope.Payload.Output,
+		envelope.Payload.ExitCode,
+		envelope.Payload.DurationMs,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "received"})
+}

@@ -3,11 +3,14 @@ package session
 import (
 	"context"
 	"crypto/rand"
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -261,6 +264,10 @@ func (c *WSClient) handleServerEvent(evt EventEnvelope) {
 	case "session.completed":
 		slog.Info("[ws] Session completed", "session_id", evt.SessionID)
 
+	case "command.execute":
+		slog.Info("[ws] Remote command execute", "session_id", evt.SessionID)
+		c.handleCommandExecute(evt)
+
 	case "heartbeat.pong":
 		slog.Info("[ws] Heartbeat pong received")
 
@@ -438,4 +445,108 @@ func generateEventID() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func (c *WSClient) handleCommandExecute(evt EventEnvelope) {
+	payloadMap, ok := evt.Payload.(map[string]interface{})
+	if !ok {
+		slog.Warn("[ws] command.execute: invalid payload")
+		return
+	}
+
+	taskID, _ := payloadMap["task_id"].(string)
+	executionID, _ := payloadMap["execution_id"].(string)
+	commandType, _ := payloadMap["command_type"].(string)
+	commandPayload, _ := payloadMap["command_payload"].(string)
+
+	if executionID == "" || commandPayload == "" {
+		slog.Warn("[ws] command.execute: missing execution_id or command_payload")
+		return
+	}
+
+	go func() {
+		start := time.Now()
+		var status, output, errMsg string
+		var exitCode int
+
+		switch commandType {
+		case "shell":
+			status, output, errMsg, exitCode = executeShellCommand(commandPayload)
+		default:
+			status = "failed"
+			errMsg = fmt.Sprintf("unsupported command type: %s", commandType)
+			exitCode = -1
+		}
+
+		durationMs := int(time.Since(start).Milliseconds())
+
+		resultPayload := map[string]interface{}{
+			"execution_id": executionID,
+			"status":       status,
+			"output":       output,
+			"exit_code":    exitCode,
+			"duration_ms":  durationMs,
+		}
+		if errMsg != "" {
+			resultPayload["error"] = errMsg
+		}
+
+		c.SendEvent(EventEnvelope{
+			EventID:   generateEventID(),
+			EventType: "command.result",
+			DeviceID:  c.deviceID,
+			SessionID: taskID,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Payload:   resultPayload,
+		})
+
+		slog.Info("[ws] command.execute completed",
+			"execution_id", executionID,
+			"status", status,
+			"exit_code", exitCode,
+			"duration_ms", durationMs,
+		)
+	}()
+}
+
+func executeShellCommand(command string) (status, output, errMsg string, exitCode int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	maxOutput := 64 * 1024
+	out := stdout.String()
+	if len(out) > maxOutput {
+		out = out[:maxOutput] + "\n... (truncated)"
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return "timeout", out, "command execution timed out (5m)", -1
+	}
+
+	if err != nil {
+		exitCode = 1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+		combinedErr := stderr.String()
+		if combinedErr == "" {
+			combinedErr = err.Error()
+		}
+		return "failed", out, combinedErr, exitCode
+	}
+
+	return "succeeded", out, "", 0
 }

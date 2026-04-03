@@ -2,6 +2,7 @@ go 1.25.0
 
 use (
 	./apps/agent-core
+	./libs/shared
 	./services/job-runner
 	./services/platform-api
 	./services/session-gateway

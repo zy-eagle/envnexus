@@ -86,6 +86,29 @@ func (g *GatewayClient) sendEvent(ctx context.Context, sessionID string, evt Ses
 	return nil
 }
 
+// SendToDevice sends an event to a specific device via the session gateway.
+func (g *GatewayClient) SendToDevice(ctx context.Context, deviceID string, evt SessionEvent) error {
+	body, err := json.Marshal(evt)
+	if err != nil {
+		return fmt.Errorf("marshal event: %w", err)
+	}
+	url := fmt.Sprintf("%s/api/v1/devices/%s/events", g.baseURL, deviceID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := g.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send event to device: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("gateway returned status %d for device %s", resp.StatusCode, deviceID)
+	}
+	return nil
+}
+
 func (g *GatewayClient) publishViaRedis(ctx context.Context, evt SessionEvent) error {
 	if g.redisClient == nil {
 		return fmt.Errorf("no Redis client available for pub/sub fallback")

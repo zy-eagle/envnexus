@@ -81,6 +81,7 @@ func main() {
 	router.GET("/ws/v1/sessions/:deviceId", sessionManager.HandleAgentConnection)
 	router.POST("/api/v1/sessions/command", sessionManager.HandleCommand)
 	router.POST("/api/v1/sessions/:sessionId/events", sessionManager.HandleSessionEvent)
+	router.POST("/api/v1/devices/:deviceId/events", sessionManager.HandleDeviceEvent)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),

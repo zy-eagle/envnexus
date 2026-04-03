@@ -6,11 +6,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConnectionStatus: () => ipcRenderer.invoke('get-connection-status'),
   getRecentSessions: () => ipcRenderer.invoke('get-recent-sessions'),
 
-  // Approvals
-  getPendingApprovals: () => ipcRenderer.invoke('get-pending-approvals'),
-  resolveApproval: (id: string, approved: boolean) =>
-    ipcRenderer.invoke('resolve-approval', id, approved),
-
   // Diagnostics
   exportDiagnostics: () => ipcRenderer.invoke('export-diagnostics'),
   sendDiagnose: (query: string, history: unknown[]) =>
