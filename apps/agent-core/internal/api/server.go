@@ -20,6 +20,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/updater"
 )
 
 type LocalServer struct {
@@ -35,6 +36,7 @@ type LocalServer struct {
 	localStore        *store.Store
 	startTime         time.Time
 	platformConnected bool
+	agentUpdater      *updater.Updater
 	chatApprovals     sync.Map
 	chatCancelFuncs   sync.Map
 	chatAutoApprove   sync.Map
@@ -68,6 +70,10 @@ func (s *LocalServer) SetGovernanceEngine(e *governance.Engine) {
 	s.governanceEngine = e
 }
 
+func (s *LocalServer) SetUpdater(u *updater.Updater) {
+	s.agentUpdater = u
+}
+
 func (s *LocalServer) Start() error {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -86,6 +92,10 @@ func (s *LocalServer) Start() error {
 		api.POST("/chat/auto-approve", s.handleChatAutoApprove)
 		api.POST("/diagnostics/export", s.handleDiagnosticsExport)
 		api.GET("/sessions/recent", s.handleRecentSessions)
+		api.GET("/update/status", s.handleUpdateStatus)
+		api.POST("/update/check", s.handleUpdateCheck)
+		api.POST("/update/download", s.handleUpdateDownload)
+		api.POST("/update/apply", s.handleUpdateApply)
 	}
 
 	s.server = &http.Server{
@@ -460,4 +470,65 @@ func (s *LocalServer) handleChatAutoApprove(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "auto_approve": req.Enabled})
+}
+
+// ── Self-update API ─────────────────────────────────────────────────────────
+
+func (s *LocalServer) handleUpdateStatus(c *gin.Context) {
+	if s.agentUpdater == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"state":           "disabled",
+			"current_version": "unknown",
+			"message":         "updater not initialized (standalone mode or no platform connection)",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, s.agentUpdater.GetStatus())
+}
+
+func (s *LocalServer) handleUpdateCheck(c *gin.Context) {
+	if s.agentUpdater == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not available"})
+		return
+	}
+	info, err := s.agentUpdater.CheckForUpdate(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, info)
+}
+
+func (s *LocalServer) handleUpdateDownload(c *gin.Context) {
+	if s.agentUpdater == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not available"})
+		return
+	}
+	info, err := s.agentUpdater.CheckForUpdate(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !info.HasUpdate {
+		c.JSON(http.StatusOK, gin.H{"status": "no_update", "message": "already on latest version"})
+		return
+	}
+	path, err := s.agentUpdater.DownloadUpdate(c.Request.Context(), info)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "downloaded", "path": path, "version": info.LatestVersion})
+}
+
+func (s *LocalServer) handleUpdateApply(c *gin.Context) {
+	if s.agentUpdater == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not available"})
+		return
+	}
+	if err := s.agentUpdater.ApplyUpdate(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "applied", "message": "binary replaced, restart required"})
 }

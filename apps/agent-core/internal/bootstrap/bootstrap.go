@@ -30,6 +30,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/network"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/service"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools/system"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/updater"
 )
 
 type Bootstrapper struct {
@@ -39,16 +40,19 @@ type Bootstrapper struct {
 	localServer     *api.LocalServer
 	localStore      *store.Store
 	runtime         *agentruntime.Runtime
+	updater         *updater.Updater
+	version         string
 }
 
 // NewBootstrapper creates a bootstrapper with the default config directory (~/.envnexus/agent).
 // Use SetDataDir before Run() to override the data/config location (e.g. when running under Electron).
-func NewBootstrapper() *Bootstrapper {
+func NewBootstrapper(version string) *Bootstrapper {
 	configDir := DefaultConfigDir()
 	return &Bootstrapper{
 		identityManager: device.NewIdentityManager(configDir),
 		configManager:   config.NewManager(configDir),
 		configDir:       configDir,
+		version:         version,
 	}
 }
 
@@ -348,11 +352,49 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 
 	rt.Start(ctx)
 
-	// Step 9: Connect to session gateway (only when platform reachable)
+	// Step 9: Initialize self-updater (only when platform reachable and device enrolled)
+	if deviceToken != "" && platformReachable {
+		agentUpdater := updater.New(updater.Config{
+			PlatformURL:    cfg.PlatformURL,
+			DeviceToken:    deviceToken,
+			CurrentVersion: b.version,
+			AutoUpdate:     cfg.AutoUpdate,
+			CheckInterval:  1 * time.Hour,
+			DataDir:        b.configDir,
+		})
+		b.updater = agentUpdater
+
+		rt.Register(agentruntime.Task{
+			Name:     "self_update_check",
+			Interval: 1 * time.Hour,
+			Fn: func(ctx context.Context) error {
+				info, err := agentUpdater.CheckForUpdate(ctx)
+				if err != nil {
+					return err
+				}
+				if info.HasUpdate {
+					slog.Info("[updater] Update available", "current", b.version, "latest", info.LatestVersion)
+					if cfg.AutoUpdate {
+						if _, dlErr := agentUpdater.DownloadUpdate(ctx, info); dlErr != nil {
+							slog.Error("[updater] Download failed", "error", dlErr)
+						}
+					}
+				}
+				return nil
+			},
+		})
+	}
+
+	// Step 10: Connect to session gateway (only when platform reachable)
 	if deviceToken != "" && platformReachable {
 		tokenProvider := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
 		wsClient := session.NewWSClient(cfg.WSURL, deviceID, tenantID, tokenProvider, registry, auditClient, policyEngine, diagnosisEngine)
 		wsClient.Start(ctx)
+	}
+
+	// Expose updater to local API
+	if b.updater != nil {
+		localServer.SetUpdater(b.updater)
 	}
 
 	if !platformReachable {

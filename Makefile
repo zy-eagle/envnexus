@@ -32,7 +32,7 @@ build:
 	@echo "Building job-runner..."
 	cd services/job-runner && go build -o ../../bin/job-runner ./cmd/job-runner
 	@echo "Building agent-core..."
-	cd apps/agent-core && go build -o ../../bin/enx-agent ./cmd/enx-agent
+	cd apps/agent-core && go build -ldflags="-X main.version=$$(cat ../../VERSION 2>/dev/null || echo 0.3.0)" -o ../../bin/enx-agent ./cmd/enx-agent
 	@echo "Build complete. Binaries are in ./bin"
 
 build-agents:
@@ -44,8 +44,9 @@ build-agents:
 			if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
 			name="enx-agent-$$os-$$arch$$ext"; \
 			echo "  Building $$name..."; \
+			ver=$$(cat VERSION 2>/dev/null || echo 0.3.0); \
 			cd apps/agent-core && CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-				go build -ldflags="-s -w" -o ../../bin/agents/$$name ./cmd/enx-agent && cd ../..; \
+				go build -ldflags="-s -w -X main.version=$$ver" -o ../../bin/agents/$$name ./cmd/enx-agent && cd ../..; \
 			echo "  ✓ $$name"; \
 		done; \
 	done

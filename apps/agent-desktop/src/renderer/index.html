@@ -56,12 +56,18 @@
       background: var(--bg);
       color: var(--text);
       display: flex;
+      flex-direction: column;
       height: 100vh;
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       font-size: 13px;
       line-height: 1.5;
+    }
+    #app-main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
     }
 
     /* ── Sidebar ─────────────────────────────────────────────────────── */
@@ -575,9 +581,80 @@
       letter-spacing: 0.06em;
       padding: 12px 12px 6px;
     }
+    /* ── Update Banner ──────────────────────────────────────────────── */
+    #update-banner {
+      display: none;
+      background: linear-gradient(135deg, var(--indigo-50) 0%, #e0e7ff 100%);
+      border-bottom: 1px solid var(--indigo-100);
+      padding: 10px 20px;
+      font-size: 13px;
+      color: var(--indigo-700);
+      align-items: center;
+      gap: 12px;
+      z-index: 100;
+    }
+    #update-banner.show { display: flex; }
+    #update-banner .update-icon { font-size: 18px; flex-shrink: 0; }
+    #update-banner .update-text { flex: 1; }
+    #update-banner .update-version { font-weight: 700; }
+    #update-banner .update-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    #update-banner .btn-update {
+      padding: 4px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      font-family: var(--font);
+      transition: all 0.15s;
+    }
+    #update-banner .btn-update-primary {
+      background: var(--indigo-600);
+      color: white;
+    }
+    #update-banner .btn-update-primary:hover { background: var(--indigo-700); }
+    #update-banner .btn-update-ghost {
+      background: transparent;
+      color: var(--indigo-600);
+    }
+    #update-banner .btn-update-ghost:hover { background: rgba(99,102,241,0.08); }
+    #update-banner .update-progress {
+      height: 3px;
+      background: var(--indigo-100);
+      border-radius: 2px;
+      overflow: hidden;
+      width: 120px;
+    }
+    #update-banner .update-progress-bar {
+      height: 100%;
+      background: var(--indigo-500);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
   </style>
 </head>
 <body>
+
+<!-- Update Banner (top of viewport) -->
+<div id="update-banner">
+  <span class="update-icon">&#x2B06;</span>
+  <span class="update-text">
+    <span id="update-message">有新版本可用</span>
+    <span class="update-version" id="update-version-label"></span>
+  </span>
+  <span id="update-progress-wrap" style="display:none">
+    <span class="update-progress"><span class="update-progress-bar" id="update-progress-bar"></span></span>
+    <span id="update-progress-pct" style="font-size:11px;font-weight:600;min-width:36px;text-align:right;">0%</span>
+  </span>
+  <span class="update-actions" id="update-actions">
+    <button class="btn-update btn-update-primary" id="btn-update-action" onclick="handleUpdateAction()">下载更新</button>
+    <button class="btn-update btn-update-ghost" id="btn-update-dismiss" onclick="dismissUpdate()">稍后</button>
+  </span>
+</div>
+
+<!-- App Main (sidebar + content) -->
+<div id="app-main">
 
 <!-- Sidebar -->
 <div id="sidebar">
@@ -778,15 +855,21 @@
       <div class="card-title" id="settings-about-title">关于</div>
       <div id="about-info">
         <div class="info-row"><span class="info-key" id="label-app-version">应用版本</span><span class="info-value" id="about-version">—</span></div>
+        <div class="info-row"><span class="info-key" id="label-agent-version">Agent Core 版本</span><span class="info-value" id="about-agent-version">—</span></div>
         <div class="info-row"><span class="info-key" id="label-agent-addr">Agent Core 地址</span><span class="info-value">127.0.0.1:17700</span></div>
         <div class="info-row"><span class="info-key" id="label-project-home">项目主页</span>
           <span class="info-value"><a href="#" onclick="openExternal('https://github.com/zy-eagle/envnexus')" style="color:var(--indigo-600); text-decoration:none;">github.com/zy-eagle/envnexus</a></span>
         </div>
       </div>
+      <div style="margin-top:12px;">
+        <button class="btn btn-secondary" id="btn-check-update" onclick="triggerCheckUpdate()">检查更新</button>
+        <span id="check-update-msg" style="margin-left:10px; font-size:12px; color:var(--text-muted);"></span>
+      </div>
     </div>
   </div>
 
 </div><!-- end #content -->
+</div><!-- end #app-main -->
 
 <script>
 // ── i18n ──────────────────────────────────────────────────────────────────────
@@ -862,6 +945,21 @@ const i18n = {
     logs_waiting: '等待日志...', logs_empty: '暂无日志输出。Agent Core 可能未启动。',
     logs_hint: '实时显示 agent-core 进程的 stdout/stderr 输出。最多保留 2000 行。',
     unknown_error: '未知错误',
+    update_available: '有新版本可用',
+    update_desktop_available: '桌面端新版本',
+    update_agent_available: 'Agent Core 新版本',
+    update_download: '下载更新',
+    update_downloading: '下载中...',
+    update_install: '立即安装',
+    update_restart: '重启生效',
+    update_later: '稍后',
+    update_downloaded: '更新已下载，重启后生效',
+    update_applying: '正在应用更新...',
+    update_applied: '更新已应用，正在重启...',
+    update_check: '检查更新',
+    update_checking: '检查中...',
+    update_no_update: '已是最新版本',
+    update_error: '更新失败',
   },
   en: {
     nav_dashboard: 'Dashboard', nav_diagnosis: 'AI Chat',
@@ -934,6 +1032,21 @@ const i18n = {
     logs_waiting: 'Waiting for logs...', logs_empty: 'No log output. Agent Core may not be running.',
     logs_hint: 'Real-time stdout/stderr output from agent-core process. Up to 2000 lines retained.',
     unknown_error: 'Unknown error',
+    update_available: 'Update available',
+    update_desktop_available: 'Desktop update',
+    update_agent_available: 'Agent Core update',
+    update_download: 'Download',
+    update_downloading: 'Downloading...',
+    update_install: 'Install Now',
+    update_restart: 'Restart to Apply',
+    update_later: 'Later',
+    update_downloaded: 'Update downloaded, restart to apply',
+    update_applying: 'Applying update...',
+    update_applied: 'Update applied, restarting...',
+    update_check: 'Check for Updates',
+    update_checking: 'Checking...',
+    update_no_update: 'Up to date',
+    update_error: 'Update failed',
   }
 };
 
@@ -1004,8 +1117,10 @@ function applyLanguage(lang) {
   document.getElementById('btn-export-diag').textContent = t('settings_export');
   document.getElementById('settings-about-title').textContent = t('settings_about');
   document.getElementById('label-app-version').textContent = t('settings_app_version');
+  document.getElementById('label-agent-version').textContent = 'Agent Core ' + t('settings_app_version');
   document.getElementById('label-agent-addr').textContent = t('settings_agent_addr');
   document.getElementById('label-project-home').textContent = t('settings_project_home');
+  document.getElementById('btn-check-update').textContent = t('update_check');
 
   const activePage = document.querySelector('.page.active');
   if (activePage) {
@@ -1444,6 +1559,13 @@ async function loadSettings_() {
     const ver = await api.getAppVersion();
     document.getElementById('about-version').textContent = 'v' + ver;
 
+    try {
+      const updateStatus = await api.getAgentUpdateStatus();
+      if (updateStatus && updateStatus.current_version) {
+        document.getElementById('about-agent-version').textContent = 'v' + updateStatus.current_version;
+      }
+    } catch {}
+
     if (api.getDetectedAgentPath) {
       const detected = await api.getDetectedAgentPath();
       const pathInput = document.getElementById('setting-agent-path');
@@ -1540,6 +1662,180 @@ function copyDeviceCode() {
   }
 }
 
+// ── Self-update banner ────────────────────────────────────────────────────────
+let updateState = 'idle';
+let pendingUpdateVersion = '';
+let pendingUpdateType = '';
+
+function showUpdateBanner(type, version) {
+  pendingUpdateType = type;
+  pendingUpdateVersion = version;
+  const banner = document.getElementById('update-banner');
+  const label = type === 'desktop' ? t('update_desktop_available') : t('update_agent_available');
+  document.getElementById('update-message').textContent = label;
+  document.getElementById('update-version-label').textContent = `v${version}`;
+  document.getElementById('btn-update-action').textContent = t('update_download');
+  document.getElementById('btn-update-dismiss').textContent = t('update_later');
+  document.getElementById('update-progress-wrap').style.display = 'none';
+  document.getElementById('update-actions').style.display = 'flex';
+  banner.classList.add('show');
+  updateState = 'available';
+}
+
+function dismissUpdate() {
+  document.getElementById('update-banner').classList.remove('show');
+  updateState = 'dismissed';
+}
+
+async function handleUpdateAction() {
+  const btn = document.getElementById('btn-update-action');
+  if (updateState === 'available' || updateState === 'error') {
+    updateState = 'downloading';
+    btn.textContent = t('update_downloading');
+    btn.disabled = true;
+    document.getElementById('update-progress-wrap').style.display = 'flex';
+    document.getElementById('btn-update-dismiss').style.display = 'none';
+
+    try {
+      let result;
+      if (pendingUpdateType === 'agent') {
+        result = await api.downloadAgentUpdate();
+      } else {
+        result = await api.downloadDesktopUpdate();
+      }
+      if (result && result.error) throw new Error(result.error);
+      updateState = 'downloaded';
+      btn.textContent = t('update_restart');
+      btn.disabled = false;
+      document.getElementById('update-progress-wrap').style.display = 'none';
+      document.getElementById('update-message').textContent = t('update_downloaded');
+    } catch (e) {
+      updateState = 'error';
+      btn.textContent = t('update_download');
+      btn.disabled = false;
+      document.getElementById('update-progress-wrap').style.display = 'none';
+      document.getElementById('btn-update-dismiss').style.display = '';
+      document.getElementById('update-message').textContent = t('update_error') + ': ' + (e.message || '');
+    }
+  } else if (updateState === 'downloaded') {
+    updateState = 'applying';
+    btn.textContent = t('update_applying');
+    btn.disabled = true;
+    try {
+      let result;
+      if (pendingUpdateType === 'agent') {
+        result = await api.applyAgentUpdate();
+        if (result && result.error) throw new Error(result.error);
+        document.getElementById('update-message').textContent = t('update_applied');
+        setTimeout(() => {
+          document.getElementById('update-banner').classList.remove('show');
+          updateState = 'idle';
+        }, 5000);
+      } else {
+        result = await api.applyDesktopUpdate();
+        if (result && result.error) throw new Error(result.error);
+        document.getElementById('update-message').textContent = t('update_applying');
+      }
+    } catch (e) {
+      updateState = 'error';
+      btn.textContent = t('update_download');
+      btn.disabled = false;
+      document.getElementById('update-message').textContent = t('update_error') + ': ' + (e.message || '');
+    }
+  }
+}
+
+function updateProgressBar(percent) {
+  const bar = document.getElementById('update-progress-bar');
+  const pct = document.getElementById('update-progress-pct');
+  if (bar) bar.style.width = percent + '%';
+  if (pct) pct.textContent = percent + '%';
+}
+
+if (api.onUpdateAvailable) {
+  api.onUpdateAvailable((data) => {
+    if (data.type === 'desktop') {
+      showUpdateBanner('desktop', data.version);
+    }
+  });
+}
+
+if (api.onUpdateProgress) {
+  api.onUpdateProgress((data) => {
+    updateProgressBar(data.percent);
+  });
+}
+
+if (api.onUpdateDownloaded) {
+  api.onUpdateDownloaded((data) => {
+    if (data.type === 'desktop') {
+      updateState = 'downloaded';
+      document.getElementById('btn-update-action').textContent = t('update_restart');
+      document.getElementById('btn-update-action').disabled = false;
+      document.getElementById('update-progress-wrap').style.display = 'none';
+      document.getElementById('update-message').textContent = t('update_downloaded');
+    }
+  });
+}
+
+if (api.onAgentUpdateStatus) {
+  api.onAgentUpdateStatus((status) => {
+    if (!status || !status.state) return;
+    if (status.state === 'update_available' && status.latest_version && updateState === 'idle') {
+      showUpdateBanner('agent', status.latest_version);
+    } else if (status.state === 'downloading' && status.progress) {
+      updateProgressBar(status.progress);
+    } else if (status.state === 'ready' && status.pending_restart) {
+      updateState = 'downloaded';
+      showUpdateBanner('agent', status.latest_version || '');
+      document.getElementById('btn-update-action').textContent = t('update_restart');
+      document.getElementById('update-progress-wrap').style.display = 'none';
+    }
+  });
+}
+
+async function checkForAgentUpdate() {
+  try {
+    const result = await api.checkAgentUpdate();
+    if (result && result.has_update && result.latest_version) {
+      showUpdateBanner('agent', result.latest_version);
+    }
+  } catch {}
+}
+
+async function triggerCheckUpdate() {
+  const btn = document.getElementById('btn-check-update');
+  const msg = document.getElementById('check-update-msg');
+  btn.disabled = true;
+  btn.textContent = t('update_checking');
+  msg.textContent = '';
+  let foundUpdate = false;
+  try {
+    // Check agent-core updates
+    const agentResult = await api.checkAgentUpdate();
+    if (agentResult && agentResult.has_update && agentResult.latest_version) {
+      showUpdateBanner('agent', agentResult.latest_version);
+      foundUpdate = true;
+    }
+  } catch {}
+  try {
+    // Check desktop updates
+    if (api.checkDesktopUpdate) {
+      const desktopResult = await api.checkDesktopUpdate();
+      if (desktopResult && desktopResult.has_update && desktopResult.latest_version) {
+        showUpdateBanner('desktop', desktopResult.latest_version);
+        foundUpdate = true;
+      }
+    }
+  } catch {}
+  if (!foundUpdate) {
+    msg.textContent = t('update_no_update');
+    msg.style.color = 'var(--emerald-700)';
+  }
+  btn.disabled = false;
+  btn.textContent = t('update_check');
+}
+
 // ── Init & polling ────────────────────────────────────────────────────────────
 async function init() {
   try {
@@ -1548,6 +1844,8 @@ async function init() {
   } catch {}
   await loadDashboard();
   loadSettings_();
+
+  setTimeout(checkForAgentUpdate, 5000);
 }
 
 setInterval(async () => {

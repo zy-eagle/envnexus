@@ -20,6 +20,7 @@ type AgentConfig struct {
 	AgentVersion     string `json:"agent_version" toml:"agent_version"`
 	ActivationMode   string `json:"activation_mode,omitempty" toml:"activation_mode,omitempty"`
 	ActivationKey    string `json:"activation_key,omitempty" toml:"activation_key,omitempty"`
+	AutoUpdate       bool   `json:"auto_update,omitempty" toml:"auto_update,omitempty"`
 }
 
 // CLIOverrides holds values from command-line flags (highest priority).

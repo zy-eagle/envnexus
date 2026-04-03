@@ -965,6 +965,79 @@ function registerIPC(): void {
     if (settings.agentCorePath) return settings.agentCorePath;
     return findAgentCoreBinary();
   });
+
+  // ── Agent-core self-update IPC ──
+  ipcMain.handle('agent-update-status', () =>
+    safeLocalAPI('GET', '/local/v1/update/status')
+  );
+
+  ipcMain.handle('agent-update-check', () =>
+    safeLocalAPI('POST', '/local/v1/update/check')
+  );
+
+  ipcMain.handle('agent-update-download', () =>
+    safeLocalAPI('POST', '/local/v1/update/download')
+  );
+
+  ipcMain.handle('agent-update-apply', async () => {
+    const result = await safeLocalAPI('POST', '/local/v1/update/apply');
+    if (result && !result.error) {
+      stopAgentCore();
+      lastSpawnTime = 0;
+      setTimeout(spawnAgentCore, 2000);
+    }
+    return result;
+  });
+
+  // ── Desktop self-update IPC (portable + installer) ──
+  ipcMain.handle('desktop-update-check', async () => {
+    if (isPortableMode()) {
+      const info = await checkGitHubRelease();
+      if (!info) return { has_update: false };
+      const current = app.getVersion();
+      if (compareSemver(info.version, current) <= 0) return { has_update: false, current_version: current };
+      portableUpdateInfo = info;
+      return { has_update: true, current_version: current, latest_version: info.version };
+    } else {
+      try {
+        const { autoUpdater } = require('electron-updater');
+        await autoUpdater.checkForUpdates();
+        return { has_update: false, message: 'check triggered (installer mode)' };
+      } catch {
+        return { has_update: false, message: 'electron-updater not available' };
+      }
+    }
+  });
+
+  ipcMain.handle('desktop-update-download', async () => {
+    if (!isPortableMode() || !portableUpdateInfo) {
+      return { error: 'no portable update available' };
+    }
+    try {
+      const zipPath = await downloadPortableUpdate(portableUpdateInfo);
+      portableUpdateInfo.zipPath = zipPath;
+      if (mainWindow) {
+        mainWindow.webContents.send('update-downloaded', { type: 'desktop', version: portableUpdateInfo.version });
+      }
+      return { status: 'downloaded', version: portableUpdateInfo.version, path: zipPath };
+    } catch (err: any) {
+      return { error: err.message || 'download failed' };
+    }
+  });
+
+  ipcMain.handle('desktop-update-apply', () => {
+    if (!isPortableMode() || !portableUpdateInfo?.zipPath) {
+      // Installer mode: electron-updater handles this on quit
+      try {
+        const { autoUpdater } = require('electron-updater');
+        autoUpdater.quitAndInstall(false, true);
+      } catch {}
+      return { status: 'restarting' };
+    }
+    stopAgentCore();
+    applyPortableUpdate(portableUpdateInfo.zipPath);
+    return { status: 'applying' };
+  });
 }
 
 // ── Health polling ─────────────────────────────────────────────────────────────
@@ -983,6 +1056,25 @@ function startHealthPolling(): void {
 // ── Auto-update ───────────────────────────────────────────────────────────────
 
 function initAutoUpdate(): void {
+  if (isPortableMode()) {
+    initPortableAutoUpdate();
+  } else {
+    initInstallerAutoUpdate();
+  }
+
+  // Poll agent-core update status regardless of desktop distribution type
+  setInterval(async () => {
+    try {
+      const result = await localAPIRequest('GET', '/local/v1/update/status');
+      if (result && mainWindow) {
+        mainWindow.webContents.send('agent-update-status', result);
+      }
+    } catch {}
+  }, 60_000);
+}
+
+// NSIS installer: electron-updater handles everything
+function initInstallerAutoUpdate(): void {
   try {
     const { autoUpdater } = require('electron-updater');
 
@@ -990,17 +1082,23 @@ function initAutoUpdate(): void {
     autoUpdater.autoInstallOnAppQuit = true;
 
     autoUpdater.on('update-available', (info: any) => {
-      console.log(`[updater] Update available: ${info.version}`);
+      console.log(`[updater] Desktop update available: ${info.version}`);
       if (mainWindow) {
-        mainWindow.webContents.send('update-available', info.version);
+        mainWindow.webContents.send('update-available', { type: 'desktop', version: info.version });
       }
       autoUpdater.downloadUpdate();
     });
 
-    autoUpdater.on('update-downloaded', (info: any) => {
-      console.log(`[updater] Update downloaded: ${info.version}`);
+    autoUpdater.on('download-progress', (progress: any) => {
       if (mainWindow) {
-        mainWindow.webContents.send('update-downloaded', info.version);
+        mainWindow.webContents.send('update-progress', { type: 'desktop', percent: Math.round(progress.percent) });
+      }
+    });
+
+    autoUpdater.on('update-downloaded', (info: any) => {
+      console.log(`[updater] Desktop update downloaded: ${info.version}`);
+      if (mainWindow) {
+        mainWindow.webContents.send('update-downloaded', { type: 'desktop', version: info.version });
       }
     });
 
@@ -1015,6 +1113,195 @@ function initAutoUpdate(): void {
   } catch {
     console.log('[updater] electron-updater not available (dev mode)');
   }
+}
+
+// Portable (ZIP) edition: check GitHub releases API for newer version,
+// download the ZIP to data/updates/, and self-extract on apply.
+let portableUpdateInfo: { version: string; downloadUrl: string; zipPath?: string } | null = null;
+
+function initPortableAutoUpdate(): void {
+  const checkPortableUpdate = async () => {
+    try {
+      const info = await checkGitHubRelease();
+      if (!info) return;
+
+      const currentVer = app.getVersion();
+      if (compareSemver(info.version, currentVer) <= 0) {
+        console.log('[portable-updater] Already on latest version');
+        return;
+      }
+
+      console.log(`[portable-updater] Update available: ${currentVer} -> ${info.version}`);
+      portableUpdateInfo = info;
+      if (mainWindow) {
+        mainWindow.webContents.send('update-available', { type: 'desktop', version: info.version });
+      }
+    } catch (err) {
+      console.error('[portable-updater] Check failed:', err);
+    }
+  };
+
+  // First check after 15s, then every 4h
+  setTimeout(checkPortableUpdate, 15_000);
+  setInterval(checkPortableUpdate, 4 * 60 * 60 * 1000);
+}
+
+interface GHRelease {
+  tag_name: string;
+  assets: Array<{ name: string; browser_download_url: string }>;
+}
+
+function checkGitHubRelease(): Promise<{ version: string; downloadUrl: string } | null> {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/zy-eagle/envnexus/releases/latest',
+      headers: { 'User-Agent': `EnvNexus-Agent/${app.getVersion()}` },
+    };
+
+    https.get(options, (res) => {
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        https.get(res.headers.location || '', (redirectRes) => {
+          handleGHResponse(redirectRes, resolve);
+        }).on('error', () => resolve(null));
+        return;
+      }
+      handleGHResponse(res, resolve);
+    }).on('error', () => resolve(null));
+  });
+}
+
+function handleGHResponse(
+  res: http.IncomingMessage,
+  resolve: (val: { version: string; downloadUrl: string } | null) => void,
+): void {
+  let body = '';
+  res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+  res.on('end', () => {
+    try {
+      const release: GHRelease = JSON.parse(body);
+      const version = release.tag_name.replace(/^v/, '');
+
+      const platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
+      const zipAsset = release.assets.find((a) =>
+        a.name.toLowerCase().includes(platform) && a.name.toLowerCase().endsWith('.zip')
+      );
+
+      if (!zipAsset) {
+        console.log('[portable-updater] No matching ZIP asset found in release');
+        resolve(null);
+        return;
+      }
+
+      resolve({ version, downloadUrl: zipAsset.browser_download_url });
+    } catch {
+      resolve(null);
+    }
+  });
+  res.on('error', () => resolve(null));
+}
+
+function downloadPortableUpdate(info: { version: string; downloadUrl: string }): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const updateDir = path.join(getAgentDataDir(), 'updates');
+    fs.mkdirSync(updateDir, { recursive: true });
+    const zipPath = path.join(updateDir, `envnexus-agent-${info.version}.zip`);
+
+    // Skip if already downloaded
+    if (fs.existsSync(zipPath)) {
+      console.log('[portable-updater] ZIP already downloaded:', zipPath);
+      resolve(zipPath);
+      return;
+    }
+
+    const doDownload = (downloadUrl: string, redirectCount = 0) => {
+      if (redirectCount > 5) {
+        reject(new Error('Too many redirects'));
+        return;
+      }
+
+      const getter = downloadUrl.startsWith('https') ? https : http;
+      getter.get(downloadUrl, { headers: { 'User-Agent': `EnvNexus-Agent/${app.getVersion()}` } }, (res) => {
+        if (res.statusCode === 302 || res.statusCode === 301) {
+          doDownload(res.headers.location || '', redirectCount + 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+          return;
+        }
+
+        const tmpPath = zipPath + '.tmp';
+        const fileStream = fs.createWriteStream(tmpPath);
+        const totalSize = parseInt(res.headers['content-length'] || '0', 10);
+        let downloaded = 0;
+
+        res.on('data', (chunk: Buffer) => {
+          fileStream.write(chunk);
+          downloaded += chunk.length;
+          if (totalSize > 0 && mainWindow) {
+            const percent = Math.round((downloaded / totalSize) * 100);
+            mainWindow.webContents.send('update-progress', { type: 'desktop', percent });
+          }
+        });
+
+        res.on('end', () => {
+          fileStream.end(() => {
+            fs.renameSync(tmpPath, zipPath);
+            console.log('[portable-updater] Downloaded:', zipPath);
+            resolve(zipPath);
+          });
+        });
+
+        res.on('error', (err) => {
+          fileStream.close();
+          try { fs.unlinkSync(tmpPath); } catch {}
+          reject(err);
+        });
+      }).on('error', reject);
+    };
+
+    doDownload(info.downloadUrl);
+  });
+}
+
+function applyPortableUpdate(zipPath: string): void {
+  const baseDir = getPortableBaseDir();
+  const extractScript = path.join(baseDir, 'data', '_update.bat');
+
+  // Write a self-update batch script that:
+  // 1. Waits for the current process to exit
+  // 2. Extracts the ZIP over the install directory
+  // 3. Restarts the app
+  // 4. Cleans up the script itself
+  const exeName = path.basename(app.getPath('exe'));
+  const script = `@echo off
+echo Applying EnvNexus Agent update...
+timeout /t 2 /nobreak >nul
+powershell -Command "Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${baseDir.replace(/'/g, "''")}' -Force"
+del "${zipPath}"
+start "" "${path.join(baseDir, exeName)}"
+del "%~f0"
+`;
+
+  fs.writeFileSync(extractScript, script, 'utf-8');
+  child_process.spawn('cmd.exe', ['/c', extractScript], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  }).unref();
+
+  app.quit();
+}
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.replace(/^v/, '').split('.').map(Number);
+  const pb = b.replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
 }
 
 // ── Read agent.enx config from data dir and bundled locations ─────────────────

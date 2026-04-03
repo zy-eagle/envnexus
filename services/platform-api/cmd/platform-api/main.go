@@ -250,7 +250,11 @@ func main() {
 	rbacHandler := httphandler.NewRBACHandler(rbacService)
 	governanceHandler := httphandler.NewGovernanceHandler(governanceService)
 	webhookHandler := httphandler.NewWebhookHandler(webhookService)
-	commandTaskHandler := httphandler.NewCommandTaskHandler(commandService)
+	var nlGenerator *command_svc.NLGenerator
+	if modelProfileRepo != nil {
+		nlGenerator = command_svc.NewNLGenerator(modelProfileRepo)
+	}
+	commandTaskHandler := httphandler.NewCommandTaskHandler(commandService, nlGenerator)
 	approvalPolicyHandler := httphandler.NewApprovalPolicyHandler(approvalPolicyService)
 	imProviderHandler := httphandler.NewIMProviderHandler(imProviderRepo, notifChannelRepo, cryptoService)
 	var metricsHandler *httphandler.MetricsHandler
@@ -264,7 +268,7 @@ func main() {
 
 	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
 	agentAuditHandler := agent.NewAuditHandler(auditService)
-	agentLifecycleHandler := agent.NewLifecycleHandler(deviceService, agentProfileRepo, modelProfileRepo, policyProfileRepo)
+	agentLifecycleHandler := agent.NewLifecycleHandler(deviceService, agentProfileRepo, modelProfileRepo, policyProfileRepo, pkgRepo, minioClient)
 	agentApprovalHandler := agent.NewApprovalHandler(sessionService)
 	agentActivateHandler := agent.NewActivateHandler(bindingService)
 	agentGovernanceHandler := agent.NewGovernanceHandler(governanceService)

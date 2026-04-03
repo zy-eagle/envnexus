@@ -45,4 +45,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAgentCoreLog: (callback: (log: string) => void) => {
     ipcRenderer.on('agent-core-log', (_event, log: string) => callback(log));
   },
+
+  // Self-update (agent-core)
+  getAgentUpdateStatus: () => ipcRenderer.invoke('agent-update-status'),
+  checkAgentUpdate: () => ipcRenderer.invoke('agent-update-check'),
+  downloadAgentUpdate: () => ipcRenderer.invoke('agent-update-download'),
+  applyAgentUpdate: () => ipcRenderer.invoke('agent-update-apply'),
+
+  // Self-update (desktop app — portable + installer)
+  checkDesktopUpdate: () => ipcRenderer.invoke('desktop-update-check'),
+  downloadDesktopUpdate: () => ipcRenderer.invoke('desktop-update-download'),
+  applyDesktopUpdate: () => ipcRenderer.invoke('desktop-update-apply'),
+
+  // Update events (shared)
+  onUpdateAvailable: (callback: (data: { type: string; version: string }) => void) => {
+    ipcRenderer.on('update-available', (_event, data) => callback(data));
+  },
+  onUpdateProgress: (callback: (data: { type: string; percent: number }) => void) => {
+    ipcRenderer.on('update-progress', (_event, data) => callback(data));
+  },
+  onUpdateDownloaded: (callback: (data: { type: string; version: string }) => void) => {
+    ipcRenderer.on('update-downloaded', (_event, data) => callback(data));
+  },
+  onAgentUpdateStatus: (callback: (status: any) => void) => {
+    ipcRenderer.on('agent-update-status', (_event, status) => callback(status));
+  },
 });

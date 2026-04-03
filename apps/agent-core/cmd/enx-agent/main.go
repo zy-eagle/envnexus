@@ -192,7 +192,7 @@ func runAgent() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bootstrapper := bootstrap.NewBootstrapper()
+	bootstrapper := bootstrap.NewBootstrapper(version)
 	if overrides.DataDir != "" {
 		bootstrapper.SetDataDir(overrides.DataDir)
 	}

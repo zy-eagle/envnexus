@@ -3,11 +3,13 @@ package agent
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/infrastructure"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
@@ -21,6 +23,8 @@ type LifecycleHandler struct {
 	agentProfileRepo  repository.AgentProfileRepository
 	modelProfileRepo  repository.ModelProfileRepository
 	policyProfileRepo repository.PolicyProfileRepository
+	packageRepo       repository.PackageRepository
+	minioClient       *infrastructure.MinIOClient
 }
 
 func NewLifecycleHandler(
@@ -28,12 +32,16 @@ func NewLifecycleHandler(
 	agentProfileRepo repository.AgentProfileRepository,
 	modelProfileRepo repository.ModelProfileRepository,
 	policyProfileRepo repository.PolicyProfileRepository,
+	packageRepo repository.PackageRepository,
+	minioClient *infrastructure.MinIOClient,
 ) *LifecycleHandler {
 	return &LifecycleHandler{
 		deviceService:     deviceService,
 		agentProfileRepo:  agentProfileRepo,
 		modelProfileRepo:  modelProfileRepo,
 		policyProfileRepo: policyProfileRepo,
+		packageRepo:       packageRepo,
+		minioClient:       minioClient,
 	}
 }
 
@@ -42,6 +50,7 @@ func (h *LifecycleHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		agentGroup.POST("/heartbeat", h.Heartbeat)
 		agentGroup.GET("/config", h.GetConfig)
+		agentGroup.GET("/check-update", h.CheckUpdate)
 	}
 }
 
@@ -114,6 +123,137 @@ func (h *LifecycleHandler) GetConfig(c *gin.Context) {
 		ModelProfile:  modelProfile,
 		PolicyProfile: policyProfile,
 	})
+}
+
+// CheckUpdate returns the latest available agent-core binary version for the
+// requesting device's platform/arch. Compares semver with the caller's current
+// version and provides a presigned download URL when an update is available.
+func (h *LifecycleHandler) CheckUpdate(c *gin.Context) {
+	currentVersion := c.Query("current_version")
+	platform := c.Query("platform")
+	arch := c.Query("arch")
+
+	if currentVersion == "" || platform == "" || arch == "" {
+		mw.RespondValidationError(c, "current_version, platform, and arch are required")
+		return
+	}
+
+	deviceID, _ := c.Get("device_id")
+
+	// Look up the device to get tenant_id for scoped package lookup
+	var tenantID string
+	if did, ok := deviceID.(string); ok && did != "" {
+		dev, err := h.deviceService.GetConfig(c.Request.Context(), did)
+		if err == nil && dev != nil {
+			tenantID = dev.TenantID
+		}
+	}
+
+	if tenantID == "" {
+		mw.RespondSuccess(c, http.StatusOK, dto.CheckUpdateResponse{
+			HasUpdate: false,
+			Message:   "device not associated with a tenant",
+		})
+		return
+	}
+
+	if h.packageRepo == nil {
+		mw.RespondSuccess(c, http.StatusOK, dto.CheckUpdateResponse{
+			HasUpdate: false,
+			Message:   "package repository not available",
+		})
+		return
+	}
+
+	packages, err := h.packageRepo.ListByTenant(c.Request.Context(), tenantID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	// Find the latest ready package matching platform/arch
+	var best *domain.DownloadPackage
+	for _, pkg := range packages {
+		if pkg.Status != "ready" {
+			continue
+		}
+		if pkg.Platform != platform || pkg.Arch != arch {
+			continue
+		}
+		if best == nil || compareSemver(pkg.Version, best.Version) > 0 {
+			best = pkg
+		}
+	}
+
+	if best == nil || compareSemver(best.Version, currentVersion) <= 0 {
+		mw.RespondSuccess(c, http.StatusOK, dto.CheckUpdateResponse{
+			HasUpdate:      false,
+			CurrentVersion: currentVersion,
+		})
+		return
+	}
+
+	resp := dto.CheckUpdateResponse{
+		HasUpdate:      true,
+		CurrentVersion: currentVersion,
+		LatestVersion:  best.Version,
+		PackageID:      best.ID,
+		Checksum:       best.Checksum,
+		ArtifactSize:   best.ArtifactSize,
+	}
+
+	if h.minioClient != nil && best.ArtifactPath != "" {
+		downloadURL, err := h.minioClient.PresignedGetURL(c.Request.Context(), best.ArtifactPath, 30*time.Minute)
+		if err == nil {
+			resp.DownloadURL = downloadURL.String()
+		}
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+// compareSemver does a simple lexicographic semver comparison (major.minor.patch).
+// Returns >0 if a > b, <0 if a < b, 0 if equal.
+func compareSemver(a, b string) int {
+	partsA := parseSemverParts(a)
+	partsB := parseSemverParts(b)
+	for i := 0; i < 3; i++ {
+		if partsA[i] != partsB[i] {
+			return partsA[i] - partsB[i]
+		}
+	}
+	return 0
+}
+
+func parseSemverParts(v string) [3]int {
+	var parts [3]int
+	// Strip leading 'v' if present
+	if len(v) > 0 && (v[0] == 'v' || v[0] == 'V') {
+		v = v[1:]
+	}
+	idx := 0
+	for _, seg := range splitDot(v) {
+		if idx >= 3 {
+			break
+		}
+		n, _ := strconv.Atoi(seg)
+		parts[idx] = n
+		idx++
+	}
+	return parts
+}
+
+func splitDot(s string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			result = append(result, s[start:i])
+			start = i + 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
 }
 
 // deviceStatusFromRequest maps an agent-reported status string to a domain status.

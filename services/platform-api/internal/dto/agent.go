@@ -39,6 +39,17 @@ type AgentConfigResponse struct {
 	PolicyProfile interface{} `json:"policy_profile,omitempty"`
 }
 
+type CheckUpdateResponse struct {
+	HasUpdate      bool   `json:"has_update"`
+	CurrentVersion string `json:"current_version,omitempty"`
+	LatestVersion  string `json:"latest_version,omitempty"`
+	DownloadURL    string `json:"download_url,omitempty"`
+	PackageID      string `json:"package_id,omitempty"`
+	Checksum       string `json:"checksum,omitempty"`
+	ArtifactSize   int64  `json:"artifact_size,omitempty"`
+	Message        string `json:"message,omitempty"`
+}
+
 type AgentAuditEventsRequest struct {
 	Events []AgentAuditEventItem `json:"events" binding:"required"`
 }
