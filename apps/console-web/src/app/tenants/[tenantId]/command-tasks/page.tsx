@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useDict } from "@/lib/i18n/dictionary";
@@ -142,6 +142,8 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [nlInput, setNlInput] = useState("");
   const [nlGenerating, setNlGenerating] = useState(false);
   const [nlError, setNlError] = useState("");
+  const [nlElapsed, setNlElapsed] = useState(0);
+  const nlTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [formToolName, setFormToolName] = useState("");
   const [formToolParams, setFormToolParams] = useState<Record<string, string>>({});
@@ -322,6 +324,8 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     if (!nlInput.trim()) return;
     setNlGenerating(true);
     setNlError("");
+    setNlElapsed(0);
+    nlTimerRef.current = setInterval(() => setNlElapsed((s) => s + 1), 1000);
     try {
       const data = await api.post<{ command: string; risk_level?: string; title?: string }>(
         `/tenants/${tenantId}/command-tasks/generate`,
@@ -341,6 +345,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       setNlError(lang === "zh" ? `命令生成失败: ${msg}` : `Command generation failed: ${msg}`);
       setFormCommandPayload(nlInput);
     } finally {
+      if (nlTimerRef.current) { clearInterval(nlTimerRef.current); nlTimerRef.current = null; }
       setNlGenerating(false);
     }
   };
@@ -1018,9 +1023,14 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                         {(t as any).nlGenerate}
                       </button>
                     </div>
-                    <p className="mt-1 text-xs text-gray-400">{(t as any).nlHint}</p>
-                    {nlError && (
+                    {nlGenerating ? (
+                      <p className="mt-1 text-xs text-indigo-500 animate-pulse">
+                        {lang === "zh" ? `AI 正在生成命令... ${nlElapsed}s` : `AI generating command... ${nlElapsed}s`}
+                      </p>
+                    ) : nlError ? (
                       <p className="mt-1 text-xs text-red-500">{nlError}</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-gray-400">{(t as any).nlHint}</p>
                     )}
                   </div>
 

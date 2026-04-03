@@ -33,33 +33,24 @@ type GenerateCommandResult struct {
 	Title     string `json:"title,omitempty"`
 }
 
-const systemPrompt = `You are a Linux/Windows operations assistant. The user will describe what they want to do in natural language. You must respond with ONLY a valid JSON object (no markdown, no explanation), containing:
-- "command": the exact shell command(s) to execute
-- "risk_level": one of "L1" (read-only/safe), "L2" (service restart/moderate), "L3" (destructive/dangerous)
-- "title": a short title (under 60 chars) describing the operation
-
-Examples:
-User: "Restart the nginx service"
-{"command":"systemctl restart nginx","risk_level":"L2","title":"Restart nginx service"}
-
-User: "Check disk usage"
-{"command":"df -h","risk_level":"L1","title":"Check disk usage"}
-
-User: "Delete all log files older than 30 days"
-{"command":"find /var/log -name '*.log' -mtime +30 -delete","risk_level":"L3","title":"Clean old log files"}
-
-Respond with ONLY the JSON object.`
+const systemPrompt = `You are an operations assistant. Convert user requests into shell commands. Respond with ONLY a JSON object:
+{"command":"<shell command>","risk_level":"<L1|L2|L3>","title":"<short title>"}
+L1=read-only, L2=service ops, L3=destructive. No markdown, no explanation.`
 
 func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*GenerateCommandResult, error) {
+	start := time.Now()
 	model, err := g.pickModel(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("no available model: %w", err)
 	}
+	slog.Info("[nl-gen] picked model", "model", model.ModelName, "elapsed_ms", time.Since(start).Milliseconds())
 
+	llmStart := time.Now()
 	respText, err := g.callLLM(ctx, model, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("LLM call failed: %w", err)
+		return nil, fmt.Errorf("LLM call failed (took %dms): %w", time.Since(llmStart).Milliseconds(), err)
 	}
+	slog.Info("[nl-gen] LLM responded", "elapsed_ms", time.Since(llmStart).Milliseconds(), "total_ms", time.Since(start).Milliseconds())
 
 	var result GenerateCommandResult
 	cleaned := strings.TrimSpace(respText)
@@ -104,7 +95,7 @@ func (g *NLGenerator) callLLM(ctx context.Context, model *domain.ModelProfile, u
 			{"role": "user", "content": userMessage},
 		},
 		"temperature": 0.1,
-		"max_tokens":  512,
+		"max_tokens":  256,
 	}
 
 	payload, _ := json.Marshal(body)
