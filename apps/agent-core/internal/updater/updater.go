@@ -10,11 +10,16 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
+
+// execCommandContext wraps exec.CommandContext — extracted for testability.
+var execCommandContext = exec.CommandContext
 
 // CoreInstallPathFile is stored in DataDir so the desktop shell can locate the
 // binary that os.Executable reported even when local HTTP or JSON fails.
@@ -330,9 +335,11 @@ func (u *Updater) DownloadUpdate(ctx context.Context, info *UpdateInfo) (string,
 }
 
 // ApplyUpdate replaces the current binary with the staged one.
-// On Windows, the old binary is renamed (since the running process holds a lock)
-// and the new one is placed at the original path.
-// The caller should restart the process after this returns.
+// On Windows the old binary is renamed first (the running process holds a
+// handle) and the new one is copied (not renamed) into place so cross-volume
+// scenarios work reliably. After the copy we open the new file for reading to
+// trigger the real-time AV scan *before* the desktop shell tries to spawn it,
+// dramatically reducing "spawn UNKNOWN" failures.
 // The returned path is the absolute filesystem path where the new binary was
 // installed (same slot as os.Executable); the desktop shell should spawn this
 // exact path to avoid heuristic mismatches on Windows.
@@ -357,17 +364,13 @@ func (u *Updater) ApplyUpdate() (installedPath string, err error) {
 
 	backupPath := currentExe + ".bak"
 
-	// Remove previous backup if exists
 	os.Remove(backupPath)
 
-	// Rename current -> backup
 	if err := os.Rename(currentExe, backupPath); err != nil {
 		return "", fmt.Errorf("backup current binary: %w", err)
 	}
 
-	// Move staged -> current
-	if err := os.Rename(staged, currentExe); err != nil {
-		// Rollback: restore backup
+	if err := copyFile(staged, currentExe); err != nil {
 		os.Rename(backupPath, currentExe)
 		return "", fmt.Errorf("install new binary: %w", err)
 	}
@@ -375,6 +378,14 @@ func (u *Updater) ApplyUpdate() (installedPath string, err error) {
 	if err := os.Chmod(currentExe, 0755); err != nil {
 		slog.Warn("[updater] chmod on new binary failed", "error", err)
 	}
+
+	// Trigger Windows Defender / AV real-time scan by reading the full file
+	// before we return success to the desktop shell.  This way the scan
+	// completes (or at least starts) while we still hold control, instead of
+	// racing with the first spawn attempt.
+	warmupAVScan(currentExe)
+
+	os.Remove(staged)
 
 	u.mu.Lock()
 	u.pendingBinary = ""
@@ -391,6 +402,92 @@ func (u *Updater) ApplyUpdate() (installedPath string, err error) {
 	})
 
 	return currentExe, nil
+}
+
+// copyFile copies src to dst using a temp file + rename for atomicity within
+// the same directory.  Unlike os.Rename this works across volumes/mount points.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer in.Close()
+
+	dir := filepath.Dir(dst)
+	tmp, err := os.CreateTemp(dir, ".enx-update-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("copy: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("sync: %w", err)
+	}
+	tmp.Close()
+
+	if err := os.Rename(tmpName, dst); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("rename temp to target: %w", err)
+	}
+	return nil
+}
+
+// warmupAVScan triggers both file-level and process-level AV scans on the
+// new binary *before* the Electron shell tries to spawn it as a long-running
+// process.  This dramatically reduces "spawn UNKNOWN" failures on Windows.
+//
+// Phase 1 — file-level: read the entire file to trigger content-based scan,
+//   then poll os.Open until the AV releases its read lock.
+// Phase 2 — process-level: execute the binary with the harmless "version"
+//   subcommand.  This fires NtCreateUserProcess which triggers Defender's
+//   AMSI / PPL checks.  After this returns the exe is "known" and subsequent
+//   CreateProcess calls succeed without delay.
+func warmupAVScan(exePath string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	// Phase 1: file read
+	f, err := os.Open(exePath)
+	if err != nil {
+		slog.Warn("[updater] warmup: initial open failed", "error", err)
+		return
+	}
+	io.Copy(io.Discard, f)
+	f.Close()
+
+	for i := 0; i < 16; i++ {
+		fh, err := os.Open(exePath)
+		if err == nil {
+			fh.Close()
+			slog.Info("[updater] warmup: file ready after content scan", "retries", i)
+			break
+		}
+		if i == 15 {
+			slog.Warn("[updater] warmup: file still locked after content scan retries")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Phase 2: process execution — triggers AMSI / Defender process-creation scan.
+	// "version" prints one line and exits 0; any failure here is non-fatal.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := execCommandContext(ctx, exePath, "version")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		slog.Warn("[updater] warmup: version probe failed", "error", err, "output", string(out))
+	} else {
+		slog.Info("[updater] warmup: process-level probe succeeded", "output", strings.TrimSpace(string(out)))
+	}
 }
 
 // Run starts the periodic update check loop. Blocks until context is cancelled.

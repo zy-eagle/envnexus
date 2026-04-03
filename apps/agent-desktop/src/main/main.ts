@@ -341,63 +341,186 @@ function clearStaleAgentCorePathAfterUpdate(): void {
   console.log('[agent-core] Cleared stale agentCorePath after core update:', p);
 }
 
+/** Always quote for cmd.exe /c — avoids 8.3 / parsing edge cases on Windows. */
+function quoteCmdArg(s: string): string {
+  return `"${String(s).replace(/"/g, '\\"')}"`;
+}
+
 /**
- * Windows often reports libuv errno as Error: spawn UNKNOWN for invalid PEs, torn files, or spawn quirks.
- * execFile + cwd next to the binary is more reliable; always catch synchronous throws so the UI does not crash.
+ * Attempt to spawn a child process and wait for the async 'error' or 'spawn'
+ * event so we know whether the OS actually accepted the CreateProcess call.
+ *
+ * When `livelinessMs` > 0, we additionally wait that long after 'spawn' and
+ * verify the process hasn't already exited — this catches cmd.exe /c wrappers
+ * where the outer shell spawns fine but the inner exe fails immediately.
  */
-function startAgentCoreChild(
+function awaitSpawn(
+  label: string,
+  fn: () => child_process.ChildProcess,
+  livelinessMs = 0,
+): Promise<child_process.ChildProcess | null> {
+  return new Promise((resolve) => {
+    let child: child_process.ChildProcess;
+    try {
+      child = fn();
+    } catch (e) {
+      console.warn(`[agent-core] ${label} sync throw:`, e);
+      resolve(null);
+      return;
+    }
+
+    let settled = false;
+    const settle = (result: child_process.ChildProcess | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => {
+      settle(child);
+    }, 2000);
+
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      console.warn(`[agent-core] ${label} error event:`, err.message);
+      appendAgentLog(`[ERROR] enx-agent spawn failed (${label}): ${err.message}`);
+      settle(null);
+    });
+
+    child.on('spawn', () => {
+      clearTimeout(timeout);
+      if (livelinessMs <= 0) {
+        settle(child);
+        return;
+      }
+      // For indirect launchers (cmd.exe /c): wait a bit and verify the
+      // process is still alive — the wrapper spawns OK but the inner exe
+      // may fail, causing a fast exit.
+      const exitEarly = (code: number | null) => {
+        console.warn(`[agent-core] ${label} exited during liveliness check (code ${code})`);
+        settle(null);
+      };
+      child.on('exit', exitEarly);
+      setTimeout(() => {
+        child.removeListener('exit', exitEarly);
+        if (child.exitCode !== null || child.killed) {
+          console.warn(`[agent-core] ${label} already dead after liveliness wait`);
+          settle(null);
+        } else {
+          settle(child);
+        }
+      }, livelinessMs);
+    });
+  });
+}
+
+/**
+ * Try multiple launch strategies on Windows, awaiting each one before moving
+ * to the next.  On non-Windows, a single spawn + execFile fallback is used.
+ * Returns a confirmed-live ChildProcess or null.
+ */
+async function startAgentCoreChild(
   exePath: string,
   args: string[],
   env: Record<string, string>,
-): child_process.ChildProcess | null {
-  const cwd = path.dirname(exePath);
+  preferCmdLauncher = false,
+): Promise<child_process.ChildProcess | null> {
+  const exeDir = path.dirname(exePath);
+  const cwdNextToExe = fs.existsSync(exeDir) ? exeDir : undefined;
+
+  // cmd.exe /c wrappers always "spawn" fine (cmd.exe is a system binary).
+  // To detect inner-exe failure we pass livelinessMs so awaitSpawn verifies
+  // the wrapper doesn't exit within that window.
+  const CMD_LIVELINESS_MS = 3000;
+
+  const tryCmdExeC = (label: string): Promise<child_process.ChildProcess | null> => {
+    const cmdLine = [quoteCmdArg(exePath), ...args.map(quoteCmdArg)].join(' ');
+    const comspec = process.env.ComSpec || 'cmd.exe';
+    return awaitSpawn(
+      label,
+      () =>
+        child_process.spawn(comspec, ['/d', '/s', '/c', cmdLine], {
+          detached: false,
+          stdio: 'pipe',
+          env,
+          windowsHide: true,
+          cwd: cwdNextToExe,
+        }),
+      CMD_LIVELINESS_MS,
+    );
+  };
+
+  if (process.platform === 'win32') {
+    // Direct spawn strategies first — they give us an honest error/spawn
+    // for the real exe, not a wrapper.
+    const attempts: child_process.SpawnOptions[] = [
+      { detached: false, stdio: 'pipe', env, windowsHide: true, cwd: cwdNextToExe },
+      { detached: false, stdio: ['ignore', 'pipe', 'pipe'], env, windowsHide: true, cwd: cwdNextToExe },
+      { detached: false, stdio: 'pipe', env, windowsHide: true, cwd: undefined },
+      { detached: false, stdio: 'pipe', env, windowsHide: true, cwd: process.env.SystemRoot || undefined },
+    ];
+
+    for (let i = 0; i < attempts.length; i++) {
+      const o = attempts[i];
+      let c = await awaitSpawn(`spawn#${i}`, () => child_process.spawn(exePath, args, o));
+      if (c) return c;
+      c = await awaitSpawn(`execFile#${i}`, () => child_process.execFile(exePath, args, o));
+      if (c) return c;
+    }
+
+    // All direct strategies failed — try cmd.exe /c as last resort.
+    const cmdLast = await tryCmdExeC('cmd /c (fallback)');
+    if (cmdLast) return cmdLast;
+
+    appendAgentLog(
+      '[ERROR] Could not start enx-agent after all Windows launch strategies. Check antivirus (allow enx-agent.exe) and VC++ runtime.',
+    );
+    return null;
+  }
+
   const opts: child_process.SpawnOptions = {
     detached: false,
     stdio: 'pipe',
     env,
-    windowsHide: process.platform === 'win32',
-    cwd: fs.existsSync(cwd) ? cwd : undefined,
+    cwd: cwdNextToExe,
   };
-
-  if (process.platform === 'win32') {
-    try {
-      return child_process.execFile(exePath, args, opts);
-    } catch (e) {
-      console.warn('[agent-core] execFile() failed, trying spawn():', e);
-      try {
-        return child_process.spawn(exePath, args, opts);
-      } catch (e2) {
-        console.error('[agent-core] spawn() failed:', e2);
-        appendAgentLog(`[ERROR] Could not start enx-agent: ${(e2 as Error).message}. Check that the file is a valid Windows executable (not blocked or partially updated).`);
-        return null;
-      }
-    }
-  }
-
-  try {
-    return child_process.spawn(exePath, args, opts);
-  } catch (e) {
-    console.warn('[agent-core] spawn() failed, trying execFile():', e);
-    try {
-      return child_process.execFile(exePath, args, opts);
-    } catch (e2) {
-      console.error('[agent-core] execFile() failed:', e2);
-      appendAgentLog(`[ERROR] Could not start enx-agent: ${(e2 as Error).message}. Check that the file is a valid Windows executable (not blocked or partially updated).`);
-      return null;
-    }
-  }
+  let child = await awaitSpawn('spawn', () => child_process.spawn(exePath, args, opts));
+  if (child) return child;
+  child = await awaitSpawn('execFile', () => child_process.execFile(exePath, args, opts));
+  if (child) return child;
+  appendAgentLog('[ERROR] Could not start enx-agent. Check permissions and binary architecture.');
+  return null;
 }
 
-function spawnAgentCore(): void {
-  if (agentCoreProcess) return;
+let spawnLock = false;
+/** Whether the most recent spawn was triggered by a post-update retry cycle. */
+let postUpdateRetryActive = false;
+let postUpdateRetryTimer: ReturnType<typeof setTimeout> | null = null;
+/** Monotonic timestamp (ms) at which the post-update retry cycle started. */
+let postUpdateRetryStartedAt = 0;
+/** Hard ceiling for the post-update retry cycle — 3 minutes. */
+const POST_UPDATE_RETRY_CEILING_MS = 180_000;
+
+async function spawnAgentCore(): Promise<void> {
+  if (agentCoreProcess || spawnLock) return;
 
   const now = Date.now();
   if (now - lastSpawnTime < MIN_SPAWN_INTERVAL_MS) {
     console.warn('spawnAgentCore called too quickly, throttling');
     return;
   }
+
+  spawnLock = true;
   lastSpawnTime = now;
 
+  try {
+    await spawnAgentCoreInner();
+  } finally {
+    spawnLock = false;
+  }
+}
+
+async function spawnAgentCoreInner(): Promise<void> {
   const settings = loadSettings();
   let binaryPath = '';
   let trustAuthoritativeInstallPath = false;
@@ -491,11 +614,18 @@ function spawnAgentCore(): void {
   }
 
   console.log('Agent data dir:', agentDataDir);
-  const child = startAgentCoreChild(resolvedBinary, args, agentEnv);
+  const preferCmdOnWin =
+    process.platform === 'win32' &&
+    (trustAuthoritativeInstallPath || isBundledEnxAgentPath(resolvedBinary));
+
+  const child = await startAgentCoreChild(resolvedBinary, args, agentEnv, preferCmdOnWin);
   if (!child) {
     return;
   }
   agentCoreProcess = child;
+  // Keep postApplyEnxAgentPath until we're sure the process survives; clear
+  // it only after the health poll confirms it's online. For now, null it —
+  // core_install_path.json is the durable fallback.
   postApplyEnxAgentPath = null;
 
   agentCoreProcess.stdout?.on('data', (data) => {
@@ -515,6 +645,14 @@ function spawnAgentCore(): void {
     agentCoreProcess = null;
     if (!isQuitting) {
       updateTrayStatus('offline');
+      // If the post-update retry cycle is active, a fast exit likely means
+      // AV killed the process or the binary is still locked.  Re-trigger
+      // the retry chain instead of silently going offline.
+      if (postUpdateRetryActive && !postUpdateRetryTimer) {
+        console.log('[agent-core] process exited during post-update cycle, re-entering retry loop');
+        lastSpawnTime = 0;
+        scheduleSpawnsAfterCoreUpdate();
+      }
     }
   });
 
@@ -524,16 +662,65 @@ function spawnAgentCore(): void {
   });
 }
 
-/** After in-place binary swap, Windows AV may block PE reads or spawn briefly; retry if core is still down. */
+/**
+ * After in-place binary swap, Windows AV may block PE reads or CreateProcess
+ * for an extended period.  Use exponential back-off retries for up to ~2
+ * minutes to outlast any reasonable AV scan window.
+ */
 function scheduleSpawnsAfterCoreUpdate(): void {
-  const delays = process.platform === 'win32' ? [4500, 9500, 14500, 22000] : [2000, 5500, 10000];
-  for (const ms of delays) {
-    setTimeout(() => {
-      if (isQuitting || agentCoreProcess) return;
-      lastSpawnTime = 0;
-      spawnAgentCore();
-    }, ms);
+  // Prevent infinite restart loops: if we've been retrying for longer than
+  // the ceiling, give up and let the health poller or manual restart take
+  // over.
+  if (postUpdateRetryActive && postUpdateRetryStartedAt > 0) {
+    if (Date.now() - postUpdateRetryStartedAt > POST_UPDATE_RETRY_CEILING_MS) {
+      console.warn('[agent-core] post-update retry ceiling reached, giving up');
+      appendAgentLog('[WARN] enx-agent could not start after update within the retry window. Please restart manually or check antivirus settings.');
+      postUpdateRetryActive = false;
+      postUpdateRetryTimer = null;
+      return;
+    }
+  } else {
+    postUpdateRetryStartedAt = Date.now();
   }
+  postUpdateRetryActive = true;
+
+  const delays = process.platform === 'win32'
+    ? [3000, 6000, 10000, 16000, 25000, 40000, 60000, 90000, 120000]
+    : [2000, 5000, 10000, 20000];
+
+  let idx = 0;
+  const tryNext = () => {
+    if (isQuitting || agentCoreProcess || idx >= delays.length) {
+      postUpdateRetryActive = false;
+      postUpdateRetryTimer = null;
+      return;
+    }
+    if (Date.now() - postUpdateRetryStartedAt > POST_UPDATE_RETRY_CEILING_MS) {
+      console.warn('[agent-core] post-update retry ceiling reached during loop');
+      appendAgentLog('[WARN] enx-agent could not start after update within the retry window. Please restart manually or check antivirus settings.');
+      postUpdateRetryActive = false;
+      postUpdateRetryTimer = null;
+      return;
+    }
+    const delay = delays[idx++];
+    console.log(`[agent-core] post-update retry #${idx}/${delays.length} in ${delay}ms`);
+    postUpdateRetryTimer = setTimeout(async () => {
+      if (isQuitting || agentCoreProcess) {
+        postUpdateRetryActive = false;
+        postUpdateRetryTimer = null;
+        return;
+      }
+      lastSpawnTime = 0;
+      await spawnAgentCore();
+      if (!agentCoreProcess) {
+        tryNext();
+      } else {
+        postUpdateRetryActive = false;
+        postUpdateRetryTimer = null;
+      }
+    }, delay);
+  };
+  tryNext();
 }
 
 function findAgentCoreBinary(): string {
