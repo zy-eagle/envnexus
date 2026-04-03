@@ -145,7 +145,8 @@ func (l *Loop) Run(ctx context.Context, messages []router.Message) (string, erro
 			}
 			toolResult := l.executeTool(ctx, tc)
 
-			resultJSON, _ := json.Marshal(toolResult)
+			resultForLLM := truncateToolResultForLLM(toolResult)
+			resultJSON, _ := json.Marshal(resultForLLM)
 			fullMessages = append(fullMessages, router.Message{
 				Role:       "tool",
 				Content:    string(resultJSON),
@@ -323,6 +324,32 @@ func (l *Loop) buildToolDefinitions() []router.ToolDefinition {
 		}
 	}
 	return defs
+}
+
+const maxToolOutputRunesForLLM = 4096
+
+func truncateToolResultForLLM(result map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(result))
+	for k, v := range result {
+		out[k] = v
+	}
+	if output, ok := out["output"]; ok {
+		switch o := output.(type) {
+		case string:
+			r := []rune(o)
+			if len(r) > maxToolOutputRunesForLLM {
+				out["output"] = string(r[:maxToolOutputRunesForLLM]) + "\n... (truncated for context window)"
+			}
+		case map[string]interface{}:
+			if outStr, ok := o["output"].(string); ok {
+				r := []rune(outStr)
+				if len(r) > maxToolOutputRunesForLLM {
+					o["output"] = string(r[:maxToolOutputRunesForLLM]) + "\n... (truncated for context window)"
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (l *Loop) buildSystemPrompt() string {

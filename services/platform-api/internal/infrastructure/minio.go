@@ -79,3 +79,9 @@ func (m *MinIOClient) PresignedGetURL(ctx context.Context, objectName string, ex
 	}
 	return c.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
 }
+
+// ObjectExists returns true if the object exists in the bucket.
+func (m *MinIOClient) ObjectExists(ctx context.Context, objectName string) bool {
+	_, err := m.client.StatObject(ctx, m.bucketName, objectName, minio.StatObjectOptions{})
+	return err == nil
+}

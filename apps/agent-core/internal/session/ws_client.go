@@ -64,7 +64,7 @@ func NewWSClient(serverURL, deviceID, tenantID string, tokenProvider SessionToke
 		tenantID:      tenantID,
 		tokenProvider: tokenProvider,
 		done:          make(chan struct{}),
-		sendCh:        make(chan []byte, 64),
+		sendCh:        make(chan []byte, 256),
 		registry:      registry,
 		auditClient:   auditClient,
 		policyEngine:  policyEngine,
@@ -376,7 +376,10 @@ func (c *WSClient) handleToolStarted(evt EventEnvelope) {
 		"params", paramsLog,
 	)
 
-	approved, err := c.policyEngine.Check(context.Background(), tool, params)
+	toolCtx, toolCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer toolCancel()
+
+	approved, err := c.policyEngine.Check(toolCtx, tool, params)
 	if err != nil || !approved {
 		reason := ""
 		if err != nil {
@@ -398,7 +401,7 @@ func (c *WSClient) handleToolStarted(evt EventEnvelope) {
 		return
 	}
 
-	result, err := tool.Execute(context.Background(), params)
+	result, err := tool.Execute(toolCtx, params)
 
 	eventType := "tool.completed"
 	if err != nil || (result != nil && result.Status == "failed") {

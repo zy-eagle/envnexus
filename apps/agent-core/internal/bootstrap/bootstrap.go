@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -294,6 +295,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	}
 	if err := localServer.Start(); err != nil {
 		slog.Error("[boot] Failed to start local API", "error", err)
+		return fmt.Errorf("start local API: %w", err)
 	}
 	b.localServer = localServer
 

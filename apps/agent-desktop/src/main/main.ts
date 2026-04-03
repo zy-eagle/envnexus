@@ -49,6 +49,8 @@ const DEFAULT_SETTINGS: Settings = {
   maxIterations: 10,
 };
 
+let cachedSettings: Settings | null = null;
+
 // Portable mode: when a `.portable` marker file exists next to the exe,
 // all data (settings, agent data, logs) lives alongside the binary
 // instead of in %APPDATA% or system-level directories.
@@ -89,21 +91,25 @@ function getAgentDataDir(): string {
 // ── Settings helpers ───────────────────────────────────────────────────────────
 
 function loadSettings(): Settings {
+  if (cachedSettings) return { ...cachedSettings };
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
       const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      cachedSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      return { ...cachedSettings };
     }
   } catch {
     // ignore
   }
-  return { ...DEFAULT_SETTINGS };
+  cachedSettings = { ...DEFAULT_SETTINGS };
+  return { ...cachedSettings };
 }
 
 function saveSettings(settings: Settings): void {
   try {
     fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+    cachedSettings = { ...settings };
   } catch (e) {
     console.error('Failed to save settings', e);
   }
@@ -810,8 +816,8 @@ function appendAgentLog(line: string): void {
       agentCoreLogs.push(`[${timestamp}] ${l}`);
     }
   }
-  while (agentCoreLogs.length > MAX_LOG_LINES) {
-    agentCoreLogs.shift();
+  if (agentCoreLogs.length > MAX_LOG_LINES + 500) {
+    agentCoreLogs.splice(0, agentCoreLogs.length - MAX_LOG_LINES);
   }
   mainWindow?.webContents.send('agent-core-log', line);
 }
@@ -821,8 +827,10 @@ function appendAgentLog(line: string): void {
 type ConnectionStatus = 'online' | 'offline' | 'connecting';
 
 let currentStatus: ConnectionStatus = 'connecting';
+const trayIconCache: Partial<Record<ConnectionStatus, NativeImage>> = {};
 
 function createTrayIcon(status: ConnectionStatus): NativeImage {
+  if (trayIconCache[status]) return trayIconCache[status]!;
   const statusColors: Record<ConnectionStatus, string> = {
     online: '#10b981',
     offline: '#9ca3af',
@@ -864,7 +872,9 @@ function createTrayIcon(status: ConnectionStatus): NativeImage {
     }
   }
 
-  return nativeImage.createFromBuffer(buf, { width: size, height: size });
+  const img = nativeImage.createFromBuffer(buf, { width: size, height: size });
+  trayIconCache[status] = img;
+  return img;
 }
 
 function hexToRGB(hex: string): [number, number, number] {
@@ -1212,6 +1222,9 @@ function registerIPC(): void {
 
   ipcMain.handle('send-diagnose', (_e, query: string, history: any[]) => {
     return new Promise((resolve) => {
+      let resolved = false;
+      const safeResolve = (val: any) => { if (!resolved) { resolved = true; resolve(val); } };
+
       const postData = JSON.stringify({ intent: query, history });
       const req = http.request({
         hostname: '127.0.0.1',
@@ -1225,11 +1238,11 @@ function registerIPC(): void {
         },
       }, (res) => {
         let buffer = '';
+        let currentEvent = '';
         res.on('data', (chunk: Buffer) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
-          let currentEvent = '';
           for (const line of lines) {
             if (line.startsWith('event: ')) {
               currentEvent = line.slice(7).trim();
@@ -1239,26 +1252,31 @@ function registerIPC(): void {
                 if (currentEvent === 'progress' && mainWindow) {
                   mainWindow.webContents.send('diagnosis-progress', data);
                 } else if (currentEvent === 'result') {
-                  resolve(data);
+                  safeResolve(data);
                 } else if (currentEvent === 'error') {
-                  resolve(data);
+                  safeResolve(data);
                 }
               } catch { /* ignore parse errors */ }
+              currentEvent = '';
+            } else if (line.trim() === '') {
               currentEvent = '';
             }
           }
         });
         res.on('end', () => {
-          if (buffer.includes('data: ')) {
-            const dataLine = buffer.split('\n').find(l => l.startsWith('data: '));
-            if (dataLine) {
-              try { resolve(JSON.parse(dataLine.slice(6))); } catch { /* ignore */ }
+          if (!resolved && buffer.trim()) {
+            const remaining = buffer.split('\n');
+            for (const line of remaining) {
+              if (line.startsWith('data: ')) {
+                try { safeResolve(JSON.parse(line.slice(6))); return; } catch { /* ignore */ }
+              }
             }
           }
+          safeResolve({ error: 'diagnosis stream ended without result' });
         });
       });
-      req.on('error', (e) => resolve({ error: `agent-core not reachable: ${e.message}` }));
-      req.setTimeout(660000, () => { req.destroy(); resolve({ error: 'diagnosis timed out (660s)' }); });
+      req.on('error', (e) => safeResolve({ error: `agent-core not reachable: ${e.message}` }));
+      req.setTimeout(660000, () => { req.destroy(); safeResolve({ error: 'diagnosis timed out (660s)' }); });
       req.write(postData);
       req.end();
     });
@@ -1298,11 +1316,11 @@ function registerIPC(): void {
         },
       }, (res) => {
         let buffer = '';
+        let currentEvent = '';
         res.on('data', (chunk: Buffer) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
-          let currentEvent = '';
           for (const line of lines) {
             if (line.startsWith('event: ')) {
               currentEvent = line.slice(7).trim();
@@ -1322,6 +1340,8 @@ function registerIPC(): void {
                 }
               } catch { /* ignore parse errors */ }
               currentEvent = '';
+            } else if (line.trim() === '') {
+              currentEvent = '';
             }
           }
         });
@@ -1330,10 +1350,12 @@ function registerIPC(): void {
             safeResolve({ cancelled: true, message: 'Cancelled' });
             return;
           }
-          if (buffer.includes('data: ')) {
-            const dataLine = buffer.split('\n').find(l => l.startsWith('data: '));
-            if (dataLine) {
-              try { safeResolve(JSON.parse(dataLine.slice(6))); return; } catch { /* ignore */ }
+          if (buffer.trim()) {
+            const remaining = buffer.split('\n');
+            for (const l of remaining) {
+              if (l.startsWith('data: ')) {
+                try { safeResolve(JSON.parse(l.slice(6))); return; } catch { /* ignore */ }
+              }
             }
           }
           safeResolve({ error: 'Connection closed unexpectedly' });
@@ -1521,9 +1543,15 @@ function startHealthPolling(): void {
   setInterval(async () => {
     try {
       await localAPIRequest('GET', '/local/v1/runtime/status');
-      if (currentStatus !== 'online') updateTrayStatus('online');
+      if (currentStatus !== 'online') {
+        updateTrayStatus('online');
+        mainWindow?.webContents.send('connection-status', 'online');
+      }
     } catch {
-      if (currentStatus !== 'offline') updateTrayStatus('offline');
+      if (currentStatus !== 'offline') {
+        updateTrayStatus('offline');
+        mainWindow?.webContents.send('connection-status', 'offline');
+      }
     }
   }, 10_000);
 }

@@ -50,7 +50,7 @@ func NewManager(configDir string) *Manager {
 			EnrollmentToken:  os.Getenv("ENX_ENROLLMENT_TOKEN"),
 			ConfigVersion:    0,
 			HeartbeatSeconds: 30,
-			AgentVersion:     "0.1.0",
+			AgentVersion:     "0.3.0",
 		},
 	}
 	m.loadFromBundledConfig()

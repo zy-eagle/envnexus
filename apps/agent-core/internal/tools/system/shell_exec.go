@@ -79,11 +79,23 @@ func (t *ShellExecTool) Description() string {
 func (t *ShellExecTool) IsReadOnly() bool  { return false }
 func (t *ShellExecTool) RiskLevel() string { return "L2" }
 
+// shellOperators are characters/sequences that chain or redirect commands,
+// making a "safe" first token meaningless from a security standpoint.
+var shellOperators = []string{"&&", "||", ";", "|", ">", ">>", "<", "$(", "`"}
+
 func (t *ShellExecTool) NeedsApproval(params map[string]interface{}) bool {
 	command, _ := params["command"].(string)
 	if command == "" {
 		return false
 	}
+
+	cmdLower := strings.ToLower(command)
+	for _, op := range shellOperators {
+		if strings.Contains(cmdLower, op) {
+			return true
+		}
+	}
+
 	parts := parseCommand(command)
 	if len(parts) == 0 {
 		return false

@@ -1,5 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+const ipcChannels = [
+  'diagnosis-progress',
+  'chat-event',
+  'agent-core-log',
+  'update-available',
+  'update-progress',
+  'update-downloaded',
+  'agent-update-status',
+  'connection-status',
+] as const;
+
+function onChannel(channel: string, callback: (...args: any[]) => void) {
+  const handler = (_event: Electron.IpcRendererEvent, ...args: any[]) => callback(...args);
+  ipcRenderer.on(channel, handler);
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Agent Core status
   getAgentStatus: () => ipcRenderer.invoke('get-agent-status'),
@@ -11,7 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendDiagnose: (query: string, history: unknown[]) =>
     ipcRenderer.invoke('send-diagnose', query, history),
   onDiagnosisProgress: (callback: (data: { step: string; detail: string }) => void) => {
-    ipcRenderer.on('diagnosis-progress', (_event, data) => callback(data));
+    onChannel('diagnosis-progress', callback);
   },
 
   // Chat (Agent Loop)
@@ -23,10 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   chatAutoApprove: (enabled: boolean) =>
     ipcRenderer.invoke('chat-auto-approve', enabled),
   onChatEvent: (callback: (event: { type: string; content: unknown }) => void) => {
-    ipcRenderer.on('chat-event', (_event, data) => callback(data));
-  },
-  removeChatEventListeners: () => {
-    ipcRenderer.removeAllListeners('chat-event');
+    onChannel('chat-event', callback);
   },
 
   // Settings
@@ -43,7 +56,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAgentCoreLogs: () => ipcRenderer.invoke('get-agent-core-logs'),
   getDetectedAgentPath: () => ipcRenderer.invoke('get-detected-agent-path'),
   onAgentCoreLog: (callback: (log: string) => void) => {
-    ipcRenderer.on('agent-core-log', (_event, log: string) => callback(log));
+    onChannel('agent-core-log', callback);
   },
 
   // Self-update (agent-core)
@@ -57,17 +70,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadDesktopUpdate: () => ipcRenderer.invoke('desktop-update-download'),
   applyDesktopUpdate: () => ipcRenderer.invoke('desktop-update-apply'),
 
+  // Connection status (pushed by main process health poller)
+  onConnectionStatus: (callback: (status: string) => void) => {
+    onChannel('connection-status', callback);
+  },
+
   // Update events (shared)
   onUpdateAvailable: (callback: (data: { type: string; version: string }) => void) => {
-    ipcRenderer.on('update-available', (_event, data) => callback(data));
+    onChannel('update-available', callback);
   },
   onUpdateProgress: (callback: (data: { type: string; percent: number }) => void) => {
-    ipcRenderer.on('update-progress', (_event, data) => callback(data));
+    onChannel('update-progress', callback);
   },
   onUpdateDownloaded: (callback: (data: { type: string; version: string }) => void) => {
-    ipcRenderer.on('update-downloaded', (_event, data) => callback(data));
+    onChannel('update-downloaded', callback);
   },
   onAgentUpdateStatus: (callback: (status: any) => void) => {
-    ipcRenderer.on('agent-update-status', (_event, status) => callback(status));
+    onChannel('agent-update-status', callback);
+  },
+
+  removeAllListeners: () => {
+    for (const ch of ipcChannels) {
+      ipcRenderer.removeAllListeners(ch);
+    }
   },
 });

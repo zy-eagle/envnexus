@@ -6,8 +6,6 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:">
   <title>EnvNexus Agent</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -690,7 +688,7 @@
       <span class="nav-label">设置</span>
     </div>
   </nav>
-  <div id="sidebar-footer" id="app-version">v0.2.0</div>
+  <div id="sidebar-footer">v0.2.0</div>
 </div>
 
 <!-- Main Content -->
@@ -1159,8 +1157,12 @@ function navigate(page) {
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 function setStatus(status) {
-  const statusMap = { online: 'status_online', offline: 'status_offline', connecting: 'status_connecting' };
   document.getElementById('offline-alert').style.display = status === 'offline' ? 'block' : 'none';
+  const badge = document.getElementById('dash-status');
+  if (badge) {
+    const badgeClass = status === 'online' ? 'badge-green' : status === 'offline' ? 'badge-red' : 'badge-yellow';
+    badge.innerHTML = `<span class="badge ${badgeClass}">${t('status_' + status)}</span>`;
+  }
 }
 
 function fmt(val) { return val == null || val === '' ? '—' : String(val); }
@@ -1282,10 +1284,10 @@ function addAutoApprovedCard(data) {
   return div;
 }
 
+const _escapeMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function escapeHtml(str) {
-  const d = document.createElement('div');
-  d.textContent = str || '';
-  return d.innerHTML;
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, c => _escapeMap[c]);
 }
 
 let isAutoApproveEnabled = false;
@@ -1553,6 +1555,7 @@ function clearLogsView() {
   document.getElementById('logs-content').textContent = t('logs_waiting');
 }
 
+let _logLineCount = 0;
 if (api.onAgentCoreLog) {
   api.onAgentCoreLog((log) => {
     const pre = document.getElementById('logs-content');
@@ -1562,12 +1565,15 @@ if (api.onAgentCoreLog) {
       const waiting = pre.textContent === t('logs_waiting') || pre.textContent === t('logs_empty');
       if (waiting) {
         pre.textContent = log + '\n';
+        _logLineCount = 1;
       } else {
         pre.textContent += log + '\n';
+        _logLineCount++;
       }
-      const lines = pre.textContent.split('\n');
-      if (lines.length > 2000) {
+      if (_logLineCount > 2500) {
+        const lines = pre.textContent.split('\n');
         pre.textContent = lines.slice(-2000).join('\n');
+        _logLineCount = 2000;
       }
       if (isAtBottom) pre.scrollTop = pre.scrollHeight;
     }
@@ -1893,15 +1899,9 @@ async function init() {
   setTimeout(checkForAgentUpdate, 5000);
 }
 
-setInterval(async () => {
-  try {
-    const status = await api.getAgentStatus();
-    if (status && status.error) throw new Error(status.error);
-    setStatus('online');
-  } catch {
-    setStatus('offline');
-  }
-}, 10000);
+if (api.onConnectionStatus) {
+  api.onConnectionStatus((status) => setStatus(status));
+}
 
 init();
 </script>

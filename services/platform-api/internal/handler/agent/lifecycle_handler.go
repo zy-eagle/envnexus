@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -234,10 +235,31 @@ func (h *LifecycleHandler) CheckUpdate(c *gin.Context) {
 		ArtifactSize:   best.ArtifactSize,
 	}
 
-	if h.minioClient != nil && best.ArtifactPath != "" {
-		downloadURL, err := h.minioClient.PresignedGetURL(c.Request.Context(), best.ArtifactPath, 30*time.Minute)
-		if err == nil {
-			resp.DownloadURL = downloadURL.String()
+	// The agent-core updater expects a raw binary, not the distribution
+	// package ZIP stored in ArtifactPath. Serve a presigned URL to the
+	// raw binary in base-packages/ which the build pipeline uploads
+	// separately (e.g. enx-agent-windows-amd64.exe).
+	if h.minioClient != nil {
+		ext := ""
+		if platform == "windows" {
+			ext = ".exe"
+		}
+		rawBinaryKey := fmt.Sprintf("base-packages/enx-agent-%s-%s%s", platform, arch, ext)
+		ctx := c.Request.Context()
+
+		if h.minioClient.ObjectExists(ctx, rawBinaryKey) {
+			downloadURL, err := h.minioClient.PresignedGetURL(ctx, rawBinaryKey, 30*time.Minute)
+			if err == nil {
+				resp.DownloadURL = downloadURL.String()
+				// Package checksum/size are for the distribution ZIP, not
+				// the raw binary. Clear them to prevent the updater from
+				// rejecting a valid download due to mismatch.
+				resp.Checksum = ""
+				resp.ArtifactSize = 0
+			}
+		} else {
+			slog.Warn("[agent] check-update: raw binary not found in base-packages, update will not include download URL",
+				"raw_key", rawBinaryKey)
 		}
 	}
 
