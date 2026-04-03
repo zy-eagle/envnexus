@@ -32,21 +32,22 @@ func (s *Service) ListDevices(ctx context.Context, tenantID string) ([]*dto.Devi
 			hostname = *d.Hostname
 		}
 		resp = append(resp, &dto.DeviceResponse{
-			ID:              d.ID,
-			TenantID:        d.TenantID,
-			AgentProfileID:  d.AgentProfileID,
-			DeviceName:      d.DeviceName,
-			Hostname:        hostname,
-			Platform:        d.Platform,
-			Arch:            d.Arch,
-			RuntimeMetadata: rawJSONPtr(d.RuntimeMetadata),
-			EnvironmentType: d.EnvironmentType,
-			AgentVersion:    d.AgentVersion,
-			Status:          string(d.Status),
-			PolicyVersion:   d.PolicyVersion,
-			LastSeenAt:      d.LastSeenAt,
-			CreatedAt:       d.CreatedAt,
-			UpdatedAt:       d.UpdatedAt,
+			ID:                         d.ID,
+			TenantID:                   d.TenantID,
+			AgentProfileID:             d.AgentProfileID,
+			DeviceName:                 d.DeviceName,
+			Hostname:                   hostname,
+			Platform:                   d.Platform,
+			Arch:                       d.Arch,
+			RuntimeMetadata:            rawJSONPtr(d.RuntimeMetadata),
+			EnvironmentType:            d.EnvironmentType,
+			AgentVersion:               d.AgentVersion,
+			DistributionPackageVersion: d.DistributionPackageVersion,
+			Status:                     string(d.Status),
+			PolicyVersion:              d.PolicyVersion,
+			LastSeenAt:                 d.LastSeenAt,
+			CreatedAt:                  d.CreatedAt,
+			UpdatedAt:                  d.UpdatedAt,
 		})
 	}
 	return resp, nil
@@ -77,21 +78,22 @@ func (s *Service) UpdateDevice(ctx context.Context, tenantID, id string, req dto
 		hostname = *device.Hostname
 	}
 	return &dto.DeviceResponse{
-		ID:              device.ID,
-		TenantID:        device.TenantID,
-		AgentProfileID:  device.AgentProfileID,
-		DeviceName:      device.DeviceName,
-		Hostname:        hostname,
-		Platform:        device.Platform,
-		Arch:            device.Arch,
-		RuntimeMetadata: rawJSONPtr(device.RuntimeMetadata),
-		EnvironmentType: device.EnvironmentType,
-		AgentVersion:    device.AgentVersion,
-		Status:          string(device.Status),
-		PolicyVersion:   device.PolicyVersion,
-		LastSeenAt:      device.LastSeenAt,
-		CreatedAt:       device.CreatedAt,
-		UpdatedAt:       device.UpdatedAt,
+		ID:                         device.ID,
+		TenantID:                   device.TenantID,
+		AgentProfileID:             device.AgentProfileID,
+		DeviceName:                 device.DeviceName,
+		Hostname:                   hostname,
+		Platform:                   device.Platform,
+		Arch:                       device.Arch,
+		RuntimeMetadata:            rawJSONPtr(device.RuntimeMetadata),
+		EnvironmentType:            device.EnvironmentType,
+		AgentVersion:               device.AgentVersion,
+		DistributionPackageVersion: device.DistributionPackageVersion,
+		Status:                     string(device.Status),
+		PolicyVersion:              device.PolicyVersion,
+		LastSeenAt:                 device.LastSeenAt,
+		CreatedAt:                  device.CreatedAt,
+		UpdatedAt:                  device.UpdatedAt,
 	}, nil
 }
 
@@ -100,7 +102,7 @@ func (s *Service) DeleteDevice(ctx context.Context, tenantID, id string) error {
 }
 
 // Heartbeat records a device heartbeat and returns updated state.
-func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion string, policyVersion int, env *dto.AgentRuntimeEnvironment) (*domain.Device, error) {
+func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion, distPkgVersion string, policyVersion int, env *dto.AgentRuntimeEnvironment) (*domain.Device, error) {
 	device, err := s.deviceRepo.GetByID(ctx, deviceID)
 	if err != nil {
 		return nil, domain.ErrInternalError
@@ -112,7 +114,7 @@ func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion string, 
 		return nil, domain.ErrDeviceRevoked
 	}
 
-	device.RecordHeartbeat(agentVersion, policyVersion)
+	device.RecordHeartbeat(agentVersion, distPkgVersion, policyVersion)
 	if env != nil {
 		if b, err := json.Marshal(env); err == nil {
 			meta := string(b)

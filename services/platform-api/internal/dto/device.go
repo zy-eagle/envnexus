@@ -15,8 +15,9 @@ type DeviceResponse struct {
 	Arch             string          `json:"arch"`
 	RuntimeMetadata  json.RawMessage `json:"runtime_metadata,omitempty"`
 	EnvironmentType  string          `json:"environment_type"`
-	AgentVersion    string     `json:"agent_version"`
-	Status          string     `json:"status"`
+	AgentVersion               string `json:"agent_version"`
+	DistributionPackageVersion string `json:"distribution_package_version,omitempty"`
+	Status                     string `json:"status"`
 	PolicyVersion   int        `json:"policy_version"`
 	LastSeenAt      *time.Time `json:"last_seen_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`

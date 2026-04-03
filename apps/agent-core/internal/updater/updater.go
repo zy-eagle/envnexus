@@ -61,6 +61,10 @@ func persistCoreInstallPointer(dataDir, abs string) {
 	slog.Info("[updater] Wrote core install pointer for desktop shell", "file", target, "path", rec.Path)
 }
 
+// ConfigUpdater is called after a successful apply to persist the new
+// distribution_package_version so subsequent check-update requests use it.
+type ConfigUpdater func(newVersion string)
+
 type Config struct {
 	PlatformURL    string
 	DeviceToken    string
@@ -71,6 +75,9 @@ type Config struct {
 	AutoUpdate     bool
 	CheckInterval  time.Duration
 	DataDir        string
+	// OnVersionApplied is called after ApplyUpdate succeeds to persist the new
+	// distribution version into config.  May be nil.
+	OnVersionApplied ConfigUpdater
 }
 
 type UpdateInfo struct {
@@ -394,6 +401,23 @@ func (u *Updater) ApplyUpdate() (installedPath string, err error) {
 	slog.Info("[updater] Binary replaced successfully, restart required", "old_backup", backupPath, "installed_path", currentExe)
 
 	persistCoreInstallPointer(u.config.DataDir, currentExe)
+
+	// Persist the new distribution version so that after restart the
+	// check-update request carries the updated semver instead of the old one.
+	u.mu.RLock()
+	newVer := ""
+	if u.latestInfo != nil {
+		newVer = u.latestInfo.LatestVersion
+	}
+	u.mu.RUnlock()
+
+	if newVer != "" {
+		u.config.CurrentVersion = newVer
+		if u.config.OnVersionApplied != nil {
+			u.config.OnVersionApplied(newVer)
+		}
+		slog.Info("[updater] Updated distribution_package_version after apply", "new_version", newVer)
+	}
 
 	u.setStatus(Status{
 		State:            "applied",

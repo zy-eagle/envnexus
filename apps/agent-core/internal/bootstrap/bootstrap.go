@@ -319,7 +319,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 			Interval: time.Duration(cfg.HeartbeatSeconds) * time.Second,
 			Fn: func(ctx context.Context) error {
 				currentCfg := b.configManager.Get()
-				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion, lifecycle.CollectRuntimeEnvironment())
+				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.DistributionPackageVersion, currentCfg.ConfigVersion, lifecycle.CollectRuntimeEnvironment())
 			},
 		})
 	}
@@ -374,6 +374,12 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 			AutoUpdate:     cfg.AutoUpdate,
 			CheckInterval:  1 * time.Hour,
 			DataDir:        b.configDir,
+			OnVersionApplied: func(newVersion string) {
+				b.configManager.Update(func(c *config.AgentConfig) {
+					c.DistributionPackageVersion = newVersion
+				})
+				slog.Info("[boot] Persisted new distribution_package_version to config", "version", newVersion)
+			},
 		})
 		b.updater = agentUpdater
 
