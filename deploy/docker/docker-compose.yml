@@ -79,6 +79,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/platform-api.Dockerfile
+      args:
+        ENX_BUILD_REVISION: ${ENX_BUILD_REVISION:-unknown}
     env_file:
       - .env
     depends_on:
@@ -101,6 +103,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/session-gateway.Dockerfile
+      args:
+        ENX_BUILD_REVISION: ${ENX_BUILD_REVISION:-unknown}
     env_file:
       - .env
     environment:
@@ -124,6 +128,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/job-runner.Dockerfile
+      args:
+        ENX_BUILD_REVISION: ${ENX_BUILD_REVISION:-unknown}
     env_file:
       - .env
     depends_on:
@@ -148,6 +154,7 @@ services:
       dockerfile: deploy/docker/console-web.Dockerfile
       args:
         API_PROXY_TARGET: http://platform-api:8080
+        ENX_BUILD_REVISION: ${ENX_BUILD_REVISION:-unknown}
     env_file:
       - .env
     depends_on:

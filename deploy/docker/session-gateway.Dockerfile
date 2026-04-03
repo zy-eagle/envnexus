@@ -8,11 +8,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY services/session-gateway/ .
+ARG ENX_BUILD_REVISION=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o session-gateway ./cmd/session-gateway
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.buildRevision=${ENX_BUILD_REVISION}" -o session-gateway ./cmd/session-gateway
 
 FROM alpine:latest
+ARG ENX_BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision="${ENX_BUILD_REVISION}"
 RUN apk --no-cache add curl tzdata
 WORKDIR /app
 COPY --from=builder /app/session-gateway .

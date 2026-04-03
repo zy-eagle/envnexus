@@ -15,6 +15,9 @@ import (
 	"github.com/zy-eagle/envnexus/services/session-gateway/internal/handler/ws"
 )
 
+// Injected at link time, e.g. -X main.buildRevision=$(git rev-parse HEAD)
+var buildRevision = "dev"
+
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -73,6 +76,7 @@ func main() {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"status":         status,
+			"revision":       buildRevision,
 			"online_devices": sessionManager.GetOnlineDeviceCount(),
 			"redis":          redisOK,
 		})

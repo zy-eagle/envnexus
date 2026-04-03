@@ -14,7 +14,9 @@ COPY apps/console-web/ ./
 RUN mkdir -p public
 
 ARG API_PROXY_TARGET=http://platform-api:8080
+ARG ENX_BUILD_REVISION=unknown
 ENV API_PROXY_TARGET=${API_PROXY_TARGET}
+ENV NEXT_PUBLIC_ENX_BUILD_REVISION=${ENX_BUILD_REVISION}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
@@ -22,6 +24,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm run build
 
 FROM node:20-alpine AS runner
+ARG ENX_BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision="${ENX_BUILD_REVISION}"
 WORKDIR /app
 
 ENV NODE_ENV=production

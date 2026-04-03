@@ -42,6 +42,9 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/migrations"
 )
 
+// Injected at link time, e.g. -X main.buildRevision=$(git rev-parse HEAD)
+var buildRevision = "dev"
+
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -322,9 +325,9 @@ func main() {
 		}
 
 		if allOK {
-			c.JSON(http.StatusOK, gin.H{"status": "ready", "checks": checks})
+			c.JSON(http.StatusOK, gin.H{"status": "ready", "revision": buildRevision, "checks": checks})
 		} else {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "revision": buildRevision, "checks": checks})
 		}
 	})
 

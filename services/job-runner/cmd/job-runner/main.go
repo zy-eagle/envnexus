@@ -17,6 +17,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// Injected at link time, e.g. -X main.buildRevision=$(git rev-parse HEAD)
+var buildRevision = "dev"
+
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -85,8 +88,9 @@ func main() {
 			status = "degraded (no database)"
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"status":  status,
-			"workers": allWorkers,
+			"status":   status,
+			"revision": buildRevision,
+			"workers":  allWorkers,
 		})
 	})
 
