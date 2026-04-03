@@ -21,10 +21,6 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
   const [devices, setDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingDevice, setEditingDevice] = useState<any>(null);
-  const [editName, setEditName] = useState('');
-  const [editStatus, setEditStatus] = useState('');
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -44,20 +40,6 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
       fetchDevices();
     } catch (error) {
       console.error('Error deleting device:', error);
-    }
-  };
-
-  const handleEditSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.put(`/tenants/${tenantId}/devices/${editingDevice.id}`, {
-        device_name: editName,
-        status: editStatus,
-      });
-      setIsEditModalOpen(false);
-      fetchDevices();
-    } catch (error) {
-      console.error('Error updating device:', error);
     }
   };
 
@@ -114,35 +96,6 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
-      {isEditModalOpen && editingDevice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <h2 className="text-xl font-semibold mb-4">{t.editDevice}</h2>
-            <form onSubmit={handleEditSave} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t.deviceName}</label>
-                <input type="text" required value={editName} onChange={e => setEditName(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{ct.status}</label>
-                <select value={editStatus} onChange={e => setEditStatus(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
-                  <option value="active">Active</option>
-                  <option value="pending_activation">Pending Activation</option>
-                  <option value="quarantined">Quarantined</option>
-                  <option value="revoked">Revoked</option>
-                </select>
-              </div>
-              <div className="flex justify-end space-x-3 mt-6">
-                <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm">{ct.cancel}</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700">{ct.save}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500">
@@ -194,13 +147,7 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
                         {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : 'Never'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button onClick={() => {
-                          setEditingDevice(d);
-                          setEditName(d.device_name);
-                          setEditStatus(d.status);
-                          setIsEditModalOpen(true);
-                        }} className="text-gray-600 hover:text-gray-900 mr-3">{ct.edit}</button>
-                        <button onClick={() => handleDelete(d.id)} className="text-red-600 hover:text-red-900">{t.revoke}</button>
+                        <button type="button" onClick={() => handleDelete(d.id)} className="text-red-600 hover:text-red-900">{t.revoke}</button>
                       </td>
                     </tr>
                   );

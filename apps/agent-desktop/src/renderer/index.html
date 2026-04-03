@@ -1232,6 +1232,8 @@ async function loadDashboard() {
 let chatHistory = [];
 let isChatBusy = false;
 let activeThinkingEl = null;
+/** Set when SSE `message` already rendered the assistant reply (dedupe vs final `done` payload). */
+let lastStreamedAssistantContent = null;
 
 function addMsg(text, type) {
   const div = document.createElement('div');
@@ -1398,6 +1400,8 @@ if (api.onChatEvent) {
         const msgContent = evt.content?.content;
         if (msgContent) {
           addMsg(`<div style="white-space:pre-wrap;">${escapeHtml(msgContent)}</div>`, 'agent');
+          chatHistory.push({ role: 'assistant', content: msgContent });
+          lastStreamedAssistantContent = msgContent;
         }
         break;
       }
@@ -1426,6 +1430,7 @@ async function sendChatRequest() {
   input.value = '';
   setChatBusy(true);
 
+  lastStreamedAssistantContent = null;
   addMsg(escapeHtml(text), 'user');
   chatHistory.push({ role: 'user', content: text });
 
@@ -1441,10 +1446,12 @@ async function sendChatRequest() {
       addMsg(`⚠ ${escapeHtml(data.error)}`, 'system');
     } else {
       const content = data?.content || '';
-      if (content) {
+      // Assistant text is usually sent earlier via SSE `message`; `done` repeats the same content.
+      if (content && content !== lastStreamedAssistantContent) {
         addMsg(`<div style="white-space:pre-wrap;">${escapeHtml(content)}</div>`, 'agent');
         chatHistory.push({ role: 'assistant', content });
       }
+      lastStreamedAssistantContent = null;
     }
   } catch (e) {
     if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }

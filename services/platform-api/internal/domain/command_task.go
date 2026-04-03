@@ -8,6 +8,7 @@ import (
 type CommandTaskStatus string
 
 const (
+	CommandTaskDraft           CommandTaskStatus = "draft"
 	CommandTaskPendingApproval CommandTaskStatus = "pending_approval"
 	CommandTaskApproved        CommandTaskStatus = "approved"
 	CommandTaskDenied          CommandTaskStatus = "denied"

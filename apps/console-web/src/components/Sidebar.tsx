@@ -24,7 +24,6 @@ function Icon({ name, className = "w-4 h-4" }: { name: string; className?: strin
     roles: <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-2.25 0h13.5A2.25 2.25 0 0 1 21 12.75v6A2.25 2.25 0 0 1 18.75 21H5.25A2.25 2.25 0 0 1 3 18.75v-6A2.25 2.25 0 0 1 5.25 10.5Z" /></svg>,
     governance: <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" /></svg>,
     settings: <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>,
-    logout: <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>,
     chevronDown: <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>,
     switchArrows: <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>,
   };
@@ -67,7 +66,7 @@ function NavSection({
 }) {
   const rowActive = activeChild;
   return (
-    <div className="mb-0.5">
+    <div>
       <button
         type="button"
         onClick={onToggle}
@@ -98,7 +97,7 @@ function NavSection({
 
 export default function Sidebar() {
   const { lang } = useLanguage();
-  const { user, myRolesInTenant, tenantId, activeTenantId, activeTenantName, tenants, switchTenant, logout } = useAuth();
+  const { activeTenantName, tenants, switchTenant } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [tenantOpen, setTenantOpen] = useState(false);
@@ -196,7 +195,7 @@ export default function Sidebar() {
       </div>
 
       {/* Tenant Switcher */}
-      <div className="px-3 pt-3 pb-2">
+      <div className="px-3 pt-2 pb-1.5">
         <div className="relative">
           <button
             onClick={() => setTenantOpen(!tenantOpen)}
@@ -254,16 +253,13 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
+      {/* Navigation — single stack avoids large sectional gaps (formerly mt-5) */}
       <nav className="flex-1 overflow-y-auto px-3 py-2">
         <div className="space-y-0.5">
           <NavItem href="/overview" icon="dashboard" label={t.dashboard} active={isActive('/overview')} />
           <NavItem href="/tenants" icon="tenants" label={t.allTenants} active={pathname === '/tenants'} />
-        </div>
-
-        {tid && (
-          <div className="mt-5 space-y-0.5">
-            {tenantNavGroups.map((group) => (
+          {tid &&
+            tenantNavGroups.map((group) => (
               <NavSection
                 key={group.id}
                 label={group.label}
@@ -285,70 +281,9 @@ export default function Sidebar() {
                 ))}
               </NavSection>
             ))}
-          </div>
-        )}
-
-        <div className="mt-5 space-y-0.5">
           <NavItem href="/settings" icon="settings" label={t.settings} active={isActive('/settings')} />
         </div>
       </nav>
-
-      {/* Current user & roles */}
-      {user && (
-        <div className="px-3 py-3 border-t border-slate-100">
-          <div className="px-3 py-2 rounded-lg bg-slate-50/80 border border-slate-100">
-            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{t.myRoles || 'Your roles'}</div>
-            <div className="text-[13px] font-medium text-slate-800 truncate" title={user.email}>
-              {user.display_name || user.email}
-            </div>
-            <div className="text-[11px] text-slate-500 truncate mt-0.5" title={user.email}>
-              {user.email}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1 items-center">
-              {user.platform_super_admin && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-200">
-                  {t.platformSuperAdmin || 'Platform super admin'}
-                </span>
-              )}
-              {myRolesInTenant.map((r) => (
-                <span
-                  key={r.id}
-                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100"
-                >
-                  {r.name}
-                </span>
-              ))}
-            </div>
-            {!user.platform_super_admin && myRolesInTenant.length === 0 && (
-              <p className="text-[11px] text-slate-400 mt-2 leading-snug">
-                {activeTenantId !== tenantId
-                  ? lang === 'zh'
-                    ? '已切换租户：侧边栏角色仅随登录租户（令牌）显示。'
-                    : 'Switched tenant: sidebar roles reflect your login tenant only.'
-                  : lang === 'zh'
-                    ? '当前账号在本租户未绑定角色。'
-                    : 'No roles bound in this tenant.'}
-              </p>
-            )}
-            {user.platform_super_admin && myRolesInTenant.length === 0 && (
-              <p className="text-[11px] text-slate-400 mt-2 leading-snug">
-                {lang === 'zh' ? '在本租户下未绑定具体角色（仍具备全局审批等超管能力）。' : 'No role bindings in this tenant (global approvals still apply).'}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Bottom: Logout */}
-      <div className="px-3 py-3 border-t border-slate-100">
-        <button
-          onClick={logout}
-          className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-[13px] font-medium text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all duration-150"
-        >
-          <Icon name="logout" />
-          {t.signOut}
-        </button>
-      </div>
     </aside>
   );
 }

@@ -42,6 +42,7 @@ type CommandTaskResponse struct {
 	ID             string                     `json:"id"`
 	TenantID       string                     `json:"tenant_id"`
 	CreatedBy      string                     `json:"created_by"`
+	CreatedByName  string                     `json:"created_by_name,omitempty"`
 	ApproverID     *string                    `json:"approver_id"`
 	ApprovedBy     *string                    `json:"approved_by"`
 	PolicySnapshotID *string                  `json:"policy_snapshot_id"`

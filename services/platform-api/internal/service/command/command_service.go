@@ -22,6 +22,7 @@ type Service struct {
 	auditRepo     repository.AuditRepository
 	rbacService   PermissionChecker
 	gatewayClient *infrastructure.GatewayClient
+	userRepo      repository.UserRepository
 }
 
 type PermissionChecker interface {
@@ -37,6 +38,7 @@ func NewService(
 	auditRepo repository.AuditRepository,
 	rbacService PermissionChecker,
 	gatewayClient *infrastructure.GatewayClient,
+	userRepo repository.UserRepository,
 ) *Service {
 	return &Service{
 		taskRepo:      taskRepo,
@@ -45,7 +47,70 @@ func NewService(
 		auditRepo:     auditRepo,
 		rbacService:   rbacService,
 		gatewayClient: gatewayClient,
+		userRepo:      userRepo,
 	}
+}
+
+func userDisplayName(u *domain.User) string {
+	if u == nil {
+		return ""
+	}
+	if u.DisplayName != "" {
+		return u.DisplayName
+	}
+	return u.Email
+}
+
+func (s *Service) buildCreatorNameMap(ctx context.Context, tasks []*domain.CommandTask) map[string]string {
+	if s.userRepo == nil || len(tasks) == 0 {
+		return nil
+	}
+	ids := make(map[string]struct{})
+	for _, t := range tasks {
+		if t != nil && t.CreatedByUserID != "" {
+			ids[t.CreatedByUserID] = struct{}{}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(ids))
+	for id := range ids {
+		u, err := s.userRepo.GetByID(ctx, id)
+		if err != nil || u == nil {
+			continue
+		}
+		out[id] = userDisplayName(u)
+	}
+	return out
+}
+
+func (s *Service) resolveCreatedByName(ctx context.Context, userID string, creatorNames map[string]string) string {
+	if userID == "" {
+		return ""
+	}
+	if creatorNames != nil {
+		return creatorNames[userID]
+	}
+	if s.userRepo == nil {
+		return ""
+	}
+	u, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil || u == nil {
+		return ""
+	}
+	return userDisplayName(u)
+}
+
+func draftExpiresAt(policy *domain.ApprovalPolicy) time.Time {
+	d := time.Now().Add(7 * 24 * time.Hour)
+	if policy != nil && policy.ExpiresMinutes > 0 {
+		p := time.Now().Add(time.Duration(policy.ExpiresMinutes) * time.Minute)
+		if p.After(d) {
+			return p
+		}
+	}
+	return d
 }
 
 func (s *Service) CreateTask(ctx context.Context, tenantID, userID string, req dto.CreateCommandTaskRequest) (*dto.CommandTaskResponse, error) {
@@ -53,13 +118,7 @@ func (s *Service) CreateTask(ctx context.Context, tenantID, userID string, req d
 	effectiveRisk := EffectiveRisk(req.RiskLevel, systemRisk)
 
 	deviceIDsJSON, _ := json.Marshal(req.DeviceIDs)
-
 	policy, _ := s.policyService.FindPolicy(ctx, tenantID, effectiveRisk)
-
-	expiresMinutes := 30
-	if policy != nil && policy.ExpiresMinutes > 0 {
-		expiresMinutes = policy.ExpiresMinutes
-	}
 
 	task := &domain.CommandTask{
 		ID:              ulid.Make().String(),
@@ -77,13 +136,79 @@ func (s *Service) CreateTask(ctx context.Context, tenantID, userID string, req d
 		ChangeTicket:    req.ChangeTicket,
 		BusinessApp:     req.BusinessApp,
 		Note:            req.Note,
-		ExpiresAt:       time.Now().Add(time.Duration(expiresMinutes) * time.Minute),
+		Status:          domain.CommandTaskDraft,
+		ExpiresAt:       draftExpiresAt(policy),
 	}
+
+	if err := s.taskRepo.Create(ctx, task); err != nil {
+		return nil, err
+	}
+
+	s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_created", map[string]interface{}{
+		"risk_level":   effectiveRisk,
+		"device_count": len(req.DeviceIDs),
+		"command_type": req.CommandType,
+		"draft":        true,
+	})
+
+	return s.taskToResponse(ctx, task, nil)
+}
+
+func (s *Service) SubmitTask(ctx context.Context, tenantID, userID, taskID string) (*dto.CommandTaskResponse, error) {
+	task, err := s.taskRepo.GetByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil || task.TenantID != tenantID {
+		return nil, domain.ErrCommandTaskNotFound
+	}
+	if task.Status != domain.CommandTaskDraft {
+		return nil, domain.ErrCommandTaskInvalidState
+	}
+	if task.CreatedByUserID != userID {
+		return nil, domain.ErrInsufficientPermission
+	}
+
+	req := dto.CreateCommandTaskRequest{
+		Title:          task.Title,
+		CommandType:    task.CommandType,
+		CommandPayload: task.CommandPayload,
+		DeviceIDs:      task.ParseDeviceIDs(),
+		RiskLevel:      task.RiskLevel,
+		Emergency:      task.Emergency,
+		BypassReason:   task.BypassReason,
+		TargetEnv:      task.TargetEnv,
+		ChangeTicket:   task.ChangeTicket,
+		BusinessApp:    task.BusinessApp,
+		Note:           task.Note,
+	}
+	if len(req.DeviceIDs) < 1 {
+		return nil, domain.ErrCommandTaskInvalidState
+	}
+
+	systemRisk := EvaluateRisk(req.CommandType, req.CommandPayload)
+	effectiveRisk := EffectiveRisk(req.RiskLevel, systemRisk)
+	task.EffectiveRisk = effectiveRisk
+
+	deviceIDsJSON, _ := json.Marshal(req.DeviceIDs)
+	task.DeviceIDsJSON = string(deviceIDsJSON)
+
+	policy, _ := s.policyService.FindPolicy(ctx, tenantID, effectiveRisk)
+	expiresMinutes := 30
+	if policy != nil && policy.ExpiresMinutes > 0 {
+		expiresMinutes = policy.ExpiresMinutes
+	}
+	task.ExpiresAt = time.Now().Add(time.Duration(expiresMinutes) * time.Minute)
 
 	if policy != nil {
 		task.PolicySnapshotID = &policy.ID
+	} else {
+		task.PolicySnapshotID = nil
 	}
 
+	if err := s.execRepo.DeleteByTaskID(ctx, task.ID); err != nil {
+		return nil, fmt.Errorf("delete old executions: %w", err)
+	}
 	for _, deviceID := range req.DeviceIDs {
 		exec := &domain.CommandExecution{
 			ID:       ulid.Make().String(),
@@ -103,45 +228,84 @@ func (s *Service) CreateTask(ctx context.Context, tenantID, userID string, req d
 		task.Status = domain.CommandTaskApproved
 		now := time.Now()
 		task.ApprovedAt = &now
-		if err := s.taskRepo.Create(ctx, task); err != nil {
-			return nil, err
-		}
+		task.ApproverUserID = nil
+		task.ApproverRoleID = nil
 		s.recordAudit(ctx, tenantID, task.ID, userID, "command.emergency_bypass", map[string]interface{}{
 			"bypass_reason": req.BypassReason,
 			"risk_level":    effectiveRisk,
 			"device_count":  len(req.DeviceIDs),
 		})
-		go s.dispatchToDevices(context.Background(), task)
-		return s.taskToResponse(ctx, task)
-	}
-
-	if policy != nil && policy.AutoApprove {
+	} else if policy != nil && policy.AutoApprove {
+		task.BypassApproval = false
 		task.Status = domain.CommandTaskApproved
 		now := time.Now()
 		task.ApprovedAt = &now
-		if err := s.taskRepo.Create(ctx, task); err != nil {
-			return nil, err
-		}
-		go s.dispatchToDevices(context.Background(), task)
-		return s.taskToResponse(ctx, task)
+		task.ApproverUserID = nil
+		task.ApproverRoleID = nil
+	} else {
+		task.BypassApproval = false
+		approverUserID, approverRoleID := s.resolveApprover(ctx, policy)
+		task.ApproverUserID = approverUserID
+		task.ApproverRoleID = approverRoleID
+		task.Status = domain.CommandTaskPendingApproval
 	}
 
-	approverUserID, approverRoleID := s.resolveApprover(ctx, policy)
-	task.ApproverUserID = approverUserID
-	task.ApproverRoleID = approverRoleID
-	task.Status = domain.CommandTaskPendingApproval
-
-	if err := s.taskRepo.Create(ctx, task); err != nil {
+	if err := s.taskRepo.Update(ctx, task); err != nil {
 		return nil, err
 	}
 
-	s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_created", map[string]interface{}{
+	s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_submitted", map[string]interface{}{
+		"risk_level":    effectiveRisk,
+		"device_count":  len(req.DeviceIDs),
+		"command_type":  req.CommandType,
+		"result_status": string(task.Status),
+	})
+
+	if task.Status == domain.CommandTaskApproved {
+		go s.dispatchToDevices(context.Background(), task)
+	}
+	return s.taskToResponse(ctx, task, nil)
+}
+
+func (s *Service) updateDraftTask(ctx context.Context, tenantID, userID string, task *domain.CommandTask, req dto.UpdateCommandTaskRequest) (*dto.CommandTaskResponse, error) {
+	systemRisk := EvaluateRisk(req.CommandType, req.CommandPayload)
+	effectiveRisk := EffectiveRisk(req.RiskLevel, systemRisk)
+	policy, _ := s.policyService.FindPolicy(ctx, tenantID, effectiveRisk)
+
+	task.Title = req.Title
+	task.CommandType = req.CommandType
+	task.CommandPayload = req.CommandPayload
+	task.SetDeviceIDs(req.DeviceIDs)
+	task.RiskLevel = req.RiskLevel
+	task.EffectiveRisk = effectiveRisk
+	task.Emergency = req.Emergency
+	task.BypassReason = req.BypassReason
+	task.TargetEnv = req.TargetEnv
+	task.ChangeTicket = req.ChangeTicket
+	task.BusinessApp = req.BusinessApp
+	task.Note = req.Note
+	task.ExpiresAt = draftExpiresAt(policy)
+
+	task.BypassApproval = false
+	task.PolicySnapshotID = nil
+	task.ApproverUserID = nil
+	task.ApproverRoleID = nil
+	task.ApprovedByID = nil
+	task.ApprovalNote = ""
+	task.ApprovedAt = nil
+
+	if err := s.taskRepo.Update(ctx, task); err != nil {
+		return nil, err
+	}
+
+	s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_updated", map[string]interface{}{
 		"risk_level":   effectiveRisk,
 		"device_count": len(req.DeviceIDs),
 		"command_type": req.CommandType,
+		"draft":        true,
 	})
 
-	return s.taskToResponse(ctx, task)
+	return s.taskToResponse(ctx, task, nil)
 }
 
 func (s *Service) UpdateTask(ctx context.Context, tenantID, userID, taskID string, req dto.UpdateCommandTaskRequest) (*dto.CommandTaskResponse, error) {
@@ -152,16 +316,21 @@ func (s *Service) UpdateTask(ctx context.Context, tenantID, userID, taskID strin
 	if task == nil || task.TenantID != tenantID {
 		return nil, domain.ErrCommandTaskNotFound
 	}
-	if task.Status != domain.CommandTaskPendingApproval {
+	if task.Status != domain.CommandTaskDraft && task.Status != domain.CommandTaskPendingApproval {
 		return nil, domain.ErrCommandTaskInvalidState
 	}
+	if task.CreatedByUserID != userID {
+		return nil, domain.ErrInsufficientPermission
+	}
+
+	if task.Status == domain.CommandTaskDraft {
+		return s.updateDraftTask(ctx, tenantID, userID, task, req)
+	}
+
 	if time.Now().After(task.ExpiresAt) {
 		task.Status = domain.CommandTaskExpired
 		_ = s.taskRepo.Update(ctx, task)
 		return nil, domain.ErrCommandTaskExpired
-	}
-	if task.CreatedByUserID != userID {
-		return nil, domain.ErrInsufficientPermission
 	}
 
 	systemRisk := EvaluateRisk(req.CommandType, req.CommandPayload)
@@ -260,7 +429,7 @@ func (s *Service) UpdateTask(ctx context.Context, tenantID, userID, taskID strin
 	if task.Status == domain.CommandTaskApproved {
 		go s.dispatchToDevices(context.Background(), task)
 	}
-	return s.taskToResponse(ctx, task)
+	return s.taskToResponse(ctx, task, nil)
 }
 
 func (s *Service) DeleteTask(ctx context.Context, tenantID, userID, taskID string) error {
@@ -275,7 +444,7 @@ func (s *Service) DeleteTask(ctx context.Context, tenantID, userID, taskID strin
 		return domain.ErrInsufficientPermission
 	}
 	// B-mode: hard delete only when the task has not been executed; otherwise archive (hide from default list).
-	if task.Status == domain.CommandTaskPendingApproval || task.Status == domain.CommandTaskDenied || task.Status == domain.CommandTaskCancelled {
+	if task.Status == domain.CommandTaskDraft || task.Status == domain.CommandTaskPendingApproval || task.Status == domain.CommandTaskDenied || task.Status == domain.CommandTaskCancelled {
 		if err := s.execRepo.DeleteByTaskID(ctx, task.ID); err != nil {
 			return fmt.Errorf("delete executions: %w", err)
 		}
@@ -472,7 +641,7 @@ func (s *Service) CancelTask(ctx context.Context, tenantID, taskID, userID strin
 	if task.TenantID != tenantID {
 		return domain.ErrCommandTaskNotFound
 	}
-	if task.Status != domain.CommandTaskPendingApproval {
+	if task.Status != domain.CommandTaskPendingApproval && task.Status != domain.CommandTaskDraft {
 		return domain.ErrCommandTaskInvalidState
 	}
 	if task.CreatedByUserID != userID {
@@ -491,7 +660,7 @@ func (s *Service) GetTask(ctx context.Context, tenantID, taskID string) (*dto.Co
 	if task == nil || task.TenantID != tenantID {
 		return nil, domain.ErrCommandTaskNotFound
 	}
-	return s.taskToResponse(ctx, task)
+	return s.taskToResponse(ctx, task, nil)
 }
 
 func (s *Service) ListTasks(ctx context.Context, tenantID string, filters repository.CommandTaskFilters, limit, offset int) (*dto.CommandTaskListResponse, error) {
@@ -502,9 +671,10 @@ func (s *Service) ListTasks(ctx context.Context, tenantID string, filters reposi
 	if err != nil {
 		return nil, err
 	}
+	creatorNames := s.buildCreatorNameMap(ctx, tasks)
 	items := make([]dto.CommandTaskResponse, 0, len(tasks))
 	for _, t := range tasks {
-		resp, err := s.taskToResponse(ctx, t)
+		resp, err := s.taskToResponse(ctx, t, creatorNames)
 		if err != nil {
 			continue
 		}
@@ -524,9 +694,10 @@ func (s *Service) ListPendingApprovals(ctx context.Context, tenantID, approverUs
 	if err != nil {
 		return nil, err
 	}
+	creatorNames := s.buildCreatorNameMap(ctx, tasks)
 	items := make([]dto.CommandTaskResponse, 0, len(tasks))
 	for _, t := range tasks {
-		resp, err := s.taskToResponse(ctx, t)
+		resp, err := s.taskToResponse(ctx, t, creatorNames)
 		if err != nil {
 			continue
 		}
@@ -673,11 +844,12 @@ func (s *Service) recordAudit(ctx context.Context, tenantID, taskID, actorID, ev
 	}
 }
 
-func (s *Service) taskToResponse(ctx context.Context, task *domain.CommandTask) (*dto.CommandTaskResponse, error) {
+func (s *Service) taskToResponse(ctx context.Context, task *domain.CommandTask, creatorNames map[string]string) (*dto.CommandTaskResponse, error) {
 	resp := &dto.CommandTaskResponse{
 		ID:             task.ID,
 		TenantID:       task.TenantID,
 		CreatedBy:      task.CreatedByUserID,
+		CreatedByName:  s.resolveCreatedByName(ctx, task.CreatedByUserID, creatorNames),
 		ApproverID:     task.ApproverUserID,
 		ApprovedBy:     task.ApprovedByID,
 		PolicySnapshotID: task.PolicySnapshotID,

@@ -69,6 +69,7 @@ interface Device {
 
 type StatusFilter =
   | ""
+  | "draft"
   | "pending_approval"
   | "approved"
   | "denied"
@@ -79,6 +80,7 @@ type StatusFilter =
 
 const STATUS_FILTERS: StatusFilter[] = [
   "",
+  "draft",
   "pending_approval",
   "approved",
   "denied",
@@ -95,6 +97,7 @@ const RISK_COLORS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-700",
   pending_approval: "bg-yellow-100 text-yellow-800",
   approved: "bg-blue-100 text-blue-800",
   denied: "bg-red-100 text-red-800",
@@ -133,10 +136,13 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [showNewModal, setShowNewModal] = useState(false);
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /** Which modal action is in flight so button labels stay accurate. */
+  const [modalSavingDraft, setModalSavingDraft] = useState(false);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [formError, setFormError] = useState("");
 
   const [formTitle, setFormTitle] = useState("");
   const [formCommandType, setFormCommandType] = useState("shell");
@@ -405,6 +411,45 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     return JSON.stringify({ tool_name: formToolName, params: payload });
   };
 
+  const buildTaskBody = () => {
+    const payload = formCommandType === "tool" ? buildToolPayload() : formCommandPayload;
+    const riskForTool = formCommandType === "tool" && selectedToolDef ? selectedToolDef.riskLevel : formRiskLevel;
+    return {
+      title: formTitle,
+      command_type: formCommandType,
+      command_payload: payload,
+      device_ids: formDeviceIds,
+      risk_level: formCommandType === "tool" ? riskForTool : formRiskLevel,
+      target_env: formTargetEnv,
+      note: formNote,
+      emergency: formEmergency,
+      bypass_reason: formEmergency ? formBypassReason : "",
+    };
+  };
+
+  const validateTaskForm = (): string | null => {
+    if (
+      formCommandType === "shell" &&
+      nlMustSucceed &&
+      nlInput.trim() &&
+      formCommandPayload.trim() === nlInput.trim()
+    ) {
+      return lang === "zh"
+        ? "自然语言不能直接下发到设备。请先生成成功，或清空自然语言并手动填写可执行命令。"
+        : "Natural language cannot be dispatched. Generate a command successfully, or clear NL and enter a runnable command.";
+    }
+    if (formDeviceIds.length === 0) {
+      return lang === "zh" ? "请选择至少一台目标设备" : "Select at least one device";
+    }
+    if (formCommandType === "shell" && !formCommandPayload.trim()) {
+      return lang === "zh" ? "请填写命令内容" : "Enter command content";
+    }
+    if (formCommandType === "tool" && !formToolName) {
+      return lang === "zh" ? "请选择工具" : "Select a tool";
+    }
+    return null;
+  };
+
   const fetchTasks = useCallback(async () => {
     try {
       const endpoint = statusFilter
@@ -472,8 +517,91 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   };
 
   const openNewModal = async () => {
+    setEditingDraftId(null);
+    setFormError("");
+    resetForm();
     setShowNewModal(true);
-    setEditingTaskId(null);
+    setDevicesLoading(true);
+    try {
+      const data = await api.get<any>(`/tenants/${tenantId}/devices`);
+      setDevices(Array.isArray(data) ? data : data?.items ?? []);
+    } catch (error) {
+      console.error("Failed to fetch devices:", error);
+    } finally {
+      setDevicesLoading(false);
+    }
+  };
+
+  /** Pre-fill modal form from an existing task (`forCopy` adds a title suffix for duplicates). */
+  const loadTaskIntoForm = (task: CommandTask | TaskDetail, forCopy: boolean) => {
+    const baseTitle = task.title || "";
+    setFormTitle(
+      forCopy
+        ? lang === "zh"
+          ? baseTitle
+            ? `${baseTitle}（副本）`
+            : "（副本）"
+          : baseTitle
+            ? `${baseTitle} (copy)`
+            : "Copy"
+        : baseTitle
+    );
+    const ctype = task.command_type === "tool" ? "tool" : "shell";
+    setFormCommandType(ctype);
+    setFormCommandPayload(task.command_payload || "");
+    setFormDeviceIds(parseDeviceIds(task.device_ids));
+    setFormRiskLevel(task.risk_level || "L1");
+    setFormTargetEnv(task.target_env || "");
+    setFormNote(task.note || "");
+    setFormEmergency(!!task.emergency);
+    setFormBypassReason(task.bypass_reason || "");
+    setNlInput("");
+    setNlError("");
+    setNlMustSucceed(false);
+    if (ctype === "tool") {
+      try {
+        const parsed = JSON.parse(task.command_payload || "{}");
+        const name =
+          typeof parsed.tool_name === "string" ? parsed.tool_name : "";
+        const params =
+          parsed.params &&
+          typeof parsed.params === "object" &&
+          !Array.isArray(parsed.params)
+            ? { ...parsed.params }
+            : {};
+        setFormToolName(name);
+        setFormToolParams(params);
+      } catch {
+        setFormToolName("");
+        setFormToolParams({});
+      }
+    } else {
+      setFormToolName("");
+      setFormToolParams({});
+    }
+  };
+
+  const openEditDraftFromTask = async (task: CommandTask | TaskDetail) => {
+    setEditingDraftId(task.id);
+    setFormError("");
+    loadTaskIntoForm(task, false);
+    setShowNewModal(true);
+    setDevicesLoading(true);
+    try {
+      const data = await api.get<any>(`/tenants/${tenantId}/devices`);
+      setDevices(Array.isArray(data) ? data : data?.items ?? []);
+    } catch (error) {
+      console.error("Failed to fetch devices:", error);
+    } finally {
+      setDevicesLoading(false);
+    }
+  };
+
+  const openCopyFromTask = async (task: CommandTask | TaskDetail) => {
+    setEditingDraftId(null);
+    setFormError("");
+    setShowNewModal(true);
+    loadTaskIntoForm(task, true);
     setDevicesLoading(true);
     try {
       const data = await api.get<any>(`/tenants/${tenantId}/devices`);
@@ -500,73 +628,85 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setNlMustSucceed(false);
     setFormToolName("");
     setFormToolParams({});
-    setEditingTaskId(null);
   };
 
-  const openEditModal = async (task: TaskDetail) => {
-    setShowNewModal(true);
-    setEditingTaskId(task.id);
-    setDevicesLoading(true);
-    try {
-      const data = await api.get<any>(`/tenants/${tenantId}/devices`);
-      setDevices(Array.isArray(data) ? data : data?.items ?? []);
-    } catch (error) {
-      console.error("Failed to fetch devices:", error);
-    } finally {
-      setDevicesLoading(false);
-    }
-
-    setFormTitle(task.title || "");
-    setFormCommandType(task.command_type || "shell");
-    setFormCommandPayload(task.command_payload || "");
-    setFormDeviceIds(parseDeviceIds(task.device_ids));
-    setFormRiskLevel(task.risk_level || "L1");
-    setFormTargetEnv(task.target_env || "");
-    setFormNote(task.note || "");
-    setFormEmergency(!!task.emergency);
-    setFormBypassReason(task.bypass_reason || "");
-    setNlInput("");
-    setNlError("");
-    setNlMustSucceed(false);
-    setFormToolName("");
-    setFormToolParams({});
+  const closeTaskModal = () => {
+    setShowNewModal(false);
+    setEditingDraftId(null);
+    setFormError("");
+    resetForm();
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    // If user used NL input, generation must succeed; do not allow NL text to be dispatched as a command.
-    if (formCommandType === "shell" && nlMustSucceed && nlInput.trim() && formCommandPayload.trim() === nlInput.trim()) {
-      setNlError(lang === "zh" ? "自然语言不能直接下发到设备。请先生成成功，或清空自然语言并手动填写可执行命令。" : "Natural language cannot be dispatched. Generate a command successfully, or clear NL and enter a runnable command.");
+  const handleSaveDraft = async () => {
+    const err = validateTaskForm();
+    if (err) {
+      setFormError(err);
       return;
     }
+    setFormError("");
     setSubmitting(true);
-    const payload = formCommandType === "tool" ? buildToolPayload() : formCommandPayload;
-    const riskForTool = formCommandType === "tool" && selectedToolDef ? selectedToolDef.riskLevel : formRiskLevel;
+    setModalSavingDraft(true);
     try {
-      const body = {
-        title: formTitle,
-        command_type: formCommandType,
-        command_payload: payload,
-        device_ids: formDeviceIds,
-        risk_level: formCommandType === "tool" ? riskForTool : formRiskLevel,
-        target_env: formTargetEnv,
-        note: formNote,
-        emergency: formEmergency,
-        bypass_reason: formEmergency ? formBypassReason : "",
-      };
-      if (editingTaskId) {
-        await api.put(`/tenants/${tenantId}/command-tasks/${editingTaskId}`, body);
-        if (selectedTask?.id === editingTaskId) await fetchDetail(editingTaskId);
+      const body = buildTaskBody();
+      if (editingDraftId) {
+        await api.put(`/tenants/${tenantId}/command-tasks/${editingDraftId}`, body);
       } else {
         await api.post(`/tenants/${tenantId}/command-tasks`, body);
       }
-      setShowNewModal(false);
-      resetForm();
+      closeTaskModal();
       fetchTasks();
     } catch (error) {
-      console.error("Failed to create task:", error);
+      console.error("Failed to save draft:", error);
+      setFormError(apiErrMessage(error, lang === "zh" ? "保存失败" : "Save failed"));
     } finally {
       setSubmitting(false);
+      setModalSavingDraft(false);
+    }
+  };
+
+  const handleSubmitForApproval = async () => {
+    const err = validateTaskForm();
+    if (err) {
+      setFormError(err);
+      return;
+    }
+    setFormError("");
+    setSubmitting(true);
+    setModalSavingDraft(false);
+    try {
+      const body = buildTaskBody();
+      let taskId = editingDraftId;
+      if (taskId) {
+        await api.put(`/tenants/${tenantId}/command-tasks/${taskId}`, body);
+      } else {
+        const created = await api.post<CommandTask>(`/tenants/${tenantId}/command-tasks`, body);
+        taskId = created.id;
+      }
+      await api.post(`/tenants/${tenantId}/command-tasks/${taskId}/submit`, {});
+      closeTaskModal();
+      fetchTasks();
+    } catch (error) {
+      console.error("Failed to submit task:", error);
+      setFormError(apiErrMessage(error, lang === "zh" ? "提交失败" : "Submit failed"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmitDraftFromDetail = async (taskId: string) => {
+    setActionLoading(true);
+    setApprovalFlowError("");
+    try {
+      await api.post(`/tenants/${tenantId}/command-tasks/${taskId}/submit`, {});
+      await fetchDetail(taskId);
+      fetchTasks();
+    } catch (error) {
+      console.error("Failed to submit task:", error);
+      setApprovalFlowError(
+        apiErrMessage(error, lang === "zh" ? "提交失败" : "Submit failed")
+      );
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -680,6 +820,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   if (selectedTask) {
     const task = selectedTask;
     const deviceIds = parseDeviceIds(task.device_ids);
+    const isDraft = task.status === "draft";
     const isPending = task.status === "pending_approval";
     const isCreator = user?.id === task.created_by;
 
@@ -734,37 +875,58 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
               </div>
             </div>
 
-            {(isCreator || (!isCreator && isPending)) && (
-              <div className="flex items-center gap-2">
-                {isCreator && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {isCreator && isDraft && (
+                <>
                   <button
-                    onClick={() => openEditModal(task)}
-                    disabled={actionLoading}
-                    className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                    type="button"
+                    onClick={() => openEditDraftFromTask(task)}
+                    className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
                   >
-                    {ct.edit || (lang === "zh" ? "编辑" : "Edit")}
+                    {(t as any).editDraft}
                   </button>
-                )}
-                {isCreator && isPending && (
                   <button
-                    onClick={() => handleCancel(task.id)}
+                    type="button"
+                    onClick={() => handleSubmitDraftFromDetail(task.id)}
                     disabled={actionLoading}
-                    className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                    className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {ct.cancel}
+                    {(t as any).submitForApproval}
                   </button>
-                )}
-                {isCreator && (
-                  <button
-                    onClick={() => handleDelete(task.id)}
-                    disabled={actionLoading}
-                    className="px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50"
-                  >
-                    {lang === "zh" ? "删除/归档" : "Delete/Archive"}
-                  </button>
-                )}
-              </div>
-            )}
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => openCopyFromTask(task)}
+                className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+              >
+                {(t as any).copyTask}
+              </button>
+              {(isCreator || (!isCreator && isPending)) && (
+                <>
+                  {isCreator && (isPending || isDraft) && (
+                    <button
+                      type="button"
+                      onClick={() => handleCancel(task.id)}
+                      disabled={actionLoading}
+                      className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {ct.cancel}
+                    </button>
+                  )}
+                  {isCreator && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(task.id)}
+                      disabled={actionLoading}
+                      className="px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {lang === "zh" ? "删除/归档" : "Delete/Archive"}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -1053,6 +1215,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
               <tbody className="bg-white divide-y divide-gray-200">
                 {tasks.map((task) => {
                   const deviceIds = parseDeviceIds(task.device_ids);
+                  const isDraft = task.status === "draft";
                   const isPending = task.status === "pending_approval";
                   const isCreator = user?.id === task.created_by;
 
@@ -1124,22 +1287,65 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                         className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"
                         onClick={(e) => e.stopPropagation()}
                       >
+                        {isCreator && isDraft && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditDraftFromTask(task);
+                            }}
+                            className="text-blue-600 hover:text-blue-800 mr-3"
+                          >
+                            {(t as any).editDraft}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openCopyFromTask(task);
+                          }}
+                          className="text-indigo-600 hover:text-indigo-800 mr-3"
+                        >
+                          {(t as any).copyTask}
+                        </button>
                         {isPending && isCreator && (
                           <button
-                            onClick={() => handleCancel(task.id)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCancel(task.id);
+                            }}
                             disabled={actionLoading}
                             className="text-red-600 hover:text-red-900 disabled:opacity-50"
                           >
                             {ct.cancel}
                           </button>
                         )}
-                        {isCreator && !isPending && (
+                        {isCreator && !isPending && !isDraft && (
                           <button
-                            onClick={() => handleDelete(task.id)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(task.id);
+                            }}
                             disabled={actionLoading}
                             className="text-gray-600 hover:text-gray-900 disabled:opacity-50"
                           >
                             {lang === "zh" ? "归档" : "Archive"}
+                          </button>
+                        )}
+                        {isCreator && isDraft && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(task.id);
+                            }}
+                            disabled={actionLoading}
+                            className="text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                          >
+                            {lang === "zh" ? "删除" : "Delete"}
                           </button>
                         )}
                         {isPending && !isCreator && (
@@ -1174,8 +1380,15 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       {showNewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-            <h2 className="text-xl font-semibold mb-4">{(t as any).newTask}</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
+            <h2 className="text-xl font-semibold mb-4">
+              {editingDraftId ? (t as any).editDraftTitle : (t as any).newTask}
+            </h2>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+              }}
+              className="space-y-4"
+            >
               {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1502,29 +1715,54 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
               </div>
 
               {/* Actions */}
-              <div className="flex justify-end space-x-3 pt-4 border-t">
+              {formError && (
+                <p className="text-sm text-red-600" role="alert">
+                  {formError}
+                </p>
+              )}
+              <div className="flex flex-wrap justify-end gap-2 pt-4 border-t">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowNewModal(false);
-                    resetForm();
-                  }}
+                  onClick={closeTaskModal}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm"
                 >
                   {ct.cancel}
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleSaveDraft}
                   disabled={
                     submitting ||
                     formDeviceIds.length === 0 ||
                     (formCommandType === "shell" && !formCommandPayload.trim()) ||
-                    (formCommandType === "shell" && nlMustSucceed && nlInput.trim() && formCommandPayload.trim() === nlInput.trim()) ||
+                    (formCommandType === "shell" &&
+                      nlMustSucceed &&
+                      nlInput.trim() &&
+                      formCommandPayload.trim() === nlInput.trim()) ||
+                    (formCommandType === "tool" && !formToolName)
+                  }
+                  className="px-4 py-2 border border-gray-400 text-gray-800 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {modalSavingDraft ? ct.loading : (t as any).saveDraft}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitForApproval}
+                  disabled={
+                    submitting ||
+                    formDeviceIds.length === 0 ||
+                    (formCommandType === "shell" && !formCommandPayload.trim()) ||
+                    (formCommandType === "shell" &&
+                      nlMustSucceed &&
+                      nlInput.trim() &&
+                      formCommandPayload.trim() === nlInput.trim()) ||
                     (formCommandType === "tool" && !formToolName)
                   }
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {submitting ? (t as any).submitting : (t as any).submit}
+                  {submitting && !modalSavingDraft
+                    ? (t as any).submitting
+                    : (t as any).submitForApproval}
                 </button>
               </div>
             </form>

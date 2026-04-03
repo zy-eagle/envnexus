@@ -66,6 +66,7 @@ func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
 		tasks.POST("/generate", h.GenerateCommand)
 		tasks.GET("/:taskId", h.GetTask)
 		tasks.PUT("/:taskId", h.UpdateTask)
+		tasks.POST("/:taskId/submit", h.SubmitTask)
 		tasks.DELETE("/:taskId", h.DeleteTask)
 		tasks.POST("/:taskId/approve", h.ApproveTask)
 		tasks.POST("/:taskId/deny", h.DenyTask)
@@ -104,6 +105,18 @@ func (h *CommandTaskHandler) GetTask(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	taskID := c.Param("taskId")
 	resp, err := h.commandService.GetTask(c.Request.Context(), tenantID, taskID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *CommandTaskHandler) SubmitTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	taskID := c.Param("taskId")
+	userID := c.GetString("user_id")
+	resp, err := h.commandService.SubmitTask(c.Request.Context(), tenantID, userID, taskID)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
