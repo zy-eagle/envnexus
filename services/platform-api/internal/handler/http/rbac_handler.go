@@ -2,8 +2,10 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/rbac"
 )
@@ -36,12 +38,34 @@ func (h *RBACHandler) RegisterRoutes(rg *gin.RouterGroup) {
 
 func (h *RBACHandler) ListRoles(c *gin.Context) {
 	tenantID := c.Param("tenantId")
-	roles, err := h.svc.ListRoles(c.Request.Context(), tenantID)
+	q := c.Query("q")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	var (
+		roles []*domain.Role
+		err   error
+	)
+	if q != "" {
+		roles, err = h.svc.SearchRoles(c.Request.Context(), tenantID, q, limit)
+	} else {
+		roles, err = h.svc.ListRoles(c.Request.Context(), tenantID)
+	}
 	if err != nil {
 		middleware.RespondErrorCode(c, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
-	middleware.RespondSuccess(c, http.StatusOK, gin.H{"items": roles, "total": len(roles)})
+	items := make([]gin.H, 0, len(roles))
+	for _, r := range roles {
+		items = append(items, gin.H{
+			"id":          r.ID,
+			"tenant_id":   r.TenantID,
+			"name":        r.Name,
+			"permissions": r.Permissions(),
+			"status":      r.Status,
+			"created_at":  r.CreatedAt,
+			"updated_at":  r.UpdatedAt,
+		})
+	}
+	middleware.RespondSuccess(c, http.StatusOK, gin.H{"items": items, "total": len(items)})
 }
 
 func (h *RBACHandler) CreateRole(c *gin.Context) {
@@ -59,7 +83,15 @@ func (h *RBACHandler) CreateRole(c *gin.Context) {
 		middleware.RespondErrorCode(c, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
-	middleware.RespondSuccess(c, http.StatusOK, role)
+	middleware.RespondSuccess(c, http.StatusOK, gin.H{
+		"id":          role.ID,
+		"tenant_id":   role.TenantID,
+		"name":        role.Name,
+		"permissions": role.Permissions(),
+		"status":      role.Status,
+		"created_at":  role.CreatedAt,
+		"updated_at":  role.UpdatedAt,
+	})
 }
 
 func (h *RBACHandler) UpdateRole(c *gin.Context) {
@@ -76,7 +108,15 @@ func (h *RBACHandler) UpdateRole(c *gin.Context) {
 		middleware.RespondErrorCode(c, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
-	middleware.RespondSuccess(c, http.StatusOK, role)
+	middleware.RespondSuccess(c, http.StatusOK, gin.H{
+		"id":          role.ID,
+		"tenant_id":   role.TenantID,
+		"name":        role.Name,
+		"permissions": role.Permissions(),
+		"status":      role.Status,
+		"created_at":  role.CreatedAt,
+		"updated_at":  role.UpdatedAt,
+	})
 }
 
 func (h *RBACHandler) DeleteRole(c *gin.Context) {

@@ -38,6 +38,7 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/rbac"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/tenant"
+	user_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/user"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/webhook"
 	"github.com/zy-eagle/envnexus/services/platform-api/migrations"
 )
@@ -176,6 +177,7 @@ func main() {
 
 	// --- Services ---
 	authService := auth.NewService(userRepo, jwtSecret, deviceSecret, sessionSecret)
+	userService := user_svc.NewService(userRepo)
 	tenantService := tenant.NewService(tenantRepo)
 	enrollService := enrollment.NewService(enrollRepo, deviceRepo, authService)
 	auditService := audit.NewService(auditRepo)
@@ -241,6 +243,7 @@ func main() {
 	tokenHandler := httphandler.NewTokenHandler(enrollService)
 	pkgHandler := httphandler.NewPackageHandler(pkgService, bindingService)
 	authHandler := httphandler.NewAuthHandler(authService)
+	userHandler := httphandler.NewUserHandler(userService)
 	modelProfileHandler := httphandler.NewModelProfileHandler(modelProfileService)
 	policyProfileHandler := httphandler.NewPolicyProfileHandler(policyProfileService)
 	agentProfileHandler := httphandler.NewAgentProfileHandler(agentProfileService)
@@ -352,6 +355,7 @@ func main() {
 		tenantHandler.RegisterRoutes(protectedV1)
 		tokenHandler.RegisterRoutes(protectedV1)
 		pkgHandler.RegisterRoutes(protectedV1)
+		userHandler.RegisterRoutes(protectedV1)
 		modelProfileHandler.RegisterRoutes(protectedV1)
 		policyProfileHandler.RegisterRoutes(protectedV1)
 		agentProfileHandler.RegisterRoutes(protectedV1)

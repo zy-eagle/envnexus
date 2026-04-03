@@ -88,6 +88,10 @@ func (s *Service) ListRoles(ctx context.Context, tenantID string) ([]*domain.Rol
 	return s.roleRepo.ListByTenant(ctx, tenantID)
 }
 
+func (s *Service) SearchRoles(ctx context.Context, tenantID, q string, limit int) ([]*domain.Role, error) {
+	return s.roleRepo.SearchByTenant(ctx, tenantID, q, limit)
+}
+
 // GetRole fetches a single role.
 func (s *Service) GetRole(ctx context.Context, id string) (*domain.Role, error) {
 	return s.roleRepo.GetByID(ctx, id)

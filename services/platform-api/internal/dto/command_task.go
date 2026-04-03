@@ -44,6 +44,7 @@ type CommandTaskResponse struct {
 	CreatedBy      string                     `json:"created_by"`
 	ApproverID     *string                    `json:"approver_id"`
 	ApprovedBy     *string                    `json:"approved_by"`
+	PolicySnapshotID *string                  `json:"policy_snapshot_id"`
 	Title          string                     `json:"title"`
 	CommandType    string                     `json:"command_type"`
 	CommandPayload string                     `json:"command_payload"`

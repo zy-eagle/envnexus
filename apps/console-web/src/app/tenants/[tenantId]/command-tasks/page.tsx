@@ -14,6 +14,7 @@ interface CommandTask {
   created_by_name?: string;
   approver_id?: string;
   approved_by?: string;
+  policy_snapshot_id?: string;
   title: string;
   command_type: string;
   command_payload: string;
@@ -120,6 +121,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [tasks, setTasks] = useState<CommandTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
+  const [approvalPolicyNameById, setApprovalPolicyNameById] = useState<Record<string, string>>({});
 
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -396,12 +398,36 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     }
   }, [tenantId, statusFilter]);
 
+  const fetchApprovalPolicies = useCallback(async () => {
+    try {
+      const data = await api.get<any>(`/tenants/${tenantId}/approval-policies`);
+      const items: any[] = Array.isArray(data) ? data : data?.items ?? data?.policies ?? [];
+      const map: Record<string, string> = {};
+      for (const p of items) {
+        if (p && typeof p.id === "string" && typeof p.name === "string") {
+          map[p.id] = p.name;
+        }
+      }
+      setApprovalPolicyNameById(map);
+    } catch (error) {
+      console.error("Failed to fetch approval policies:", error);
+    }
+  }, [tenantId]);
+
   useEffect(() => {
     setLoading(true);
     fetchTasks();
+    fetchApprovalPolicies();
     const interval = setInterval(fetchTasks, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [fetchTasks]);
+  }, [fetchTasks, fetchApprovalPolicies]);
+
+  const getApprovalPolicyDisplay = (task: CommandTask) => {
+    if (!task.policy_snapshot_id) return (t as any).tenantAdminApproval;
+    const name = approvalPolicyNameById[task.policy_snapshot_id];
+    if (name) return name;
+    return `${(t as any).policyIdFallbackPrefix} ${task.policy_snapshot_id}`;
+  };
 
   const fetchDetail = async (id: string) => {
     setDetailLoading(true);
@@ -695,6 +721,12 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
               </span>
             </div>
             <div>
+              <span className="text-gray-500">{(t as any).approvalPolicy}:</span>
+              <span className="ml-2 font-medium text-gray-900">
+                {getApprovalPolicyDisplay(task)}
+              </span>
+            </div>
+            <div>
               <span className="text-gray-500">{(t as any).deviceCount}:</span>
               <span className="ml-2 text-gray-900">{deviceIds.length}</span>
             </div>
@@ -930,6 +962,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     {(t as any).createdAt}
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    {(t as any).approvalPolicy}
+                  </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                     {ct.actions}
                   </th>
@@ -999,6 +1034,11 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatTime(task.created_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <span className="truncate block max-w-[220px]" title={getApprovalPolicyDisplay(task)}>
+                          {getApprovalPolicyDisplay(task)}
+                        </span>
                       </td>
                       <td
                         className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"

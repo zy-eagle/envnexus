@@ -25,6 +25,19 @@ interface ApprovalPolicy {
 
 type ApprovalMethod = 'user' | 'role';
 
+interface UserOption {
+  id: string;
+  email: string;
+  display_name: string;
+  status: string;
+}
+
+interface RoleOption {
+  id: string;
+  name: string;
+  status: string;
+}
+
 interface FormState {
   name: string;
   risk_level: string;
@@ -67,6 +80,13 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [deleteTarget, setDeleteTarget] = useState<ApprovalPolicy | null>(null);
 
+  const [userQuery, setUserQuery] = useState('');
+  const [roleQuery, setRoleQuery] = useState('');
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
+  const [userLoading, setUserLoading] = useState(false);
+  const [roleLoading, setRoleLoading] = useState(false);
+
   const fetchPolicies = async () => {
     try {
       const data = await api.get<ApprovalPolicy[]>(`/tenants/${params.tenantId}/approval-policies`);
@@ -82,11 +102,59 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
     fetchPolicies();
   }, [params.tenantId]);
 
+  useEffect(() => {
+    if (!isModalOpen) return;
+    if (form.auto_approve) return;
+    if (form.approval_method !== 'user') return;
+    const t = setTimeout(() => searchUsers(userQuery), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModalOpen, form.auto_approve, form.approval_method, userQuery, params.tenantId]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    if (form.auto_approve) return;
+    if (form.approval_method !== 'role') return;
+    const t = setTimeout(() => searchRoles(roleQuery), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModalOpen, form.auto_approve, form.approval_method, roleQuery, params.tenantId]);
+
+  const searchUsers = async (q: string) => {
+    setUserLoading(true);
+    try {
+      const data = await api.get<{ items: UserOption[] }>(`/tenants/${params.tenantId}/users?q=${encodeURIComponent(q)}&limit=20`);
+      setUserOptions(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      console.error('Failed to search users:', e);
+      setUserOptions([]);
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
+  const searchRoles = async (q: string) => {
+    setRoleLoading(true);
+    try {
+      const data = await api.get<{ items: RoleOption[] }>(`/tenants/${params.tenantId}/roles?q=${encodeURIComponent(q)}&limit=50`);
+      setRoleOptions(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      console.error('Failed to search roles:', e);
+      setRoleOptions([]);
+    } finally {
+      setRoleLoading(false);
+    }
+  };
+
   const openCreateModal = () => {
     setEditingId(null);
     setFormError(null);
     setForm(INITIAL_FORM);
     setIsModalOpen(true);
+    setUserQuery('');
+    setRoleQuery('');
+    setUserOptions([]);
+    setRoleOptions([]);
   };
 
   const openEditModal = (policy: ApprovalPolicy) => {
@@ -106,6 +174,10 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
       priority: policy.priority,
     });
     setIsModalOpen(true);
+    setUserQuery('');
+    setRoleQuery('');
+    setUserOptions([]);
+    setRoleOptions([]);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -384,12 +456,27 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
                   {form.approval_method === 'user' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t.approverUser}</label>
-                      <input
-                        type="text"
-                        value={form.approver_user_id}
-                        onChange={e => setForm({ ...form, approver_user_id: e.target.value })}
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                      />
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={userQuery}
+                          onChange={e => setUserQuery(e.target.value)}
+                          placeholder={t.approverUserSearchPlaceholder}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                        <select
+                          value={form.approver_user_id}
+                          onChange={e => setForm({ ...form, approver_user_id: e.target.value, approver_role_id: '' })}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">{userLoading ? ct.loading : t.selectApproverUser}</option>
+                          {userOptions.map(u => (
+                            <option key={u.id} value={u.id}>
+                              {u.display_name || u.email} ({u.email}) [{u.status}]
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   )}
 
@@ -397,12 +484,27 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
                   {form.approval_method === 'role' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t.approverRole}</label>
-                      <input
-                        type="text"
-                        value={form.approver_role_id}
-                        onChange={e => setForm({ ...form, approver_role_id: e.target.value })}
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                      />
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={roleQuery}
+                          onChange={e => setRoleQuery(e.target.value)}
+                          placeholder={t.approverRoleSearchPlaceholder}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                        <select
+                          value={form.approver_role_id}
+                          onChange={e => setForm({ ...form, approver_role_id: e.target.value, approver_user_id: '' })}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">{roleLoading ? ct.loading : t.selectApproverRole}</option>
+                          {roleOptions.map(r => (
+                            <option key={r.id} value={r.id}>
+                              {r.name} [{r.status}]
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   )}
                 </>

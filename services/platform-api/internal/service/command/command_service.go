@@ -592,6 +592,7 @@ func (s *Service) taskToResponse(ctx context.Context, task *domain.CommandTask) 
 		CreatedBy:      task.CreatedByUserID,
 		ApproverID:     task.ApproverUserID,
 		ApprovedBy:     task.ApprovedByID,
+		PolicySnapshotID: task.PolicySnapshotID,
 		Title:          task.Title,
 		CommandType:    task.CommandType,
 		CommandPayload: task.CommandPayload,

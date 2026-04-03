@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"gorm.io/gorm"
@@ -15,6 +16,7 @@ type RoleRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.Role, error)
 	GetByName(ctx context.Context, tenantID, name string) (*domain.Role, error)
 	ListByTenant(ctx context.Context, tenantID string) ([]*domain.Role, error)
+	SearchByTenant(ctx context.Context, tenantID, query string, limit int) ([]*domain.Role, error)
 	Update(ctx context.Context, role *domain.Role) error
 	Delete(ctx context.Context, id string) error
 }
@@ -58,6 +60,20 @@ func (r *MySQLRoleRepository) GetByName(ctx context.Context, tenantID, name stri
 func (r *MySQLRoleRepository) ListByTenant(ctx context.Context, tenantID string) ([]*domain.Role, error) {
 	var roles []*domain.Role
 	err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("name").Find(&roles).Error
+	return roles, err
+}
+
+func (r *MySQLRoleRepository) SearchByTenant(ctx context.Context, tenantID, query string, limit int) ([]*domain.Role, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	q := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
+	if strings.TrimSpace(query) != "" {
+		like := "%" + strings.TrimSpace(query) + "%"
+		q = q.Where("name LIKE ?", like)
+	}
+	var roles []*domain.Role
+	err := q.Order("name").Limit(limit).Find(&roles).Error
 	return roles, err
 }
 

@@ -33,6 +33,7 @@ func (m *mockUserRepo) GetByID(_ context.Context, id string) (*domain.User, erro
 }
 func (m *mockUserRepo) Create(_ context.Context, u *domain.User) error { m.users[u.ID] = u; return nil }
 func (m *mockUserRepo) Update(_ context.Context, u *domain.User) error { m.users[u.ID] = u; return nil }
+func (m *mockUserRepo) Delete(_ context.Context, id string) error      { delete(m.users, id); return nil }
 func (m *mockUserRepo) ListByTenant(_ context.Context, tenantID string) ([]*domain.User, error) {
 	var result []*domain.User
 	for _, u := range m.users {
@@ -41,6 +42,20 @@ func (m *mockUserRepo) ListByTenant(_ context.Context, tenantID string) ([]*doma
 		}
 	}
 	return result, nil
+}
+func (m *mockUserRepo) SearchByTenant(_ context.Context, tenantID, query string, limit int) ([]*domain.User, error) {
+	_ = query
+	if limit <= 0 {
+		limit = 20
+	}
+	users, err := m.ListByTenant(context.Background(), tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if len(users) <= limit {
+		return users, nil
+	}
+	return users[:limit], nil
 }
 
 func newTestService() *Service {
