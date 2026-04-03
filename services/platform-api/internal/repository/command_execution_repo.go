@@ -12,4 +12,5 @@ type CommandExecutionRepository interface {
 	GetByTaskAndDevice(ctx context.Context, taskID, deviceID string) (*domain.CommandExecution, error)
 	Update(ctx context.Context, exec *domain.CommandExecution) error
 	ListByTaskID(ctx context.Context, taskID string) ([]*domain.CommandExecution, error)
+	DeleteByTaskID(ctx context.Context, taskID string) error
 }

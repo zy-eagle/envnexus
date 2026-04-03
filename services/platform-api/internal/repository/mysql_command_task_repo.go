@@ -37,6 +37,10 @@ func (r *MySQLCommandTaskRepository) Update(ctx context.Context, task *domain.Co
 	return r.db.WithContext(ctx).Save(task).Error
 }
 
+func (r *MySQLCommandTaskRepository) Delete(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Delete(&domain.CommandTask{}, "id = ?", id).Error
+}
+
 func (r *MySQLCommandTaskRepository) ListByTenant(ctx context.Context, tenantID string, filters CommandTaskFilters, limit, offset int) ([]*domain.CommandTask, int64, error) {
 	query := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
 	if filters.Status != "" {

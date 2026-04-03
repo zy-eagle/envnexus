@@ -16,6 +16,20 @@ type CreateCommandTaskRequest struct {
 	Note           string   `json:"note"`
 }
 
+type UpdateCommandTaskRequest struct {
+	Title          string   `json:"title" binding:"required"`
+	CommandType    string   `json:"command_type" binding:"required,oneof=shell tool"`
+	CommandPayload string   `json:"command_payload" binding:"required"`
+	DeviceIDs      []string `json:"device_ids" binding:"required,min=1"`
+	RiskLevel      string   `json:"risk_level" binding:"required,oneof=L1 L2 L3"`
+	Emergency      bool     `json:"emergency"`
+	BypassReason   string   `json:"bypass_reason"`
+	TargetEnv      string   `json:"target_env"`
+	ChangeTicket   string   `json:"change_ticket"`
+	BusinessApp    string   `json:"business_app"`
+	Note           string   `json:"note"`
+}
+
 type ApproveCommandTaskRequest struct {
 	Note string `json:"note"`
 }

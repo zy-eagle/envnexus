@@ -64,6 +64,26 @@ func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*G
 		result.Command = strings.TrimSpace(respText)
 		result.RiskLevel = EvaluateRisk("shell", result.Command)
 	}
+	// Some OpenAI-compatible providers may return a different JSON shape (e.g. {"cmd": "..."}).
+	// If we parsed JSON but the command is still empty, try a generic map-based extraction.
+	if strings.TrimSpace(result.Command) == "" && strings.HasPrefix(cleaned, "{") {
+		var m map[string]interface{}
+		if err := json.Unmarshal([]byte(cleaned), &m); err == nil {
+			for _, k := range []string{"command", "cmd", "shell", "bash", "powershell"} {
+				if v, ok := m[k]; ok {
+					if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+						result.Command = strings.TrimSpace(s)
+						break
+					}
+				}
+			}
+		}
+	}
+	// If the provider returned an empty content despite a 200 OK, surface a clear error.
+	if strings.TrimSpace(result.Command) == "" {
+		slog.Warn("[nl-gen] Empty command from LLM", "raw", respText)
+		return nil, fmt.Errorf("LLM returned empty command")
+	}
 
 	if result.RiskLevel == "" {
 		result.RiskLevel = EvaluateRisk("shell", result.Command)
@@ -120,9 +140,16 @@ func (g *NLGenerator) callLLM(ctx context.Context, model *domain.ModelProfile, u
 
 	var chatResp struct {
 		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
+			// OpenAI Chat Completions
+			Message *struct {
+				Content *string `json:"content"`
+			} `json:"message,omitempty"`
+			// Some providers may respond with legacy "text" on each choice.
+			Text *string `json:"text,omitempty"`
+			// Streaming-like delta shape (occasionally returned even without stream=true).
+			Delta *struct {
+				Content *string `json:"content"`
+			} `json:"delta,omitempty"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &chatResp); err != nil {
@@ -133,5 +160,15 @@ func (g *NLGenerator) callLLM(ctx context.Context, model *domain.ModelProfile, u
 		return "", fmt.Errorf("LLM returned no choices")
 	}
 
-	return chatResp.Choices[0].Message.Content, nil
+	c0 := chatResp.Choices[0]
+	if c0.Message != nil && c0.Message.Content != nil {
+		return *c0.Message.Content, nil
+	}
+	if c0.Delta != nil && c0.Delta.Content != nil {
+		return *c0.Delta.Content, nil
+	}
+	if c0.Text != nil {
+		return *c0.Text, nil
+	}
+	return "", fmt.Errorf("LLM returned empty content")
 }

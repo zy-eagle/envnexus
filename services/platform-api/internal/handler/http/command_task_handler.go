@@ -28,6 +28,8 @@ func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
 		tasks.GET("", h.ListTasks)
 		tasks.POST("/generate", h.GenerateCommand)
 		tasks.GET("/:taskId", h.GetTask)
+		tasks.PUT("/:taskId", h.UpdateTask)
+		tasks.DELETE("/:taskId", h.DeleteTask)
 		tasks.POST("/:taskId/approve", h.ApproveTask)
 		tasks.POST("/:taskId/deny", h.DenyTask)
 		tasks.POST("/:taskId/cancel", h.CancelTask)
@@ -70,6 +72,34 @@ func (h *CommandTaskHandler) GetTask(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *CommandTaskHandler) UpdateTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	taskID := c.Param("taskId")
+	userID := c.GetString("user_id")
+	var req dto.UpdateCommandTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+	resp, err := h.commandService.UpdateTask(c.Request.Context(), tenantID, userID, taskID, req)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, resp)
+}
+
+func (h *CommandTaskHandler) DeleteTask(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	taskID := c.Param("taskId")
+	userID := c.GetString("user_id")
+	if err := h.commandService.DeleteTask(c.Request.Context(), tenantID, userID, taskID); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "deleted"})
 }
 
 func (h *CommandTaskHandler) ListTasks(c *gin.Context) {

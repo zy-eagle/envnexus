@@ -17,7 +17,7 @@ interface CommandTask {
   title: string;
   command_type: string;
   command_payload: string;
-  device_ids: string;
+  device_ids: string[];
   risk_level: string;
   effective_risk: string;
   status: string;
@@ -125,6 +125,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [showNewModal, setShowNewModal] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -418,6 +419,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
 
   const openNewModal = async () => {
     setShowNewModal(true);
+    setEditingTaskId(null);
     setDevicesLoading(true);
     try {
       const data = await api.get<any>(`/tenants/${tenantId}/devices`);
@@ -443,6 +445,35 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setNlError("");
     setFormToolName("");
     setFormToolParams({});
+    setEditingTaskId(null);
+  };
+
+  const openEditModal = async (task: TaskDetail) => {
+    setShowNewModal(true);
+    setEditingTaskId(task.id);
+    setDevicesLoading(true);
+    try {
+      const data = await api.get<any>(`/tenants/${tenantId}/devices`);
+      setDevices(Array.isArray(data) ? data : data?.items ?? []);
+    } catch (error) {
+      console.error("Failed to fetch devices:", error);
+    } finally {
+      setDevicesLoading(false);
+    }
+
+    setFormTitle(task.title || "");
+    setFormCommandType(task.command_type || "shell");
+    setFormCommandPayload(task.command_payload || "");
+    setFormDeviceIds(parseDeviceIds(task.device_ids));
+    setFormRiskLevel(task.risk_level || "L1");
+    setFormTargetEnv(task.target_env || "");
+    setFormNote(task.note || "");
+    setFormEmergency(!!task.emergency);
+    setFormBypassReason(task.bypass_reason || "");
+    setNlInput("");
+    setNlError("");
+    setFormToolName("");
+    setFormToolParams({});
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -451,7 +482,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     const payload = formCommandType === "tool" ? buildToolPayload() : formCommandPayload;
     const riskForTool = formCommandType === "tool" && selectedToolDef ? selectedToolDef.riskLevel : formRiskLevel;
     try {
-      await api.post(`/tenants/${tenantId}/command-tasks`, {
+      const body = {
         title: formTitle,
         command_type: formCommandType,
         command_payload: payload,
@@ -461,7 +492,13 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
         note: formNote,
         emergency: formEmergency,
         bypass_reason: formEmergency ? formBypassReason : "",
-      });
+      };
+      if (editingTaskId) {
+        await api.put(`/tenants/${tenantId}/command-tasks/${editingTaskId}`, body);
+        if (selectedTask?.id === editingTaskId) await fetchDetail(editingTaskId);
+      } else {
+        await api.post(`/tenants/${tenantId}/command-tasks`, body);
+      }
       setShowNewModal(false);
       resetForm();
       fetchTasks();
@@ -469,6 +506,22 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       console.error("Failed to create task:", error);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (taskId: string) => {
+    if (!window.confirm(lang === "zh" ? "确定删除该任务？此操作不可恢复。" : "Delete this task? This cannot be undone.")) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await api.delete(`/tenants/${tenantId}/command-tasks/${taskId}`);
+      if (selectedTask?.id === taskId) setSelectedTask(null);
+      fetchTasks();
+    } catch (error) {
+      console.error("Failed to delete task:", error);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -525,12 +578,19 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     );
   };
 
-  const parseDeviceIds = (raw: string): string[] => {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return [];
+  const parseDeviceIds = (raw: any): string[] => {
+    if (Array.isArray(raw)) return raw.filter((x) => typeof x === "string");
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed)
+          ? parsed.filter((x) => typeof x === "string")
+          : [];
+      } catch {
+        return [];
+      }
     }
+    return [];
   };
 
   const formatTime = (iso: string) => {
@@ -586,11 +646,29 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
               <div className="flex items-center gap-2">
                 {isCreator && (
                   <button
+                    onClick={() => openEditModal(task)}
+                    disabled={actionLoading}
+                    className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {ct.edit || (lang === "zh" ? "编辑" : "Edit")}
+                  </button>
+                )}
+                {isCreator && (
+                  <button
                     onClick={() => handleCancel(task.id)}
                     disabled={actionLoading}
                     className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
                   >
                     {ct.cancel}
+                  </button>
+                )}
+                {isCreator && (
+                  <button
+                    onClick={() => handleDelete(task.id)}
+                    disabled={actionLoading}
+                    className="px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {ct.delete || (lang === "zh" ? "删除" : "Delete")}
                   </button>
                 )}
               </div>

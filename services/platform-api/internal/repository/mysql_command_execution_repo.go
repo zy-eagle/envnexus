@@ -53,3 +53,7 @@ func (r *MySQLCommandExecutionRepository) ListByTaskID(ctx context.Context, task
 	err := r.db.WithContext(ctx).Where("task_id = ?", taskID).Order("created_at ASC").Find(&execs).Error
 	return execs, err
 }
+
+func (r *MySQLCommandExecutionRepository) DeleteByTaskID(ctx context.Context, taskID string) error {
+	return r.db.WithContext(ctx).Where("task_id = ?", taskID).Delete(&domain.CommandExecution{}).Error
+}

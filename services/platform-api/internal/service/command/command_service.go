@@ -141,6 +141,153 @@ func (s *Service) CreateTask(ctx context.Context, tenantID, userID string, req d
 	return s.taskToResponse(ctx, task)
 }
 
+func (s *Service) UpdateTask(ctx context.Context, tenantID, userID, taskID string, req dto.UpdateCommandTaskRequest) (*dto.CommandTaskResponse, error) {
+	task, err := s.taskRepo.GetByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil || task.TenantID != tenantID {
+		return nil, domain.ErrCommandTaskNotFound
+	}
+	if task.Status != domain.CommandTaskPendingApproval {
+		return nil, domain.ErrCommandTaskInvalidState
+	}
+	if time.Now().After(task.ExpiresAt) {
+		task.Status = domain.CommandTaskExpired
+		_ = s.taskRepo.Update(ctx, task)
+		return nil, domain.ErrCommandTaskExpired
+	}
+	if task.CreatedByUserID != userID {
+		return nil, domain.ErrInsufficientPermission
+	}
+
+	systemRisk := EvaluateRisk(req.CommandType, req.CommandPayload)
+	effectiveRisk := EffectiveRisk(req.RiskLevel, systemRisk)
+
+	policy, _ := s.policyService.FindPolicy(ctx, tenantID, effectiveRisk)
+	expiresMinutes := 30
+	if policy != nil && policy.ExpiresMinutes > 0 {
+		expiresMinutes = policy.ExpiresMinutes
+	}
+
+	// Update task fields
+	task.Title = req.Title
+	task.CommandType = req.CommandType
+	task.CommandPayload = req.CommandPayload
+	task.SetDeviceIDs(req.DeviceIDs)
+	task.RiskLevel = req.RiskLevel
+	task.EffectiveRisk = effectiveRisk
+	task.Emergency = req.Emergency
+	task.BypassReason = req.BypassReason
+	task.TargetEnv = req.TargetEnv
+	task.ChangeTicket = req.ChangeTicket
+	task.BusinessApp = req.BusinessApp
+	task.Note = req.Note
+	task.ExpiresAt = time.Now().Add(time.Duration(expiresMinutes) * time.Minute)
+
+	// Reset approval-related fields
+	task.BypassApproval = false
+	task.PolicySnapshotID = nil
+	task.ApproverUserID = nil
+	task.ApproverRoleID = nil
+	task.ApprovedByID = nil
+	task.ApprovalNote = ""
+	task.ApprovedAt = nil
+
+	if policy != nil {
+		task.PolicySnapshotID = &policy.ID
+	}
+
+	// Rebuild executions for new device list
+	if err := s.execRepo.DeleteByTaskID(ctx, task.ID); err != nil {
+		return nil, fmt.Errorf("delete old executions: %w", err)
+	}
+	for _, deviceID := range req.DeviceIDs {
+		exec := &domain.CommandExecution{
+			ID:       ulid.Make().String(),
+			TaskID:   task.ID,
+			DeviceID: deviceID,
+			Status:   domain.ExecutionPending,
+		}
+		if err := s.execRepo.Create(ctx, exec); err != nil {
+			return nil, fmt.Errorf("create execution record: %w", err)
+		}
+	}
+
+	bypass := s.shouldBypassApproval(ctx, tenantID, userID, dto.CreateCommandTaskRequest{
+		Title:          req.Title,
+		CommandType:    req.CommandType,
+		CommandPayload: req.CommandPayload,
+		DeviceIDs:      req.DeviceIDs,
+		RiskLevel:      req.RiskLevel,
+		Emergency:      req.Emergency,
+		BypassReason:   req.BypassReason,
+		TargetEnv:      req.TargetEnv,
+		ChangeTicket:   req.ChangeTicket,
+		BusinessApp:    req.BusinessApp,
+		Note:           req.Note,
+	}, effectiveRisk, policy)
+
+	if bypass {
+		task.BypassApproval = true
+		task.Status = domain.CommandTaskApproved
+		now := time.Now()
+		task.ApprovedAt = &now
+	} else if policy != nil && policy.AutoApprove {
+		task.Status = domain.CommandTaskApproved
+		now := time.Now()
+		task.ApprovedAt = &now
+	} else {
+		approverUserID, approverRoleID := s.resolveApprover(ctx, policy)
+		task.ApproverUserID = approverUserID
+		task.ApproverRoleID = approverRoleID
+		task.Status = domain.CommandTaskPendingApproval
+	}
+
+	if err := s.taskRepo.Update(ctx, task); err != nil {
+		return nil, err
+	}
+
+	s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_updated", map[string]interface{}{
+		"risk_level":   effectiveRisk,
+		"device_count": len(req.DeviceIDs),
+		"command_type": req.CommandType,
+	})
+
+	if task.Status == domain.CommandTaskApproved {
+		go s.dispatchToDevices(context.Background(), task)
+	}
+	return s.taskToResponse(ctx, task)
+}
+
+func (s *Service) DeleteTask(ctx context.Context, tenantID, userID, taskID string) error {
+	task, err := s.taskRepo.GetByID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if task == nil || task.TenantID != tenantID {
+		return domain.ErrCommandTaskNotFound
+	}
+	if task.CreatedByUserID != userID {
+		return domain.ErrInsufficientPermission
+	}
+	// Only allow deleting tasks that haven't been executed yet.
+	if task.Status != domain.CommandTaskPendingApproval && task.Status != domain.CommandTaskDenied && task.Status != domain.CommandTaskCancelled {
+		return domain.ErrCommandTaskInvalidState
+	}
+
+	if err := s.execRepo.DeleteByTaskID(ctx, task.ID); err != nil {
+		return fmt.Errorf("delete executions: %w", err)
+	}
+	if err := s.taskRepo.Delete(ctx, task.ID); err != nil {
+		return err
+	}
+	s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_deleted", map[string]interface{}{
+		"status": string(task.Status),
+	})
+	return nil
+}
+
 func (s *Service) shouldBypassApproval(ctx context.Context, tenantID, userID string, req dto.CreateCommandTaskRequest, effectiveRisk string, policy *domain.ApprovalPolicy) bool {
 	if req.Emergency {
 		if s.rbacService != nil {
