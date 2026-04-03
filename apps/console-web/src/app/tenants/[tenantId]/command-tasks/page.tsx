@@ -548,7 +548,6 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     );
     const ctype = task.command_type === "tool" ? "tool" : "shell";
     setFormCommandType(ctype);
-    setFormCommandPayload(task.command_payload || "");
     setFormDeviceIds(parseDeviceIds(task.device_ids));
     setFormRiskLevel(task.risk_level || "L1");
     setFormTargetEnv(task.target_env || "");
@@ -558,26 +557,34 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setNlInput("");
     setNlError("");
     setNlMustSucceed(false);
-    if (ctype === "tool") {
-      try {
-        const parsed = JSON.parse(task.command_payload || "{}");
-        const name =
-          typeof parsed.tool_name === "string" ? parsed.tool_name : "";
-        const params =
-          parsed.params &&
-          typeof parsed.params === "object" &&
-          !Array.isArray(parsed.params)
-            ? { ...parsed.params }
-            : {};
-        setFormToolName(name);
-        setFormToolParams(params);
-      } catch {
+    if (forCopy) {
+      // Copy keeps targets/metadata but clears executable payload so the draft is not dangerous-by-default.
+      setFormCommandPayload("");
+      setFormToolName("");
+      setFormToolParams({});
+    } else {
+      setFormCommandPayload(task.command_payload || "");
+      if (ctype === "tool") {
+        try {
+          const parsed = JSON.parse(task.command_payload || "{}");
+          const name =
+            typeof parsed.tool_name === "string" ? parsed.tool_name : "";
+          const params =
+            parsed.params &&
+            typeof parsed.params === "object" &&
+            !Array.isArray(parsed.params)
+              ? { ...parsed.params }
+              : {};
+          setFormToolName(name);
+          setFormToolParams(params);
+        } catch {
+          setFormToolName("");
+          setFormToolParams({});
+        }
+      } else {
         setFormToolName("");
         setFormToolParams({});
       }
-    } else {
-      setFormToolName("");
-      setFormToolParams({});
     }
   };
 
