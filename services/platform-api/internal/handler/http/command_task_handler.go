@@ -18,19 +18,44 @@ type CommandTaskHandler struct {
 	commandService *command.Service
 	nlGenerator    *command.NLGenerator
 	deviceRepo     repository.DeviceRepository
+	userRepo       repository.UserRepository
 }
 
-func NewCommandTaskHandler(commandService *command.Service, nlGenerator *command.NLGenerator, deviceRepo repository.DeviceRepository) *CommandTaskHandler {
-	return &CommandTaskHandler{commandService: commandService, nlGenerator: nlGenerator, deviceRepo: deviceRepo}
+func NewCommandTaskHandler(commandService *command.Service, nlGenerator *command.NLGenerator, deviceRepo repository.DeviceRepository, userRepo repository.UserRepository) *CommandTaskHandler {
+	return &CommandTaskHandler{
+		commandService: commandService,
+		nlGenerator:    nlGenerator,
+		deviceRepo:     deviceRepo,
+		userRepo:       userRepo,
+	}
 }
 
-func platformSuperAdmin(c *gin.Context) bool {
+func platformSuperAdminFromJWT(c *gin.Context) bool {
 	v, ok := c.Get("platform_super_admin")
 	if !ok {
 		return false
 	}
 	b, ok := v.(bool)
 	return ok && b
+}
+
+// effectivePlatformSuperAdmin is true when JWT says so or the user row does (covers stale tokens after DB promotion).
+func (h *CommandTaskHandler) effectivePlatformSuperAdmin(c *gin.Context) bool {
+	if platformSuperAdminFromJWT(c) {
+		return true
+	}
+	if h.userRepo == nil {
+		return false
+	}
+	uid := c.GetString("user_id")
+	if uid == "" {
+		return false
+	}
+	u, err := h.userRepo.GetByID(c.Request.Context(), uid)
+	if err != nil || u == nil {
+		return false
+	}
+	return u.PlatformSuperAdmin
 }
 
 func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -140,7 +165,7 @@ func (h *CommandTaskHandler) ApproveTask(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req = dto.ApproveCommandTaskRequest{}
 	}
-	if err := h.commandService.ApproveTask(c.Request.Context(), tenantID, taskID, approverID, req.Note, platformSuperAdmin(c)); err != nil {
+	if err := h.commandService.ApproveTask(c.Request.Context(), tenantID, taskID, approverID, req.Note, h.effectivePlatformSuperAdmin(c)); err != nil {
 		mw.RespondError(c, err)
 		return
 	}
@@ -155,7 +180,7 @@ func (h *CommandTaskHandler) DenyTask(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req = dto.DenyCommandTaskRequest{}
 	}
-	if err := h.commandService.DenyTask(c.Request.Context(), tenantID, taskID, approverID, req.Reason, platformSuperAdmin(c)); err != nil {
+	if err := h.commandService.DenyTask(c.Request.Context(), tenantID, taskID, approverID, req.Reason, h.effectivePlatformSuperAdmin(c)); err != nil {
 		mw.RespondError(c, err)
 		return
 	}
@@ -176,7 +201,7 @@ func (h *CommandTaskHandler) CancelTask(c *gin.Context) {
 func (h *CommandTaskHandler) ListPendingApprovals(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	userID := c.GetString("user_id")
-	resp, err := h.commandService.ListPendingApprovals(c.Request.Context(), tenantID, userID, platformSuperAdmin(c))
+	resp, err := h.commandService.ListPendingApprovals(c.Request.Context(), tenantID, userID, h.effectivePlatformSuperAdmin(c))
 	if err != nil {
 		mw.RespondError(c, err)
 		return
@@ -187,7 +212,7 @@ func (h *CommandTaskHandler) ListPendingApprovals(c *gin.Context) {
 func (h *CommandTaskHandler) CountPendingApprovals(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	userID := c.GetString("user_id")
-	count, err := h.commandService.CountPendingApprovals(c.Request.Context(), tenantID, userID, platformSuperAdmin(c))
+	count, err := h.commandService.CountPendingApprovals(c.Request.Context(), tenantID, userID, h.effectivePlatformSuperAdmin(c))
 	if err != nil {
 		mw.RespondError(c, err)
 		return
