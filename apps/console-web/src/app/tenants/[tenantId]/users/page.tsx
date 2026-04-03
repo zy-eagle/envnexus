@@ -1,19 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, APIError } from "@/lib/api/client";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useDict } from "@/lib/i18n/dictionary";
 
-interface UserItem {
+interface RoleOption {
   id: string;
-  tenant_id: string;
-  email: string;
-  display_name: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
+  name: string;
 }
 
 export default function TenantUsersPage() {
@@ -23,51 +18,42 @@ export default function TenantUsersPage() {
   const t = useDict("users", lang);
   const ct = useDict("common", lang);
 
-  const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<UserItem[]>([]);
-  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<UserItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ email: "", display_name: "", password: "", status: "active" });
+  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
 
-  const title = useMemo(() => (editing ? t.editTitle : t.createTitle), [editing, t]);
-
-  const fetchUsers = async (q: string) => {
+  const fetchRoleOptions = useCallback(async () => {
     if (!tenantId) return;
-    setLoading(true);
-    setError(null);
+    setRolesLoading(true);
     try {
-      const data = await api.get<{ items: UserItem[] }>(
-        `/tenants/${tenantId}/users?q=${encodeURIComponent(q)}&limit=50`,
-      );
-      setItems(Array.isArray(data?.items) ? data.items : []);
+      const data = await api.get<{ items: RoleOption[] }>(`/tenants/${tenantId}/roles`);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setRoleOptions(items.map((r) => ({ id: r.id, name: r.name })));
     } catch (e) {
-      console.error("Failed to fetch users:", e);
-      setError(ct.error);
+      console.error("Failed to fetch roles:", e);
+      setRoleOptions([]);
     } finally {
-      setLoading(false);
+      setRolesLoading(false);
     }
-  };
-
-  useEffect(() => {
-    const tmr = setTimeout(() => fetchUsers(query), 250);
-    return () => clearTimeout(tmr);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, query]);
+  }, [tenantId]);
 
   const openCreate = () => {
-    setEditing(null);
     setForm({ email: "", display_name: "", password: "", status: "active" });
+    setRoleIds([]);
+    setError(null);
     setModalOpen(true);
+    void fetchRoleOptions();
   };
 
-  const openEdit = (u: UserItem) => {
-    setEditing(u);
-    setForm({ email: u.email, display_name: u.display_name, password: "", status: u.status || "active" });
-    setModalOpen(true);
+  const title = useMemo(() => t.createTitle, [t]);
+
+  const toggleRole = (id: string) => {
+    setRoleIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const save = async () => {
@@ -75,22 +61,14 @@ export default function TenantUsersPage() {
     setSaving(true);
     setError(null);
     try {
-      if (editing) {
-        await api.put(`/tenants/${tenantId}/users/${editing.id}`, {
-          display_name: form.display_name,
-          password: form.password || undefined,
-          status: form.status,
-        });
-      } else {
-        await api.post(`/tenants/${tenantId}/users`, {
-          email: form.email,
-          display_name: form.display_name,
-          password: form.password,
-          status: form.status,
-        });
-      }
+      await api.post(`/tenants/${tenantId}/users`, {
+        email: form.email,
+        display_name: form.display_name,
+        password: form.password,
+        status: form.status,
+        role_ids: roleIds,
+      });
       setModalOpen(false);
-      await fetchUsers(query);
     } catch (e) {
       console.error("Failed to save user:", e);
       if (e instanceof APIError) {
@@ -103,25 +81,12 @@ export default function TenantUsersPage() {
     }
   };
 
-  const del = async (u: UserItem) => {
-    if (!tenantId) return;
-    if (!window.confirm(t.confirmDelete)) return;
-    setError(null);
-    try {
-      await api.delete(`/tenants/${tenantId}/users/${u.id}`);
-      await fetchUsers(query);
-    } catch (e) {
-      console.error("Failed to delete user:", e);
-      setError(t.deleteFailed);
-    }
-  };
-
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">{t.title}</h1>
-          <p className="text-sm text-slate-500 mt-1">{tenantId}</p>
+          <p className="text-sm text-slate-500 mt-1">{t.pageHint}</p>
         </div>
         <button
           onClick={openCreate}
@@ -131,70 +96,24 @@ export default function TenantUsersPage() {
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div className="p-4 border-b border-slate-100">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t.searchPlaceholder}
-            className="w-full max-w-md border border-slate-200 rounded-md px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-          />
-        </div>
-
-        {error && <div className="p-4 text-sm text-red-700 bg-red-50 border-b border-red-100">{error}</div>}
-
-        {loading ? (
-          <div className="p-6 text-sm text-slate-500">{ct.loading}</div>
-        ) : items.length === 0 ? (
-          <div className="p-6 text-sm text-slate-500">{ct.noData}</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">{t.email}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">{t.displayName}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">{t.status}</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">{ct.actions}</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-100">
-                {items.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50/50">
-                    <td className="px-6 py-4 text-sm text-slate-700">{u.email}</td>
-                    <td className="px-6 py-4 text-sm text-slate-700">{u.display_name}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{u.status}</td>
-                    <td className="px-6 py-4 text-right text-sm">
-                      <button onClick={() => openEdit(u)} className="text-indigo-600 hover:text-indigo-800 mr-4">
-                        {ct.edit}
-                      </button>
-                      <button onClick={() => del(u)} className="text-red-600 hover:text-red-800">
-                        {ct.delete}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {error && !modalOpen && (
+        <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-4 py-3">{error}</div>
+      )}
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-semibold mb-5">{title}</h2>
+            {error && <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md px-3 py-2">{error}</div>}
             <div className="space-y-4">
-              {!editing && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">{t.email}</label>
-                  <input
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">{t.email}</label>
+                <input
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">{t.displayName}</label>
                 <input
@@ -204,10 +123,7 @@ export default function TenantUsersPage() {
                 />
               </div>
               <div>
-                <div className="flex items-baseline justify-between">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">{t.password}</label>
-                  {editing && <span className="text-xs text-slate-400">{t.passwordHint}</span>}
-                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">{t.password}</label>
                 <input
                   type="password"
                   value={form.password}
@@ -225,6 +141,32 @@ export default function TenantUsersPage() {
                   <option value="active">{t.statusActive}</option>
                   <option value="disabled">{t.statusDisabled}</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">{t.rolesField}</label>
+                <p className="text-xs text-slate-500 mb-2">{t.rolesHint}</p>
+                <div className="border border-slate-200 rounded-md max-h-40 overflow-y-auto p-2">
+                  {rolesLoading ? (
+                    <p className="text-sm text-slate-500 text-center py-2">{ct.loading}</p>
+                  ) : roleOptions.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-2">{t.noRolesInTenant}</p>
+                  ) : (
+                    roleOptions.map((r) => (
+                      <label
+                        key={r.id}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={roleIds.includes(r.id)}
+                          onChange={() => toggleRole(r.id)}
+                          className="rounded text-indigo-600"
+                        />
+                        <span className="text-slate-800">{r.name}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
 
@@ -250,4 +192,3 @@ export default function TenantUsersPage() {
     </div>
   );
 }
-

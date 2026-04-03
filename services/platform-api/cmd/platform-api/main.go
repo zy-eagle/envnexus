@@ -243,7 +243,7 @@ func main() {
 	tokenHandler := httphandler.NewTokenHandler(enrollService)
 	pkgHandler := httphandler.NewPackageHandler(pkgService, bindingService)
 	authHandler := httphandler.NewAuthHandler(authService)
-	userHandler := httphandler.NewUserHandler(userService)
+	userHandler := httphandler.NewUserHandler(userService, rbacService)
 	modelProfileHandler := httphandler.NewModelProfileHandler(modelProfileService)
 	policyProfileHandler := httphandler.NewPolicyProfileHandler(policyProfileService)
 	agentProfileHandler := httphandler.NewAgentProfileHandler(agentProfileService)

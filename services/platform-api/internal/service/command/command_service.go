@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -25,6 +26,8 @@ type Service struct {
 
 type PermissionChecker interface {
 	HasPermission(ctx context.Context, userID, permission string) (bool, error)
+	UserHasRoleInTenant(ctx context.Context, tenantID, userID, roleID string) (bool, error)
+	ListRoleIDsForUserInTenant(ctx context.Context, tenantID, userID string) ([]string, error)
 }
 
 func NewService(
@@ -322,7 +325,57 @@ func (s *Service) resolveApprover(ctx context.Context, policy *domain.ApprovalPo
 	return policy.ApproverUserID, policy.ApproverRoleID
 }
 
-func (s *Service) ApproveTask(ctx context.Context, tenantID, taskID, approverUserID, note string) error {
+func (s *Service) mergePendingTasksForApprover(ctx context.Context, tenantID, approverUserID string) ([]*domain.CommandTask, error) {
+	byUser, err := s.taskRepo.ListPendingByApprover(ctx, tenantID, approverUserID)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]*domain.CommandTask)
+	for _, t := range byUser {
+		seen[t.ID] = t
+	}
+	if s.rbacService != nil {
+		roleIDs, err := s.rbacService.ListRoleIDsForUserInTenant(ctx, tenantID, approverUserID)
+		if err != nil {
+			return nil, err
+		}
+		for _, rid := range roleIDs {
+			roleTasks, err := s.taskRepo.ListPendingByApproverRole(ctx, tenantID, rid)
+			if err != nil {
+				return nil, err
+			}
+			for _, t := range roleTasks {
+				if _, ok := seen[t.ID]; !ok {
+					seen[t.ID] = t
+				}
+			}
+		}
+	}
+	out := make([]*domain.CommandTask, 0, len(seen))
+	for _, t := range seen {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *Service) canApproverActOnTask(ctx context.Context, task *domain.CommandTask, approverUserID string) error {
+	if task.ApproverUserID != nil && *task.ApproverUserID == approverUserID {
+		return nil
+	}
+	if task.ApproverRoleID != nil && *task.ApproverRoleID != "" && s.rbacService != nil {
+		ok, err := s.rbacService.UserHasRoleInTenant(ctx, task.TenantID, approverUserID, *task.ApproverRoleID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+	}
+	return domain.ErrInsufficientPermission
+}
+
+func (s *Service) ApproveTask(ctx context.Context, pathTenantID, taskID, approverUserID, note string, isPlatformSuperAdmin bool) error {
 	task, err := s.taskRepo.GetByID(ctx, taskID)
 	if err != nil {
 		return err
@@ -330,7 +383,7 @@ func (s *Service) ApproveTask(ctx context.Context, tenantID, taskID, approverUse
 	if task == nil {
 		return domain.ErrCommandTaskNotFound
 	}
-	if task.TenantID != tenantID {
+	if !isPlatformSuperAdmin && task.TenantID != pathTenantID {
 		return domain.ErrCommandTaskNotFound
 	}
 	if task.Status != domain.CommandTaskPendingApproval {
@@ -341,8 +394,13 @@ func (s *Service) ApproveTask(ctx context.Context, tenantID, taskID, approverUse
 		s.taskRepo.Update(ctx, task)
 		return domain.ErrCommandTaskExpired
 	}
+	if !isPlatformSuperAdmin {
+		if err := s.canApproverActOnTask(ctx, task, approverUserID); err != nil {
+			return err
+		}
+	}
 	if task.CreatedByUserID == approverUserID {
-		policy, _ := s.policyService.FindPolicy(ctx, tenantID, task.EffectiveRisk)
+		policy, _ := s.policyService.FindPolicy(ctx, task.TenantID, task.EffectiveRisk)
 		if policy != nil && policy.SeparationOfDuty {
 			return domain.ErrSeparationOfDutyViolation
 		}
@@ -358,7 +416,7 @@ func (s *Service) ApproveTask(ctx context.Context, tenantID, taskID, approverUse
 		return err
 	}
 
-	s.recordAudit(ctx, tenantID, task.ID, approverUserID, "command.task_approved", map[string]interface{}{
+	s.recordAudit(ctx, task.TenantID, task.ID, approverUserID, "command.task_approved", map[string]interface{}{
 		"note": note,
 	})
 
@@ -366,7 +424,7 @@ func (s *Service) ApproveTask(ctx context.Context, tenantID, taskID, approverUse
 	return nil
 }
 
-func (s *Service) DenyTask(ctx context.Context, tenantID, taskID, approverUserID, reason string) error {
+func (s *Service) DenyTask(ctx context.Context, pathTenantID, taskID, approverUserID, reason string, isPlatformSuperAdmin bool) error {
 	task, err := s.taskRepo.GetByID(ctx, taskID)
 	if err != nil {
 		return err
@@ -374,11 +432,16 @@ func (s *Service) DenyTask(ctx context.Context, tenantID, taskID, approverUserID
 	if task == nil {
 		return domain.ErrCommandTaskNotFound
 	}
-	if task.TenantID != tenantID {
+	if !isPlatformSuperAdmin && task.TenantID != pathTenantID {
 		return domain.ErrCommandTaskNotFound
 	}
 	if task.Status != domain.CommandTaskPendingApproval {
 		return domain.ErrCommandTaskInvalidState
+	}
+	if !isPlatformSuperAdmin {
+		if err := s.canApproverActOnTask(ctx, task, approverUserID); err != nil {
+			return err
+		}
 	}
 
 	task.Status = domain.CommandTaskDenied
@@ -389,7 +452,7 @@ func (s *Service) DenyTask(ctx context.Context, tenantID, taskID, approverUserID
 		return err
 	}
 
-	s.recordAudit(ctx, tenantID, task.ID, approverUserID, "command.task_denied", map[string]interface{}{
+	s.recordAudit(ctx, task.TenantID, task.ID, approverUserID, "command.task_denied", map[string]interface{}{
 		"reason": reason,
 	})
 
@@ -448,8 +511,14 @@ func (s *Service) ListTasks(ctx context.Context, tenantID string, filters reposi
 	return &dto.CommandTaskListResponse{Tasks: items, Total: total}, nil
 }
 
-func (s *Service) ListPendingApprovals(ctx context.Context, tenantID, approverUserID string) ([]dto.CommandTaskResponse, error) {
-	tasks, err := s.taskRepo.ListPendingByApprover(ctx, tenantID, approverUserID)
+func (s *Service) ListPendingApprovals(ctx context.Context, tenantID, approverUserID string, isPlatformSuperAdmin bool) ([]dto.CommandTaskResponse, error) {
+	var tasks []*domain.CommandTask
+	var err error
+	if isPlatformSuperAdmin {
+		tasks, err = s.taskRepo.ListPendingInTenant(ctx, tenantID)
+	} else {
+		tasks, err = s.mergePendingTasksForApprover(ctx, tenantID, approverUserID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -464,8 +533,15 @@ func (s *Service) ListPendingApprovals(ctx context.Context, tenantID, approverUs
 	return items, nil
 }
 
-func (s *Service) CountPendingApprovals(ctx context.Context, tenantID, approverUserID string) (int64, error) {
-	return s.taskRepo.CountPendingByApprover(ctx, tenantID, approverUserID)
+func (s *Service) CountPendingApprovals(ctx context.Context, tenantID, approverUserID string, isPlatformSuperAdmin bool) (int64, error) {
+	if isPlatformSuperAdmin {
+		return s.taskRepo.CountPendingInTenant(ctx, tenantID)
+	}
+	tasks, err := s.mergePendingTasksForApprover(ctx, tenantID, approverUserID)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(tasks)), nil
 }
 
 func (s *Service) HandleExecutionResult(ctx context.Context, executionID string, status string, output *string, exitCode *int, durationMs *int) error {

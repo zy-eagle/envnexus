@@ -49,10 +49,11 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginRe
 
 	now := time.Now()
 	claims := &middleware.Claims{
-		UserID:      user.ID,
-		TenantID:    user.TenantID,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
+		UserID:             user.ID,
+		TenantID:           user.TenantID,
+		Email:              user.Email,
+		DisplayName:        user.DisplayName,
+		PlatformSuperAdmin: user.PlatformSuperAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.tokenExpiration)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -82,6 +83,7 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginRe
 	resp.User.TenantID = user.TenantID
 	resp.User.Email = user.Email
 	resp.User.DisplayName = user.DisplayName
+	resp.User.PlatformSuperAdmin = user.PlatformSuperAdmin
 
 	return resp, nil
 }
@@ -169,10 +171,11 @@ func (s *Service) RefreshAccessToken(ctx context.Context, refreshTokenStr string
 
 	now := time.Now()
 	accessClaims := &middleware.Claims{
-		UserID:      user.ID,
-		TenantID:    user.TenantID,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
+		UserID:             user.ID,
+		TenantID:           user.TenantID,
+		Email:              user.Email,
+		DisplayName:        user.DisplayName,
+		PlatformSuperAdmin: user.PlatformSuperAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.tokenExpiration)),
 			IssuedAt:  jwt.NewNumericDate(now),

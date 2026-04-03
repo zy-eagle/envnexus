@@ -9,10 +9,11 @@ import (
 )
 
 type Claims struct {
-	UserID      string `json:"user_id"`
-	TenantID    string `json:"tenant_id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name"`
+	UserID               string `json:"user_id"`
+	TenantID             string `json:"tenant_id"`
+	Email                string `json:"email"`
+	DisplayName          string `json:"display_name"`
+	PlatformSuperAdmin   bool   `json:"platform_super_admin"`
 	jwt.RegisteredClaims
 }
 
@@ -53,6 +54,7 @@ func JWTAuth(secret string) gin.HandlerFunc {
 		c.Set("tenant_id", claims.TenantID)
 		c.Set("email", claims.Email)
 		c.Set("display_name", claims.DisplayName)
+		c.Set("platform_super_admin", claims.PlatformSuperAdmin)
 		c.Next()
 	}
 }

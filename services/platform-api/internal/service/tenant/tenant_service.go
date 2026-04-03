@@ -85,6 +85,28 @@ func (s *Service) ListTenants(ctx context.Context) ([]*dto.TenantResponse, error
 	return resp, nil
 }
 
+// ListTenantsForActor returns all tenants for platform super admins, or only the caller's home tenant otherwise.
+func (s *Service) ListTenantsForActor(ctx context.Context, platformSuperAdmin bool, userTenantID string) ([]*dto.TenantResponse, error) {
+	if platformSuperAdmin {
+		return s.ListTenants(ctx)
+	}
+	t, err := s.repo.GetByID(ctx, userTenantID)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return []*dto.TenantResponse{}, nil
+	}
+	return []*dto.TenantResponse{{
+		ID:        t.ID,
+		Name:      t.Name,
+		Slug:      t.Slug,
+		Status:    string(t.Status),
+		CreatedAt: t.CreatedAt,
+		UpdatedAt: t.UpdatedAt,
+	}}, nil
+}
+
 func (s *Service) UpdateTenant(ctx context.Context, id string, req dto.UpdateTenantRequest) (*dto.TenantResponse, error) {
 	tenant, err := s.repo.GetByID(ctx, id)
 	if err != nil {

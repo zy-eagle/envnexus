@@ -22,6 +22,8 @@ type CommandTaskRepository interface {
 	ListByTenant(ctx context.Context, tenantID string, filters CommandTaskFilters, limit, offset int) ([]*domain.CommandTask, int64, error)
 	ListPendingByApprover(ctx context.Context, tenantID, approverUserID string) ([]*domain.CommandTask, error)
 	ListPendingByApproverRole(ctx context.Context, tenantID, roleID string) ([]*domain.CommandTask, error)
+	ListPendingInTenant(ctx context.Context, tenantID string) ([]*domain.CommandTask, error)
+	CountPendingInTenant(ctx context.Context, tenantID string) (int64, error)
 	CountPendingByApprover(ctx context.Context, tenantID, approverUserID string) (int64, error)
 	ListExpired(ctx context.Context) ([]*domain.CommandTask, error)
 }

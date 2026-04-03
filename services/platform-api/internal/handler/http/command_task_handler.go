@@ -24,6 +24,15 @@ func NewCommandTaskHandler(commandService *command.Service, nlGenerator *command
 	return &CommandTaskHandler{commandService: commandService, nlGenerator: nlGenerator, deviceRepo: deviceRepo}
 }
 
+func platformSuperAdmin(c *gin.Context) bool {
+	v, ok := c.Get("platform_super_admin")
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
 func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
 	tasks := router.Group("/tenants/:tenantId/command-tasks")
 	{
@@ -131,7 +140,7 @@ func (h *CommandTaskHandler) ApproveTask(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req = dto.ApproveCommandTaskRequest{}
 	}
-	if err := h.commandService.ApproveTask(c.Request.Context(), tenantID, taskID, approverID, req.Note); err != nil {
+	if err := h.commandService.ApproveTask(c.Request.Context(), tenantID, taskID, approverID, req.Note, platformSuperAdmin(c)); err != nil {
 		mw.RespondError(c, err)
 		return
 	}
@@ -146,7 +155,7 @@ func (h *CommandTaskHandler) DenyTask(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req = dto.DenyCommandTaskRequest{}
 	}
-	if err := h.commandService.DenyTask(c.Request.Context(), tenantID, taskID, approverID, req.Reason); err != nil {
+	if err := h.commandService.DenyTask(c.Request.Context(), tenantID, taskID, approverID, req.Reason, platformSuperAdmin(c)); err != nil {
 		mw.RespondError(c, err)
 		return
 	}
@@ -167,7 +176,7 @@ func (h *CommandTaskHandler) CancelTask(c *gin.Context) {
 func (h *CommandTaskHandler) ListPendingApprovals(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	userID := c.GetString("user_id")
-	resp, err := h.commandService.ListPendingApprovals(c.Request.Context(), tenantID, userID)
+	resp, err := h.commandService.ListPendingApprovals(c.Request.Context(), tenantID, userID, platformSuperAdmin(c))
 	if err != nil {
 		mw.RespondError(c, err)
 		return
@@ -178,7 +187,7 @@ func (h *CommandTaskHandler) ListPendingApprovals(c *gin.Context) {
 func (h *CommandTaskHandler) CountPendingApprovals(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	userID := c.GetString("user_id")
-	count, err := h.commandService.CountPendingApprovals(c.Request.Context(), tenantID, userID)
+	count, err := h.commandService.CountPendingApprovals(c.Request.Context(), tenantID, userID, platformSuperAdmin(c))
 	if err != nil {
 		mw.RespondError(c, err)
 		return

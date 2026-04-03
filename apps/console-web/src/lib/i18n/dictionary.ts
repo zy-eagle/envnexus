@@ -65,6 +65,8 @@ const dictionary = {
       approvalPolicies: "Approval Policies",
       users: "Users",
       roles: "Roles",
+      myRoles: "Your roles",
+      platformSuperAdmin: "Platform super admin",
     },
     zh: {
       dashboard: "仪表盘总览",
@@ -89,6 +91,8 @@ const dictionary = {
       approvalPolicies: "审批策略",
       users: "用户管理",
       roles: "角色管理",
+      myRoles: "我的角色",
+      platformSuperAdmin: "平台超级管理员",
     },
   },
   header: {
@@ -715,6 +719,7 @@ const dictionary = {
     en: {
       title: "Users",
       addUser: "+ New User",
+      pageHint: "Create accounts and assign roles. The user directory list is hidden on this page.",
       searchPlaceholder: "Search users (email / display name)",
       email: "Email",
       displayName: "Display Name",
@@ -723,6 +728,9 @@ const dictionary = {
       status: "Status",
       statusActive: "Active",
       statusDisabled: "Disabled",
+      rolesField: "Roles",
+      rolesHint: "Select one or more roles to bind when the account is created.",
+      noRolesInTenant: "No roles in this tenant yet. Create roles under Role Management first.",
       createTitle: "Create User",
       editTitle: "Edit User",
       saveFailed: "Failed to save user.",
@@ -732,6 +740,7 @@ const dictionary = {
     zh: {
       title: "用户管理",
       addUser: "+ 新建用户",
+      pageHint: "在此创建用户并分配角色；用户目录列表在本页隐藏。",
       searchPlaceholder: "搜索用户（邮箱 / 显示名）",
       email: "邮箱",
       displayName: "显示名称",
@@ -740,6 +749,9 @@ const dictionary = {
       status: "状态",
       statusActive: "启用",
       statusDisabled: "禁用",
+      rolesField: "角色",
+      rolesHint: "创建账号时可勾选要绑定的角色（可多选）。",
+      noRolesInTenant: "当前租户下还没有角色，请先到「角色管理」创建角色。",
       createTitle: "创建用户",
       editTitle: "编辑用户",
       saveFailed: "保存用户失败。",

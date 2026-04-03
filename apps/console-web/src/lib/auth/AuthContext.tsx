@@ -10,6 +10,7 @@ interface User {
   email: string;
   display_name: string;
   status: string;
+  platform_super_admin?: boolean;
 }
 
 interface Tenant {
@@ -19,16 +20,24 @@ interface Tenant {
   status: string;
 }
 
+export interface TenantRoleSummary {
+  id: string;
+  name: string;
+}
+
 interface AuthContextValue {
   user: User | null;
   tenantId: string;
   activeTenantId: string;
   activeTenantName: string;
   tenants: Tenant[];
+  /** Roles bound to the current user in the active tenant (empty if tenant scope does not match token). */
+  myRolesInTenant: TenantRoleSummary[];
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   switchTenant: (tenantId: string) => void;
+  refreshMyRoles: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -37,10 +46,12 @@ const AuthContext = createContext<AuthContextValue>({
   activeTenantId: "",
   activeTenantName: "",
   tenants: [],
+  myRolesInTenant: [],
   loading: true,
   login: async () => {},
   logout: () => {},
   switchTenant: () => {},
+  refreshMyRoles: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -48,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tenantId, setTenantId] = useState("");
   const [activeTenantId, setActiveTenantId] = useState("");
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [myRolesInTenant, setMyRolesInTenant] = useState<TenantRoleSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
@@ -60,6 +72,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTenants([]);
     }
   }, []);
+
+  const refreshMyRoles = useCallback(async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token || !user) {
+      setMyRolesInTenant([]);
+      return;
+    }
+    if (!activeTenantId) {
+      setMyRolesInTenant([]);
+      return;
+    }
+    if (!user.platform_super_admin && activeTenantId !== tenantId) {
+      setMyRolesInTenant([]);
+      return;
+    }
+    try {
+      const data = await api.get<{ roles: TenantRoleSummary[] }>(`/tenants/${activeTenantId}/me/roles`);
+      setMyRolesInTenant(Array.isArray(data?.roles) ? data.roles : []);
+    } catch {
+      setMyRolesInTenant([]);
+    }
+  }, [user, activeTenantId, tenantId]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -91,12 +125,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, [pathname, router, fetchTenants]);
 
+  useEffect(() => {
+    if (!loading && user) {
+      void refreshMyRoles();
+    }
+  }, [loading, user, refreshMyRoles]);
+
   const login = useCallback(
     async (email: string, password: string) => {
       const resp = await api.post<{
         access_token: string;
         expires_in: number;
-        user: { id: string; tenant_id: string; email: string; display_name: string };
+        user: { id: string; tenant_id: string; email: string; display_name: string; platform_super_admin?: boolean };
       }>("/auth/login", { email, password });
 
       localStorage.setItem("token", resp.access_token);
@@ -104,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser({
         ...resp.user,
         status: "active",
+        platform_super_admin: !!resp.user.platform_super_admin,
       });
       setTenantId(resp.user.tenant_id);
       setActiveTenantId(resp.user.tenant_id);
@@ -122,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTenantId("");
     setActiveTenantId("");
     setTenants([]);
+    setMyRolesInTenant([]);
     router.push("/login");
   }, [router]);
 
@@ -135,7 +177,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, tenantId, activeTenantId, activeTenantName, tenants,
-      loading, login, logout, switchTenant,
+      myRolesInTenant,
+      loading, login, logout, switchTenant, refreshMyRoles,
     }}>
       {children}
     </AuthContext.Provider>

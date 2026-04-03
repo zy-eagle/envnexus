@@ -81,6 +81,22 @@ func (r *MySQLCommandTaskRepository) ListPendingByApproverRole(ctx context.Conte
 	return tasks, err
 }
 
+func (r *MySQLCommandTaskRepository) ListPendingInTenant(ctx context.Context, tenantID string) ([]*domain.CommandTask, error) {
+	var tasks []*domain.CommandTask
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND status = ? AND archived_at IS NULL", tenantID, domain.CommandTaskPendingApproval).
+		Order("created_at DESC").Find(&tasks).Error
+	return tasks, err
+}
+
+func (r *MySQLCommandTaskRepository) CountPendingInTenant(ctx context.Context, tenantID string) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&domain.CommandTask{}).
+		Where("tenant_id = ? AND status = ? AND archived_at IS NULL", tenantID, domain.CommandTaskPendingApproval).
+		Count(&count).Error
+	return count, err
+}
+
 func (r *MySQLCommandTaskRepository) CountPendingByApprover(ctx context.Context, tenantID, approverUserID string) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&domain.CommandTask{}).

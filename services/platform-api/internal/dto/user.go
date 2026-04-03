@@ -14,10 +14,11 @@ type UserResponse struct {
 }
 
 type CreateUserRequest struct {
-	Email       string `json:"email" binding:"required"`
-	DisplayName string `json:"display_name" binding:"required"`
-	Password    string `json:"password"`
-	Status      string `json:"status"`
+	Email       string   `json:"email" binding:"required"`
+	DisplayName string   `json:"display_name" binding:"required"`
+	Password    string   `json:"password"`
+	Status      string   `json:"status"`
+	RoleIDs     []string `json:"role_ids"`
 }
 
 type UpdateUserRequest struct {

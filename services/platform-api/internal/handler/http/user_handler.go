@@ -3,19 +3,22 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/rbac"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/user"
 )
 
 type UserHandler struct {
-	svc *user.Service
+	svc    *user.Service
+	rbacSvc *rbac.Service
 }
 
-func NewUserHandler(svc *user.Service) *UserHandler {
-	return &UserHandler{svc: svc}
+func NewUserHandler(svc *user.Service, rbacSvc *rbac.Service) *UserHandler {
+	return &UserHandler{svc: svc, rbacSvc: rbacSvc}
 }
 
 func (h *UserHandler) RegisterRoutes(rg *gin.RouterGroup) {
@@ -47,11 +50,43 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		mw.RespondValidationError(c, err.Error())
 		return
 	}
+	for _, rid := range req.RoleIDs {
+		rid = strings.TrimSpace(rid)
+		if rid == "" {
+			continue
+		}
+		role, err := h.rbacSvc.GetRoleInTenant(c.Request.Context(), tenantID, rid)
+		if err != nil {
+			mw.RespondError(c, err)
+			return
+		}
+		if role == nil {
+			mw.RespondValidationError(c, "invalid role_id: "+rid)
+			return
+		}
+	}
+
 	resp, err := h.svc.Create(c.Request.Context(), tenantID, req)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
+
+	callerID, _ := c.Get("user_id")
+	caller, _ := callerID.(string)
+	if caller != "" {
+		for _, rid := range req.RoleIDs {
+			rid = strings.TrimSpace(rid)
+			if rid == "" {
+				continue
+			}
+			if _, err := h.rbacSvc.BindRole(c.Request.Context(), tenantID, resp.ID, rid, caller); err != nil {
+				mw.RespondError(c, err)
+				return
+			}
+		}
+	}
+
 	mw.RespondSuccess(c, http.StatusCreated, resp)
 }
 

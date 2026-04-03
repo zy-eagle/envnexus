@@ -74,11 +74,12 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	tenantID, _ := c.Get("tenant_id")
 	mw.RespondSuccess(c, http.StatusOK, gin.H{
 		"user": gin.H{
-			"id":           user.ID,
-			"tenant_id":    user.TenantID,
-			"email":        user.Email,
-			"display_name": user.DisplayName,
-			"status":       user.Status,
+			"id":                     user.ID,
+			"tenant_id":              user.TenantID,
+			"email":                  user.Email,
+			"display_name":           user.DisplayName,
+			"status":                 user.Status,
+			"platform_super_admin":   user.PlatformSuperAdmin,
 		},
 		"tenant_id": tenantID,
 	})

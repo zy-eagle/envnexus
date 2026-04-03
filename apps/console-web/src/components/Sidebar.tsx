@@ -49,7 +49,7 @@ function NavItem({ href, icon, label, active }: { href: string; icon: string; la
 
 export default function Sidebar() {
   const { lang } = useLanguage();
-  const { activeTenantId, activeTenantName, tenants, switchTenant, logout } = useAuth();
+  const { user, myRolesInTenant, tenantId, activeTenantId, activeTenantName, tenants, switchTenant, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [tenantOpen, setTenantOpen] = useState(false);
@@ -181,6 +181,52 @@ export default function Sidebar() {
           </div>
         </div>
       </nav>
+
+      {/* Current user & roles */}
+      {user && (
+        <div className="px-3 py-3 border-t border-slate-100">
+          <div className="px-3 py-2 rounded-lg bg-slate-50/80 border border-slate-100">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{t.myRoles || 'Your roles'}</div>
+            <div className="text-[13px] font-medium text-slate-800 truncate" title={user.email}>
+              {user.display_name || user.email}
+            </div>
+            <div className="text-[11px] text-slate-500 truncate mt-0.5" title={user.email}>
+              {user.email}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1 items-center">
+              {user.platform_super_admin && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                  {t.platformSuperAdmin || 'Platform super admin'}
+                </span>
+              )}
+              {myRolesInTenant.map((r) => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100"
+                >
+                  {r.name}
+                </span>
+              ))}
+            </div>
+            {!user.platform_super_admin && myRolesInTenant.length === 0 && (
+              <p className="text-[11px] text-slate-400 mt-2 leading-snug">
+                {activeTenantId !== tenantId
+                  ? lang === 'zh'
+                    ? '已切换租户：侧边栏角色仅随登录租户（令牌）显示。'
+                    : 'Switched tenant: sidebar roles reflect your login tenant only.'
+                  : lang === 'zh'
+                    ? '当前账号在本租户未绑定角色。'
+                    : 'No roles bound in this tenant.'}
+              </p>
+            )}
+            {user.platform_super_admin && myRolesInTenant.length === 0 && (
+              <p className="text-[11px] text-slate-400 mt-2 leading-snug">
+                {lang === 'zh' ? '在本租户下未绑定具体角色（仍具备全局审批等超管能力）。' : 'No role bindings in this tenant (global approvals still apply).'}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Bottom: Logout */}
       <div className="px-3 py-3 border-t border-slate-100">

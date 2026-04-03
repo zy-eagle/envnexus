@@ -83,6 +83,41 @@ func (s *Service) HasPermission(ctx context.Context, userID, permission string) 
 	return false, nil
 }
 
+// UserHasRoleInTenant reports whether the user has the given role binding in the tenant.
+func (s *Service) UserHasRoleInTenant(ctx context.Context, tenantID, userID, roleID string) (bool, error) {
+	bindings, err := s.bindingRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, b := range bindings {
+		if b != nil && b.TenantID == tenantID && b.RoleID == roleID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ListRoleIDsForUserInTenant returns role IDs bound to the user within the tenant.
+func (s *Service) ListRoleIDsForUserInTenant(ctx context.Context, tenantID, userID string) ([]string, error) {
+	bindings, err := s.bindingRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	seen := make(map[string]struct{})
+	for _, b := range bindings {
+		if b == nil || b.TenantID != tenantID {
+			continue
+		}
+		if _, ok := seen[b.RoleID]; ok {
+			continue
+		}
+		seen[b.RoleID] = struct{}{}
+		ids = append(ids, b.RoleID)
+	}
+	return ids, nil
+}
+
 // ListRoles lists all roles for a tenant.
 func (s *Service) ListRoles(ctx context.Context, tenantID string) ([]*domain.Role, error) {
 	return s.roleRepo.ListByTenant(ctx, tenantID)
@@ -134,6 +169,45 @@ func (s *Service) UpdateRole(ctx context.Context, id string, perms []string) (*d
 // DeleteRole removes a role.
 func (s *Service) DeleteRole(ctx context.Context, id string) error {
 	return s.roleRepo.Delete(ctx, id)
+}
+
+// GetRoleInTenant returns the role if it exists and belongs to the tenant.
+func (s *Service) GetRoleInTenant(ctx context.Context, tenantID, roleID string) (*domain.Role, error) {
+	r, err := s.roleRepo.GetByID(ctx, roleID)
+	if err != nil {
+		return nil, err
+	}
+	if r == nil || r.TenantID != tenantID {
+		return nil, nil
+	}
+	return r, nil
+}
+
+// RoleSummary is a minimal role view for UI.
+type RoleSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListRoleSummariesForUserInTenant returns roles bound to the user within the tenant.
+func (s *Service) ListRoleSummariesForUserInTenant(ctx context.Context, tenantID, userID string) ([]RoleSummary, error) {
+	bindings, err := s.bindingRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	var out []RoleSummary
+	seen := make(map[string]struct{})
+	for _, b := range bindings {
+		if b == nil || b.TenantID != tenantID || b.Role == nil {
+			continue
+		}
+		if _, ok := seen[b.Role.ID]; ok {
+			continue
+		}
+		seen[b.Role.ID] = struct{}{}
+		out = append(out, RoleSummary{ID: b.Role.ID, Name: b.Role.Name})
+	}
+	return out, nil
 }
 
 // BindRole assigns a role to a user.

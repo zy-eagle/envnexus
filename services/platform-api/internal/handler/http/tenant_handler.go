@@ -59,7 +59,14 @@ func (h *TenantHandler) GetTenant(c *gin.Context) {
 }
 
 func (h *TenantHandler) ListTenants(c *gin.Context) {
-	resp, err := h.tenantService.ListTenants(c.Request.Context())
+	userTenantID := c.GetString("tenant_id")
+	super := false
+	if v, ok := c.Get("platform_super_admin"); ok {
+		if b, ok := v.(bool); ok {
+			super = b
+		}
+	}
+	resp, err := h.tenantService.ListTenantsForActor(c.Request.Context(), super, userTenantID)
 	if err != nil {
 		mw.RespondError(c, err)
 		return

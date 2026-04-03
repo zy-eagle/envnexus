@@ -10,10 +10,11 @@ type LoginResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
 	User         struct {
-		ID          string `json:"id"`
-		TenantID    string `json:"tenant_id"`
-		Email       string `json:"email"`
-		DisplayName string `json:"display_name"`
+		ID                   string `json:"id"`
+		TenantID             string `json:"tenant_id"`
+		Email                string `json:"email"`
+		DisplayName          string `json:"display_name"`
+		PlatformSuperAdmin   bool   `json:"platform_super_admin"`
 	} `json:"user"`
 }
 

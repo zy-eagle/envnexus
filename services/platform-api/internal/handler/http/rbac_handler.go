@@ -21,6 +21,8 @@ func NewRBACHandler(svc *rbac.Service) *RBACHandler {
 func (h *RBACHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	tenants := rg.Group("/tenants/:tenantId")
 
+	tenants.GET("/me/roles", h.MyRolesInTenant)
+
 	// Roles
 	tenants.GET("/roles", h.ListRoles)
 	tenants.GET("/permission-catalog", h.PermissionCatalog)
@@ -188,5 +190,32 @@ func (h *RBACHandler) MyPermissions(c *gin.Context) {
 		return
 	}
 	middleware.RespondSuccess(c, http.StatusOK, gin.H{"permissions": perms})
+}
+
+// MyRolesInTenant returns role names for the current user in the tenant (JWT tenant must match URL, unless platform super admin).
+func (h *RBACHandler) MyRolesInTenant(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	jwtTenant, ok := c.Get("tenant_id")
+	super := false
+	if v, ok2 := c.Get("platform_super_admin"); ok2 {
+		if b, ok3 := v.(bool); ok3 {
+			super = b
+		}
+	}
+	if !ok || (jwtTenant.(string) != tenantID && !super) {
+		middleware.RespondErrorCode(c, http.StatusForbidden, "forbidden", "tenant scope mismatch")
+		return
+	}
+	userIDVal, ok := c.Get("user_id")
+	if !ok {
+		middleware.RespondErrorCode(c, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	roles, err := h.svc.ListRoleSummariesForUserInTenant(c.Request.Context(), tenantID, userIDVal.(string))
+	if err != nil {
+		middleware.RespondErrorCode(c, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	middleware.RespondSuccess(c, http.StatusOK, gin.H{"roles": roles})
 }
 
