@@ -8,6 +8,7 @@ import {
   NativeImage,
   dialog,
   shell,
+  safeStorage,
 } from 'electron';
 import * as path from 'path';
 import * as http from 'http';
@@ -15,6 +16,45 @@ import * as https from 'https';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
 import * as url from 'url';
+
+// ── Config encryption (OS-level: DPAPI on Windows, Keychain on macOS, Secret Service on Linux) ──
+
+/**
+ * Read a file that may be either plaintext or encrypted via safeStorage.
+ * Encrypted files start with the "v10" Chromium DPAPI/Keychain prefix
+ * or other binary bytes; plain JSON/TOML starts with '{', '#', or
+ * printable ASCII so we can distinguish them reliably.
+ */
+function readFileDecrypted(filePath: string): string {
+  const raw = fs.readFileSync(filePath);
+  if (raw.length === 0) return '';
+
+  // If safeStorage is available, try to decrypt; if it fails, treat as plaintext
+  if (safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.decryptString(raw);
+    } catch {
+      // Not encrypted (or encrypted with a different key) — treat as plaintext
+    }
+  }
+
+  return raw.toString('utf-8');
+}
+
+function writeFileEncrypted(filePath: string, content: string): void {
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(content);
+    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
+  } else {
+    // Fallback: write plaintext if OS encryption is unavailable
+    fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
+  }
+}
+
+/** Detect files encrypted by agent-core (Go side) — magic prefix "ENX_ENC:". */
+function isAgentCoreEncrypted(buf: Buffer): boolean {
+  return buf.length > 9 && buf.subarray(0, 8).toString('ascii') === 'ENX_ENC:';
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +64,7 @@ interface Settings {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   agentCorePath: string;
   autoStart: boolean;
+  openAtLogin: boolean;
   maxIterations: number;
 }
 
@@ -46,6 +87,7 @@ const DEFAULT_SETTINGS: Settings = {
   logLevel: 'info',
   agentCorePath: '',
   autoStart: true,
+  openAtLogin: false,
   maxIterations: 10,
 };
 
@@ -94,8 +136,9 @@ function loadSettings(): Settings {
   if (cachedSettings) return { ...cachedSettings };
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
-      const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+      const raw = readFileDecrypted(SETTINGS_FILE);
       cachedSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) as Partial<Settings> };
+      migrateSettingsToEncrypted();
       return { ...cachedSettings };
     }
   } catch {
@@ -105,13 +148,38 @@ function loadSettings(): Settings {
   return { ...cachedSettings };
 }
 
+/** If settings.json is still plaintext but OS encryption is available, re-save encrypted. */
+function migrateSettingsToEncrypted(): void {
+  if (!cachedSettings || !safeStorage.isEncryptionAvailable()) return;
+  try {
+    const raw = fs.readFileSync(SETTINGS_FILE);
+    if (raw.length > 0 && raw[0] === 0x7b) {
+      // Starts with '{' — plaintext JSON, re-save as encrypted
+      writeFileEncrypted(SETTINGS_FILE, JSON.stringify(cachedSettings, null, 2));
+      console.log('[settings] Migrated plaintext settings.json to encrypted format');
+    }
+  } catch {
+    // non-critical
+  }
+}
+
 function saveSettings(settings: Settings): void {
   try {
     fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+    writeFileEncrypted(SETTINGS_FILE, JSON.stringify(settings, null, 2));
     cachedSettings = { ...settings };
   } catch (e) {
     console.error('Failed to save settings', e);
+  }
+  syncOpenAtLogin(settings.openAtLogin);
+}
+
+function syncOpenAtLogin(enabled: boolean): void {
+  if (isPortableMode()) return;
+  try {
+    app.setLoginItemSettings({ openAtLogin: enabled });
+  } catch (e) {
+    console.warn('Failed to set login item settings', e);
   }
 }
 
@@ -666,6 +734,8 @@ async function spawnAgentCoreInner(): Promise<void> {
     console.error('Failed to start agent-core:', err);
     agentCoreProcess = null;
   });
+
+  scheduleEarlyHealthCheck();
 }
 
 /**
@@ -1150,11 +1220,16 @@ function buildAppMenu(): void {
         { type: 'separator' },
         {
           label: `${menuText('about')}`,
-          click: () => {
+          click: async () => {
+            let ver = app.getVersion();
+            try {
+              const status = await localAPIRequest('GET', '/local/v1/update/status', undefined, 2000);
+              if (status && status.current_version) ver = status.current_version;
+            } catch { /* agent-core may be offline */ }
             dialog.showMessageBox({
               type: 'info',
               title: menuText('about'),
-              message: `EnvNexus Agent\n${menuText('version')}: ${app.getVersion()}`,
+              message: `EnvNexus Agent\n${menuText('version')}: ${ver}`,
             });
           },
         },
@@ -1556,6 +1631,29 @@ function startHealthPolling(): void {
   }, 10_000);
 }
 
+/**
+ * After spawning agent-core, probe at short intervals so the renderer
+ * transitions from "offline" to "online" quickly instead of waiting
+ * for the next 10-second health-poll tick.
+ */
+function scheduleEarlyHealthCheck(): void {
+  const delays = [2000, 4000, 6000, 8000];
+  for (const ms of delays) {
+    setTimeout(async () => {
+      if (currentStatus === 'online') return;
+      try {
+        await localAPIRequest('GET', '/local/v1/runtime/status', undefined, 3000);
+        if (currentStatus !== 'online') {
+          updateTrayStatus('online');
+          mainWindow?.webContents.send('connection-status', 'online');
+        }
+      } catch {
+        /* agent-core not ready yet, next probe will retry */
+      }
+    }, ms);
+  }
+}
+
 // ── Auto-update ───────────────────────────────────────────────────────────────
 
 function initAutoUpdate(): void {
@@ -1809,6 +1907,11 @@ function compareSemver(a: string, b: string): number {
 
 // ── Read agent.enx config from data dir and bundled locations ─────────────────
 
+/**
+ * Read the agent.enx TOML from bundled + data-dir locations.
+ * Files encrypted by agent-core (magic prefix "ENX_ENC:") are skipped because
+ * the desktop process cannot decrypt them (different OS-level key scope).
+ */
 function readAgentEnxConfig(agentDataDir: string): Record<string, string> {
   const exeDir = path.dirname(app.getPath('exe'));
   const searchPaths = [
@@ -1821,7 +1924,9 @@ function readAgentEnxConfig(agentDataDir: string): Record<string, string> {
   for (const p of searchPaths) {
     try {
       if (!fs.existsSync(p)) continue;
-      const cfg = parseTOMLConfig(fs.readFileSync(p, 'utf-8'));
+      const raw = fs.readFileSync(p);
+      if (isAgentCoreEncrypted(raw)) continue;
+      const cfg = parseTOMLConfig(raw.toString('utf-8'));
       for (const [k, v] of Object.entries(cfg)) {
         if (v && !merged[k]) merged[k] = v;
       }
@@ -1845,7 +1950,9 @@ function syncSettingsFromEnxConfig(): void {
   for (const enxPath of enxPaths) {
     try {
       if (!fs.existsSync(enxPath)) continue;
-      const cfg = parseTOMLConfig(fs.readFileSync(enxPath, 'utf-8'));
+      const raw = fs.readFileSync(enxPath);
+      if (isAgentCoreEncrypted(raw)) continue;
+      const cfg = parseTOMLConfig(raw.toString('utf-8'));
       if (!cfg.platform_url) continue;
 
       const settings = loadSettings();
@@ -1898,29 +2005,34 @@ function importBundledConfig(): void {
   for (const src of enxSearchPaths) {
     try {
       if (!fs.existsSync(src)) continue;
-      const srcCfg = parseTOMLConfig(fs.readFileSync(src, 'utf-8'));
+      const rawSrc = fs.readFileSync(src);
+      if (isAgentCoreEncrypted(rawSrc)) continue;
+      const srcCfg = parseTOMLConfig(rawSrc.toString('utf-8'));
 
       if (!targetExists) {
         fs.mkdirSync(agentDataDir, { recursive: true });
         fs.copyFileSync(src, enxTarget);
         console.log('[config] Imported bundled agent.enx from:', src);
       } else if (fs.existsSync(enxTarget)) {
-        const existingCfg = parseTOMLConfig(fs.readFileSync(enxTarget, 'utf-8'));
-        let merged = false;
-        const mergeKeys = ['enrollment_token', 'ws_url', 'activation_mode', 'activation_key'];
-        for (const key of mergeKeys) {
-          if (srcCfg[key] && !existingCfg[key]) {
-            existingCfg[key] = srcCfg[key];
-            merged = true;
+        const rawExisting = fs.readFileSync(enxTarget);
+        if (!isAgentCoreEncrypted(rawExisting)) {
+          const existingCfg = parseTOMLConfig(rawExisting.toString('utf-8'));
+          let merged = false;
+          const mergeKeys = ['enrollment_token', 'ws_url', 'activation_mode', 'activation_key'];
+          for (const key of mergeKeys) {
+            if (srcCfg[key] && !existingCfg[key]) {
+              existingCfg[key] = srcCfg[key];
+              merged = true;
+            }
           }
-        }
-        if (merged) {
-          const lines = ['# EnvNexus Agent Configuration'];
-          for (const [k, v] of Object.entries(existingCfg)) {
-            lines.push(`${k} = "${v}"`);
+          if (merged) {
+            const lines = ['# EnvNexus Agent Configuration'];
+            for (const [k, v] of Object.entries(existingCfg)) {
+              lines.push(`${k} = "${v}"`);
+            }
+            fs.writeFileSync(enxTarget, lines.join('\n') + '\n', 'utf-8');
+            console.log('[config] Merged missing fields from bundled agent.enx into existing config');
           }
-          fs.writeFileSync(enxTarget, lines.join('\n') + '\n', 'utf-8');
-          console.log('[config] Merged missing fields from bundled agent.enx into existing config');
         }
       }
 
@@ -1999,6 +2111,7 @@ app.whenReady().then(() => {
   initAutoUpdate();
 
   const settings = loadSettings();
+  syncOpenAtLogin(settings.openAtLogin);
   if (settings.autoStart) {
     spawnAgentCore();
   }

@@ -56,6 +56,7 @@ func NewManager(configDir string) *Manager {
 	m.loadFromBundledConfig()
 	m.loadFromExecutable()
 	m.loadFromDisk()
+	m.migrateToEncrypted()
 	slog.Info("[config] Final config loaded",
 		"platform_url", m.config.PlatformURL,
 		"has_enrollment_token", m.config.EnrollmentToken != "",
@@ -138,7 +139,7 @@ func (m *Manager) loadFromDisk() {
 	}
 	// Fallback to legacy JSON
 	path := filepath.Join(m.configDir, "agent_config.json")
-	data, err := os.ReadFile(path)
+	data, err := ReadFileAutoDecrypt(path)
 	if err != nil {
 		return
 	}
@@ -157,7 +158,7 @@ func (m *Manager) loadFromDisk() {
 }
 
 func (m *Manager) tryLoadTOML(path string) bool {
-	data, err := os.ReadFile(path)
+	data, err := ReadFileAutoDecrypt(path)
 	if err != nil {
 		return false
 	}
@@ -177,7 +178,7 @@ func (m *Manager) tryLoadTOML(path string) bool {
 }
 
 func (m *Manager) tryLoadJSON(path string) bool {
-	data, err := os.ReadFile(path)
+	data, err := ReadFileAutoDecrypt(path)
 	if err != nil {
 		return false
 	}
@@ -265,19 +266,34 @@ func (m *Manager) applyPartial(src *AgentConfig) {
 	}
 }
 
-// saveToDisk persists config in TOML (.enx) format.
+// migrateToEncrypted re-saves the config file if it exists on disk as plaintext,
+// so that upgrading from a pre-encryption version automatically encrypts the data.
+func (m *Manager) migrateToEncrypted() {
+	enxPath := filepath.Join(m.configDir, "agent.enx")
+	raw, err := os.ReadFile(enxPath)
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	if IsEncrypted(raw) {
+		return
+	}
+	slog.Info("[config] Migrating plaintext agent.enx to encrypted format", "path", enxPath)
+	m.saveToDisk()
+}
+
+// saveToDisk persists config in encrypted TOML (.enx) format.
 func (m *Manager) saveToDisk() {
-	path := filepath.Join(m.configDir, "agent.enx")
+	enxPath := filepath.Join(m.configDir, "agent.enx")
 	data, err := toml.Marshal(m.config)
 	if err != nil {
 		slog.Error("[config] Failed to marshal config", "error", err)
 		return
 	}
 
-	header := []byte("# EnvNexus Agent Configuration\n# Auto-generated — do not edit manually unless you know what you are doing.\n\n")
 	_ = os.MkdirAll(m.configDir, 0755)
-	if err := os.WriteFile(path, append(header, data...), 0600); err != nil {
-		slog.Error("[config] Failed to save config", "error", err)
+	if err := WriteFileEncrypted(enxPath, data, 0600); err != nil {
+		slog.Error("[config] Failed to save encrypted config", "error", err)
+		return
 	}
 
 	// Clean up legacy JSON config if .enx was written successfully

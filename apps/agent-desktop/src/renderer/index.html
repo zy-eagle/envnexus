@@ -824,11 +824,19 @@
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label" id="label-auto-start">开机自启动 Agent Core</label>
+        <label class="form-label" id="label-auto-start">随应用启动 Agent Core</label>
         <select class="form-select" id="setting-auto-start">
           <option value="true" id="opt-auto-start-on">启用</option>
           <option value="false" id="opt-auto-start-off">禁用</option>
         </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="label-open-at-login">开机自启动</label>
+        <select class="form-select" id="setting-open-at-login">
+          <option value="true" id="opt-open-at-login-on">启用</option>
+          <option value="false" id="opt-open-at-login-off">禁用</option>
+        </select>
+        <div class="form-hint" id="hint-open-at-login">系统启动时自动打开 EnvNexus Agent</div>
       </div>
       <div class="form-group">
         <label class="form-label" id="label-max-iterations">AI 最大工具调用次数</label>
@@ -857,8 +865,7 @@
     <div class="card" style="margin-top:16px;">
       <div class="card-title" id="settings-about-title">关于</div>
       <div id="about-info">
-        <div class="info-row"><span class="info-key" id="label-app-version">应用版本</span><span class="info-value" id="about-version">—</span></div>
-        <div class="info-row"><span class="info-key" id="label-agent-version">Agent Core 版本</span><span class="info-value" id="about-agent-version">—</span></div>
+        <div class="info-row"><span class="info-key" id="label-app-version">版本</span><span class="info-value" id="about-version">—</span></div>
         <div class="info-row"><span class="info-key" id="label-agent-addr">Agent Core 地址</span><span class="info-value">127.0.0.1:17700</span></div>
         <div class="info-row"><span class="info-key" id="label-project-home">项目主页</span>
           <span class="info-value"><a href="#" onclick="openExternal('https://github.com/zy-eagle/envnexus')" style="color:var(--indigo-600); text-decoration:none;">github.com/zy-eagle/envnexus</a></span>
@@ -902,6 +909,8 @@ const i18n = {
     dash_activation_mode: '激活模式', dash_current_session: '当前会话',
     dash_pending: '待审批',
     dash_conn_error: '无法连接到 agent-core：',
+    dash_autostart_off: 'Agent Core 自动启动已关闭，请手动启动或在设置中开启。',
+    dash_start_now: '立即启动',
     diag_title: '智能对话',
     diag_welcome: '👋 你好！我是 EnvNexus 本地 AI 助手。你可以问我任何关于这台机器的问题，我会调用工具获取真实数据来回答。',
     diag_placeholder: '问我任何问题，例如：查看本机 IP、检查磁盘空间、ping 一下 baidu.com...',
@@ -927,7 +936,8 @@ const i18n = {
     settings_title: '设置', settings_general: '常规设置',
     settings_language: '界面语言', settings_platform_url: '平台地址',
     settings_platform_hint: 'EnvNexus 控制台后端地址',
-    settings_log_level: '日志级别', settings_auto_start: '开机自启动 Agent Core',
+    settings_log_level: '日志级别', settings_auto_start: '随应用启动 Agent Core',
+    settings_open_at_login: '开机自启动', settings_open_at_login_hint: '系统启动时自动打开 EnvNexus Agent',
     settings_enabled: '启用', settings_disabled: '禁用',
     settings_agent_binary: 'Agent Core 可执行文件',
     settings_browse: '浏览...',
@@ -938,7 +948,7 @@ const i18n = {
     settings_restarting: '✓ Agent Core 正在重启...',
     settings_restart_error: '✗ 重启失败：',
     settings_exported: '✓ 诊断包已导出', settings_export_error: '✗ 导出失败：',
-    settings_about: '关于', settings_app_version: '应用版本',
+    settings_about: '关于', settings_app_version: '版本',
     settings_agent_addr: 'Agent Core 地址', settings_project_home: '项目主页',
     settings_auto_detect: '自动检测',
     settings_choose_binary_title: '选择 enx-agent 可执行文件',
@@ -991,6 +1001,8 @@ const i18n = {
     dash_activation_mode: 'Activation Mode', dash_current_session: 'Current Session',
     dash_pending: 'Pending',
     dash_conn_error: 'Cannot connect to agent-core: ',
+    dash_autostart_off: 'Agent Core auto-start is disabled. Start it manually or enable in Settings.',
+    dash_start_now: 'Start Now',
     diag_title: 'AI Chat',
     diag_welcome: '👋 Hi! I\'m the EnvNexus local AI assistant. Ask me anything about this machine and I\'ll use tools to get real data for you.',
     diag_placeholder: 'Ask me anything, e.g.: show my IP, check disk space, ping baidu.com...',
@@ -1016,7 +1028,8 @@ const i18n = {
     settings_title: 'Settings', settings_general: 'General',
     settings_language: 'Language', settings_platform_url: 'Platform URL',
     settings_platform_hint: 'EnvNexus console backend address',
-    settings_log_level: 'Log Level', settings_auto_start: 'Auto-start Agent Core',
+    settings_log_level: 'Log Level', settings_auto_start: 'Start Agent Core with app',
+    settings_open_at_login: 'Launch at system startup', settings_open_at_login_hint: 'Automatically open EnvNexus Agent when the system starts',
     settings_enabled: 'Enabled', settings_disabled: 'Disabled',
     settings_agent_binary: 'Agent Core Binary',
     settings_browse: 'Browse...',
@@ -1027,7 +1040,7 @@ const i18n = {
     settings_restarting: '✓ Agent Core is restarting...',
     settings_restart_error: '✗ Restart failed: ',
     settings_exported: '✓ Diagnostics exported', settings_export_error: '✗ Export failed: ',
-    settings_about: 'About', settings_app_version: 'App Version',
+    settings_about: 'About', settings_app_version: 'Version',
     settings_agent_addr: 'Agent Core Address', settings_project_home: 'Project Home',
     settings_auto_detect: 'Auto-detect',
     settings_choose_binary_title: 'Select enx-agent executable',
@@ -1115,6 +1128,10 @@ function applyLanguage(lang) {
   document.getElementById('label-auto-start').textContent = t('settings_auto_start');
   document.getElementById('opt-auto-start-on').textContent = t('settings_enabled');
   document.getElementById('opt-auto-start-off').textContent = t('settings_disabled');
+  document.getElementById('label-open-at-login').textContent = t('settings_open_at_login');
+  document.getElementById('opt-open-at-login-on').textContent = t('settings_enabled');
+  document.getElementById('opt-open-at-login-off').textContent = t('settings_disabled');
+  document.getElementById('hint-open-at-login').textContent = t('settings_open_at_login_hint');
   document.getElementById('label-max-iterations').textContent = t('settings_max_iterations');
   document.getElementById('hint-max-iterations').textContent = t('settings_max_iterations_hint');
   document.getElementById('settings-binary-title').textContent = t('settings_agent_binary');
@@ -1126,7 +1143,6 @@ function applyLanguage(lang) {
   document.getElementById('btn-export-diag').textContent = t('settings_export');
   document.getElementById('settings-about-title').textContent = t('settings_about');
   document.getElementById('label-app-version').textContent = t('settings_app_version');
-  document.getElementById('label-agent-version').textContent = 'Agent Core ' + t('settings_app_version');
   document.getElementById('label-agent-addr').textContent = t('settings_agent_addr');
   document.getElementById('label-project-home').textContent = t('settings_project_home');
   document.getElementById('btn-check-update').textContent = t('update_check');
@@ -1226,7 +1242,29 @@ async function loadDashboard() {
   } catch (e) {
     setStatus('offline');
     document.getElementById('dash-status').textContent = t('dash_not_connected');
-    document.getElementById('status-detail').innerHTML = `<div class="alert alert-error">${t('dash_conn_error')}${e.message || t('unknown_error')}</div>`;
+
+    let hint = '';
+    try {
+      const s = await api.getSettings();
+      if (s && s.autoStart === false) {
+        hint = `<div class="alert alert-warning" style="margin-top:10px">
+          ${t('dash_autostart_off')}
+          <button class="btn btn-primary btn-sm" style="margin-left:12px" onclick="manualStartAgentCore()">${t('dash_start_now')}</button>
+        </div>`;
+      }
+    } catch {}
+
+    document.getElementById('status-detail').innerHTML =
+      `<div class="alert alert-error">${t('dash_conn_error')}${e.message || t('unknown_error')}</div>${hint}`;
+  }
+}
+
+async function manualStartAgentCore() {
+  try {
+    await api.restartAgentCore();
+    setTimeout(loadDashboard, 3000);
+  } catch (e) {
+    document.getElementById('status-detail').innerHTML += `<div class="alert alert-error">${e.message}</div>`;
   }
 }
 
@@ -1589,16 +1627,19 @@ async function loadSettings_() {
     document.getElementById('setting-log-level').value = s.logLevel || 'info';
     document.getElementById('setting-agent-path').value = s.agentCorePath || '';
     document.getElementById('setting-auto-start').value = s.autoStart ? 'true' : 'false';
+    document.getElementById('setting-open-at-login').value = s.openAtLogin ? 'true' : 'false';
     document.getElementById('setting-max-iterations').value = s.maxIterations || 10;
-    const ver = await api.getAppVersion();
-    document.getElementById('about-version').textContent = 'v' + ver;
-
+    let displayVer = '';
     try {
       const updateStatus = await api.getAgentUpdateStatus();
       if (updateStatus && updateStatus.current_version) {
-        document.getElementById('about-agent-version').textContent = 'v' + updateStatus.current_version;
+        displayVer = updateStatus.current_version;
       }
     } catch {}
+    if (!displayVer) {
+      displayVer = await api.getAppVersion();
+    }
+    document.getElementById('about-version').textContent = 'v' + displayVer;
 
     if (api.getDetectedAgentPath) {
       const detected = await api.getDetectedAgentPath();
@@ -1620,6 +1661,7 @@ async function saveSettings() {
     logLevel: document.getElementById('setting-log-level').value,
     agentCorePath: document.getElementById('setting-agent-path').value,
     autoStart: document.getElementById('setting-auto-start').value === 'true',
+    openAtLogin: document.getElementById('setting-open-at-login').value === 'true',
     maxIterations: parseInt(document.getElementById('setting-max-iterations').value, 10) || 10,
   };
 
@@ -1900,7 +1942,13 @@ async function init() {
 }
 
 if (api.onConnectionStatus) {
-  api.onConnectionStatus((status) => setStatus(status));
+  api.onConnectionStatus((status) => {
+    const prev = document.getElementById('offline-alert').style.display !== 'none' ? 'offline' : 'online';
+    setStatus(status);
+    if (status === 'online' && prev === 'offline') {
+      loadDashboard();
+    }
+  });
 }
 
 init();
