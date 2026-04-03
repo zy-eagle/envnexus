@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, APIError } from "@/lib/api/client";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
@@ -16,11 +16,30 @@ interface RoleItem {
   updated_at: string;
 }
 
-function parsePermissions(text: string): string[] {
-  return text
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+function permLabelKey(perm: string): string {
+  return "perm_" + perm.replace(/:/g, "_").replace(/-/g, "_");
+}
+
+const PERM_CATEGORY_ORDER = ["tenants", "users", "roles", "profiles", "devices", "sessions", "approvals", "audit", "packages", "webhooks", "metrics", "licenses", "command", "other"];
+
+function groupPermissions(perms: string[]): Record<string, string[]> {
+  const m: Record<string, string[]> = {};
+  for (const p of perms) {
+    const prefix = p.includes(":") ? p.slice(0, p.indexOf(":")) : "other";
+    if (!m[prefix]) m[prefix] = [];
+    m[prefix].push(p);
+  }
+  for (const k of Object.keys(m)) {
+    m[k].sort((a, b) => a.localeCompare(b));
+  }
+  return m;
+}
+
+function orderedGroupKeys(grouped: Record<string, string[]>): string[] {
+  const keys = Object.keys(grouped);
+  const ordered = PERM_CATEGORY_ORDER.filter((k) => keys.includes(k));
+  const rest = keys.filter((k) => !PERM_CATEGORY_ORDER.includes(k)).sort();
+  return [...ordered, ...rest];
 }
 
 export default function TenantRolesPage() {
@@ -35,12 +54,41 @@ export default function TenantRolesPage() {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const [permissionCatalog, setPermissionCatalog] = useState<string[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<RoleItem | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", permissionsText: "" });
+  const [form, setForm] = useState({ name: "" });
+  const [selectedPerms, setSelectedPerms] = useState<string[]>([]);
 
   const title = useMemo(() => (editing ? t.editTitle : t.createTitle), [editing, t]);
+
+  const catalogSet = useMemo(() => new Set(permissionCatalog), [permissionCatalog]);
+  const groupedCatalog = useMemo(() => groupPermissions(permissionCatalog), [permissionCatalog]);
+  const catalogPrefixOrder = useMemo(() => orderedGroupKeys(groupedCatalog), [groupedCatalog]);
+  const extraPerms = useMemo(
+    () => selectedPerms.filter((p) => !catalogSet.has(p)).sort((a, b) => a.localeCompare(b)),
+    [selectedPerms, catalogSet],
+  );
+
+  const fetchPermissionCatalog = useCallback(async () => {
+    if (!tenantId) return;
+    setCatalogError(null);
+    try {
+      const data = await api.get<{ permissions?: string[] }>(`/tenants/${tenantId}/permission-catalog`);
+      const list = Array.isArray(data?.permissions) ? data.permissions : [];
+      setPermissionCatalog(list);
+      setCatalogLoaded(true);
+    } catch (e) {
+      console.error("Failed to load permission catalog:", e);
+      setCatalogError(t.catalogLoadFailed);
+      setCatalogLoaded(true);
+      setPermissionCatalog([]);
+    }
+  }, [tenantId, t.catalogLoadFailed]);
 
   const fetchRoles = async (q: string) => {
     if (!tenantId) return;
@@ -63,15 +111,43 @@ export default function TenantRolesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, query]);
 
+  useEffect(() => {
+    if (modalOpen && tenantId) {
+      fetchPermissionCatalog();
+    }
+  }, [modalOpen, tenantId, fetchPermissionCatalog]);
+
+  const permDescription = (perm: string): string => {
+    const key = permLabelKey(perm) as keyof typeof t;
+    const label = (t as Record<string, string | undefined>)[key];
+    return label && label !== key ? label : perm;
+  };
+
+  const togglePerm = (perm: string) => {
+    setSelectedPerms((prev) =>
+      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm].sort((a, b) => a.localeCompare(b)),
+    );
+  };
+
+  const selectAllCatalog = () => {
+    const s = new Set(selectedPerms);
+    permissionCatalog.forEach((p) => s.add(p));
+    setSelectedPerms([...s].sort((a, b) => a.localeCompare(b)));
+  };
+
+  const clearAllSelected = () => setSelectedPerms([]);
+
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", permissionsText: "" });
+    setForm({ name: "" });
+    setSelectedPerms([]);
     setModalOpen(true);
   };
 
   const openEdit = (r: RoleItem) => {
     setEditing(r);
-    setForm({ name: r.name, permissionsText: (r.permissions || []).join("\n") });
+    setForm({ name: r.name });
+    setSelectedPerms([...(r.permissions || [])].sort((a, b) => a.localeCompare(b)));
     setModalOpen(true);
   };
 
@@ -80,7 +156,7 @@ export default function TenantRolesPage() {
     setSaving(true);
     setError(null);
     try {
-      const permissions = parsePermissions(form.permissionsText);
+      const permissions = [...selectedPerms];
       if (editing) {
         await api.put(`/tenants/${tenantId}/roles/${editing.id}`, { permissions });
       } else {
@@ -181,10 +257,12 @@ export default function TenantRolesPage() {
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-xl font-semibold mb-5">{title}</h2>
-            <div className="space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-slate-100 shrink-0">
+              <h2 className="text-xl font-semibold">{title}</h2>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">{t.name}</label>
                 <input
@@ -194,21 +272,85 @@ export default function TenantRolesPage() {
                   className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-50"
                 />
               </div>
+
               <div>
-                <div className="flex items-baseline justify-between">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">{t.permissions}</label>
-                  <span className="text-xs text-slate-400">{t.permissionsHint}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <label className="block text-sm font-medium text-slate-700">{t.permissions}</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllCatalog}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                      disabled={!catalogLoaded || permissionCatalog.length === 0}
+                    >
+                      {t.selectAllPermissions}
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button type="button" onClick={clearAllSelected} className="text-xs text-slate-600 hover:text-slate-900">
+                      {t.clearPermissions}
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  rows={8}
-                  value={form.permissionsText}
-                  onChange={(e) => setForm({ ...form, permissionsText: e.target.value })}
-                  className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 font-mono"
-                />
+                <p className="text-xs text-slate-500 mb-3">{t.permissionPickerHint}</p>
+
+                {catalogError && <div className="mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">{catalogError}</div>}
+
+                {!catalogLoaded ? (
+                  <div className="text-sm text-slate-500 py-4">{ct.loading}</div>
+                ) : permissionCatalog.length === 0 && !catalogError ? (
+                  <div className="text-sm text-slate-500 py-4">{t.catalogLoadFailed}</div>
+                ) : (
+                  <div className="border border-slate-200 rounded-md divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                    {catalogPrefixOrder.map((prefix) => (
+                        <div key={prefix} className="p-3">
+                          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">{prefix}</div>
+                          <ul className="space-y-2">
+                            {groupedCatalog[prefix].map((perm) => (
+                              <li key={perm} className="flex items-start gap-2">
+                                <input
+                                  type="checkbox"
+                                  id={`perm-${perm}`}
+                                  checked={selectedPerms.includes(perm)}
+                                  onChange={() => togglePerm(perm)}
+                                  className="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <label htmlFor={`perm-${perm}`} className="text-sm text-slate-800 cursor-pointer select-none">
+                                  <span className="font-mono text-xs text-slate-600">{perm}</span>
+                                  <span className="block text-slate-700">{permDescription(perm)}</span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                {extraPerms.length > 0 && (
+                  <div className="mt-4">
+                    <div className="text-xs font-semibold text-amber-800 mb-2">{t.extraPermissions}</div>
+                    <ul className="space-y-2 border border-amber-200 rounded-md p-3 bg-amber-50/50">
+                      {extraPerms.map((perm) => (
+                        <li key={perm} className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            id={`perm-extra-${perm}`}
+                            checked={selectedPerms.includes(perm)}
+                            onChange={() => togglePerm(perm)}
+                            className="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <label htmlFor={`perm-extra-${perm}`} className="text-sm cursor-pointer font-mono break-all">
+                            {perm}
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-6">
+            <div className="flex justify-end gap-3 p-6 border-t border-slate-100 shrink-0">
               <button
                 onClick={() => setModalOpen(false)}
                 className="px-4 py-2 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50"
@@ -219,7 +361,7 @@ export default function TenantRolesPage() {
               <button
                 onClick={save}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                disabled={saving}
+                disabled={saving || (!editing && !form.name.trim())}
               >
                 {saving ? ct.loading : ct.save}
               </button>
@@ -230,4 +372,3 @@ export default function TenantRolesPage() {
     </div>
   );
 }
-

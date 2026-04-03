@@ -564,6 +564,7 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
               {/* Priority */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.priority}</label>
+                <p className="text-xs text-gray-500 mb-1">{t.priorityHint}</p>
                 <input
                   type="number"
                   min={0}

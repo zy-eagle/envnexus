@@ -3,6 +3,7 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -108,6 +109,7 @@ func (h *CommandTaskHandler) ListTasks(c *gin.Context) {
 		Status:    c.Query("status"),
 		CreatedBy: c.Query("created_by"),
 		RiskLevel: c.Query("risk_level"),
+		IncludeArchived: strings.EqualFold(c.Query("include_archived"), "true") || c.Query("include_archived") == "1",
 	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))

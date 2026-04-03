@@ -45,6 +45,7 @@ type CommandTask struct {
 	ExpiresAt         time.Time         `json:"expires_at"        gorm:"not null"`
 	ApprovedAt        *time.Time        `json:"approved_at"`
 	CompletedAt       *time.Time        `json:"completed_at"`
+	ArchivedAt       *time.Time        `json:"archived_at"`
 	CreatedAt         time.Time         `json:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at"`
 }

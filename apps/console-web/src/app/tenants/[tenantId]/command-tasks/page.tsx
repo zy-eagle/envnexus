@@ -4,8 +4,14 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useDict } from "@/lib/i18n/dictionary";
-import { api } from "@/lib/api/client";
+import { api, APIError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+
+function apiErrMessage(err: unknown, fallback: string): string {
+  if (err instanceof APIError) return err.message || fallback;
+  if (err instanceof Error) return err.message || fallback;
+  return fallback;
+}
 
 interface CommandTask {
   id: string;
@@ -145,6 +151,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [nlInput, setNlInput] = useState("");
   const [nlGenerating, setNlGenerating] = useState(false);
   const [nlError, setNlError] = useState("");
+  const [nlMustSucceed, setNlMustSucceed] = useState(false);
   const [nlElapsed, setNlElapsed] = useState(0);
   const nlTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -153,6 +160,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
 
   const [approvalNote, setApprovalNote] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [approvalFlowError, setApprovalFlowError] = useState("");
 
   const TOOL_CATALOG: {
     name: string;
@@ -337,31 +345,46 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     if (!nlInput.trim()) return;
     setNlGenerating(true);
     setNlError("");
+    setNlMustSucceed(true);
     setNlElapsed(0);
     nlTimerRef.current = setInterval(() => setNlElapsed((s) => s + 1), 1000);
     try {
       const data = await api.post<{ command: string; risk_level?: string; title?: string }>(
         `/tenants/${tenantId}/command-tasks/generate`,
-        { prompt: nlInput }
+        { prompt: nlInput },
+        { timeoutMs: 5 * 60 * 1000 }
       );
       if (data && data.command) {
         setFormCommandPayload(data.command);
+        setNlError("");
       } else {
-        setFormCommandPayload(nlInput);
-        setNlError(lang === "zh" ? "AI 返回了空命令，已使用原始描述作为替代" : "AI returned empty command, using raw description as fallback");
+        // Do NOT fall back to NL text as a runnable command. Block submission until fixed.
+        setNlError(lang === "zh" ? "AI 返回了空命令：请重试生成，或清空自然语言后手动填写可执行命令" : "AI returned empty command: retry generation, or clear NL and enter a runnable command manually");
       }
       if (data?.risk_level) setFormRiskLevel(data.risk_level);
       if (data?.title && !formTitle) setFormTitle(data.title);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[nl-gen] Generate failed:", err);
+      if (err instanceof APIError) {
+        setNlError(err.message);
+        return;
+      }
       let msg: string;
-      if (err instanceof TypeError || err?.name === "TypeError") {
+      if (err instanceof Error && err.name === "AbortError") {
+        msg =
+          lang === "zh"
+            ? "等待模型响应超过 5 分钟已中止，请稍后重试或换用更快的模型"
+            : "Aborted after waiting 5 minutes for the model; retry or use a faster endpoint";
+      } else if (err instanceof TypeError) {
         msg = lang === "zh" ? "网络连接超时，请检查服务端是否正常运行" : "Network timeout, check if server is running";
       } else {
-        msg = err?.message || (lang === "zh" ? "生成失败" : "Generation failed");
+        msg = err instanceof Error ? err.message : lang === "zh" ? "生成失败" : "Generation failed";
       }
-      setNlError(lang === "zh" ? `命令生成失败: ${msg}` : `Command generation failed: ${msg}`);
-      setFormCommandPayload(nlInput);
+      setNlError(
+        lang === "zh"
+          ? `命令生成失败: ${msg}（请重试生成，或清空自然语言后手动填写可执行命令）`
+          : `Command generation failed: ${msg} (retry generation, or clear NL and enter a runnable command manually)`
+      );
     } finally {
       if (nlTimerRef.current) { clearInterval(nlTimerRef.current); nlTimerRef.current = null; }
       setNlGenerating(false);
@@ -431,6 +454,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
 
   const fetchDetail = async (id: string) => {
     setDetailLoading(true);
+    setApprovalFlowError("");
     try {
       const data = await api.get<TaskDetail>(
         `/tenants/${tenantId}/command-tasks/${id}`
@@ -469,6 +493,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setFormBypassReason("");
     setNlInput("");
     setNlError("");
+    setNlMustSucceed(false);
     setFormToolName("");
     setFormToolParams({});
     setEditingTaskId(null);
@@ -498,12 +523,18 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setFormBypassReason(task.bypass_reason || "");
     setNlInput("");
     setNlError("");
+    setNlMustSucceed(false);
     setFormToolName("");
     setFormToolParams({});
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    // If user used NL input, generation must succeed; do not allow NL text to be dispatched as a command.
+    if (formCommandType === "shell" && nlMustSucceed && nlInput.trim() && formCommandPayload.trim() === nlInput.trim()) {
+      setNlError(lang === "zh" ? "自然语言不能直接下发到设备。请先生成成功，或清空自然语言并手动填写可执行命令。" : "Natural language cannot be dispatched. Generate a command successfully, or clear NL and enter a runnable command.");
+      return;
+    }
     setSubmitting(true);
     const payload = formCommandType === "tool" ? buildToolPayload() : formCommandPayload;
     const riskForTool = formCommandType === "tool" && selectedToolDef ? selectedToolDef.riskLevel : formRiskLevel;
@@ -536,7 +567,13 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   };
 
   const handleDelete = async (taskId: string) => {
-    if (!window.confirm(lang === "zh" ? "确定删除该任务？此操作不可恢复。" : "Delete this task? This cannot be undone.")) {
+    if (
+      !window.confirm(
+        lang === "zh"
+          ? "确定删除/归档该任务？\n- 未执行的任务会被彻底删除\n- 已执行/已失败/已完成的任务会被归档并从列表隐藏"
+          : "Delete/Archive this task?\n- Unexecuted tasks will be permanently deleted\n- Executed/failed/completed tasks will be archived and hidden from the default list"
+      )
+    ) {
       return;
     }
     setActionLoading(true);
@@ -553,6 +590,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
 
   const handleApprove = async (taskId: string) => {
     setActionLoading(true);
+    setApprovalFlowError("");
     try {
       await api.post(`/tenants/${tenantId}/command-tasks/${taskId}/approve`, {
         note: approvalNote,
@@ -562,6 +600,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       fetchTasks();
     } catch (error) {
       console.error("Failed to approve task:", error);
+      setApprovalFlowError(
+        apiErrMessage(error, lang === "zh" ? "审批失败" : "Approval failed")
+      );
     } finally {
       setActionLoading(false);
     }
@@ -569,15 +610,19 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
 
   const handleDeny = async (taskId: string) => {
     setActionLoading(true);
+    setApprovalFlowError("");
     try {
       await api.post(`/tenants/${tenantId}/command-tasks/${taskId}/deny`, {
-        note: approvalNote,
+        reason: approvalNote,
       });
       setApprovalNote("");
       if (selectedTask?.id === taskId) await fetchDetail(taskId);
       fetchTasks();
     } catch (error) {
       console.error("Failed to deny task:", error);
+      setApprovalFlowError(
+        apiErrMessage(error, lang === "zh" ? "拒绝失败" : "Deny failed")
+      );
     } finally {
       setActionLoading(false);
     }
@@ -637,11 +682,28 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     return (
       <div className="space-y-6">
         <button
-          onClick={() => setSelectedTask(null)}
+          onClick={() => {
+            setSelectedTask(null);
+            setApprovalFlowError("");
+          }}
           className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
         >
           ← {ct.back}
         </button>
+
+        {approvalFlowError && (
+          <div className="flex items-start justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <span>{approvalFlowError}</span>
+            <button
+              type="button"
+              onClick={() => setApprovalFlowError("")}
+              className="shrink-0 text-red-600 hover:text-red-900"
+              aria-label={ct.close}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
           <div className="flex items-start justify-between">
@@ -668,7 +730,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
               </div>
             </div>
 
-            {isPending && (
+            {(isCreator || (!isCreator && isPending)) && (
               <div className="flex items-center gap-2">
                 {isCreator && (
                   <button
@@ -679,7 +741,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                     {ct.edit || (lang === "zh" ? "编辑" : "Edit")}
                   </button>
                 )}
-                {isCreator && (
+                {isCreator && isPending && (
                   <button
                     onClick={() => handleCancel(task.id)}
                     disabled={actionLoading}
@@ -694,7 +756,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                     disabled={actionLoading}
                     className="px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50"
                   >
-                    {ct.delete || (lang === "zh" ? "删除" : "Delete")}
+                    {lang === "zh" ? "删除/归档" : "Delete/Archive"}
                   </button>
                 )}
               </div>
@@ -893,6 +955,20 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   // ── List View ──
   return (
     <div className="space-y-6">
+      {approvalFlowError && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <span>{approvalFlowError}</span>
+          <button
+            type="button"
+            onClick={() => setApprovalFlowError("")}
+            className="shrink-0 text-red-600 hover:text-red-900"
+            aria-label={ct.close}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900">
@@ -1053,6 +1129,15 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                             {ct.cancel}
                           </button>
                         )}
+                        {isCreator && !isPending && (
+                          <button
+                            onClick={() => handleDelete(task.id)}
+                            disabled={actionLoading}
+                            className="text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                          >
+                            {lang === "zh" ? "归档" : "Archive"}
+                          </button>
+                        )}
                         {isPending && !isCreator && (
                           <div className="flex items-center justify-end gap-2">
                             <button
@@ -1162,6 +1247,13 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                         {(t as any).nlGenerate}
                       </button>
                     </div>
+                    {nlMustSucceed && nlInput.trim() && formCommandPayload.trim() === nlInput.trim() && (
+                      <p className="mt-1 text-xs text-amber-600">
+                        {lang === "zh"
+                          ? "提示：当前“命令内容”与自然语言相同，无法下发。请点击“生成命令”成功后再提交，或清空自然语言后手动填写命令。"
+                          : "Note: command content equals the NL prompt and cannot be dispatched. Generate successfully or clear NL and enter a command."}
+                      </p>
+                    )}
                     {nlGenerating ? (
                       <p className="mt-1 text-xs text-indigo-500 animate-pulse">
                         {lang === "zh" ? `AI 正在生成命令... ${nlElapsed}s` : `AI generating command... ${nlElapsed}s`}
@@ -1423,6 +1515,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                     submitting ||
                     formDeviceIds.length === 0 ||
                     (formCommandType === "shell" && !formCommandPayload.trim()) ||
+                    (formCommandType === "shell" && nlMustSucceed && nlInput.trim() && formCommandPayload.trim() === nlInput.trim()) ||
                     (formCommandType === "tool" && !formToolName)
                   }
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"

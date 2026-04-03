@@ -271,33 +271,43 @@ func (s *Service) DeleteTask(ctx context.Context, tenantID, userID, taskID strin
 	if task.CreatedByUserID != userID {
 		return domain.ErrInsufficientPermission
 	}
-	// Only allow deleting tasks that haven't been executed yet.
-	if task.Status != domain.CommandTaskPendingApproval && task.Status != domain.CommandTaskDenied && task.Status != domain.CommandTaskCancelled {
-		return domain.ErrCommandTaskInvalidState
+	// B-mode: hard delete only when the task has not been executed; otherwise archive (hide from default list).
+	if task.Status == domain.CommandTaskPendingApproval || task.Status == domain.CommandTaskDenied || task.Status == domain.CommandTaskCancelled {
+		if err := s.execRepo.DeleteByTaskID(ctx, task.ID); err != nil {
+			return fmt.Errorf("delete executions: %w", err)
+		}
+		if err := s.taskRepo.Delete(ctx, task.ID); err != nil {
+			return err
+		}
+		s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_deleted", map[string]interface{}{
+			"status": string(task.Status),
+		})
+		return nil
 	}
 
-	if err := s.execRepo.DeleteByTaskID(ctx, task.ID); err != nil {
-		return fmt.Errorf("delete executions: %w", err)
+	if task.ArchivedAt == nil {
+		now := time.Now()
+		task.ArchivedAt = &now
+		if err := s.taskRepo.Update(ctx, task); err != nil {
+			return err
+		}
+		s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_archived", map[string]interface{}{
+			"status": string(task.Status),
+		})
 	}
-	if err := s.taskRepo.Delete(ctx, task.ID); err != nil {
-		return err
-	}
-	s.recordAudit(ctx, tenantID, task.ID, userID, "command.task_deleted", map[string]interface{}{
-		"status": string(task.Status),
-	})
 	return nil
 }
 
 func (s *Service) shouldBypassApproval(ctx context.Context, tenantID, userID string, req dto.CreateCommandTaskRequest, effectiveRisk string, policy *domain.ApprovalPolicy) bool {
 	if req.Emergency {
 		if s.rbacService != nil {
-			has, _ := s.rbacService.HasPermission(ctx, userID, "command:emergency")
+			has, _ := s.rbacService.HasPermission(ctx, userID, domain.PermCommandEmergency)
 			return has
 		}
 		return false
 	}
 	if s.rbacService != nil {
-		has, _ := s.rbacService.HasPermission(ctx, userID, "command:bypass_approval")
+		has, _ := s.rbacService.HasPermission(ctx, userID, domain.PermCommandBypassApproval)
 		if has {
 			return true
 		}
@@ -610,6 +620,7 @@ func (s *Service) taskToResponse(ctx context.Context, task *domain.CommandTask) 
 		ExpiresAt:      task.ExpiresAt,
 		ApprovedAt:     task.ApprovedAt,
 		CompletedAt:    task.CompletedAt,
+		ArchivedAt:     task.ArchivedAt,
 		CreatedAt:      task.CreatedAt,
 		UpdatedAt:      task.UpdatedAt,
 	}

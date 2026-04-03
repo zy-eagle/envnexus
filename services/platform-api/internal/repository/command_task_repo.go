@@ -11,6 +11,7 @@ type CommandTaskFilters struct {
 	CreatedBy  string
 	ApproverID string
 	RiskLevel  string
+	IncludeArchived bool
 }
 
 type CommandTaskRepository interface {

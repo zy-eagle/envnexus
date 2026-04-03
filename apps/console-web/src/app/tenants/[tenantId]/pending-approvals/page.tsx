@@ -3,7 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
-import { api } from '@/lib/api/client';
+import { api, APIError } from '@/lib/api/client';
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof APIError) return err.message || fallback;
+  if (err instanceof Error) return err.message || fallback;
+  return fallback;
+}
 
 interface CommandTask {
   id: string;
@@ -86,6 +92,8 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
   const [denyModal, setDenyModal] = useState<CommandTask | null>(null);
   const [denyReason, setDenyReason] = useState('');
   const [denying, setDenying] = useState(false);
+  const [approveError, setApproveError] = useState('');
+  const [denyError, setDenyError] = useState('');
 
   const [detailModal, setDetailModal] = useState<CommandTask | null>(null);
 
@@ -116,6 +124,7 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
   const handleApprove = async () => {
     if (!approveModal) return;
     setApproving(true);
+    setApproveError('');
     try {
       await api.post(`/tenants/${tenantId}/command-tasks/${approveModal.id}/approve`, { note: approveNote });
       setApproveModal(null);
@@ -123,6 +132,7 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
       fetchTasks();
     } catch (error) {
       console.error('Failed to approve task:', error);
+      setApproveError(errorMessage(error, t.actionFailed));
     } finally {
       setApproving(false);
     }
@@ -131,6 +141,7 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
   const handleDeny = async () => {
     if (!denyModal) return;
     setDenying(true);
+    setDenyError('');
     try {
       await api.post(`/tenants/${tenantId}/command-tasks/${denyModal.id}/deny`, { reason: denyReason });
       setDenyModal(null);
@@ -138,6 +149,7 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
       fetchTasks();
     } catch (error) {
       console.error('Failed to deny task:', error);
+      setDenyError(errorMessage(error, t.actionFailed));
     } finally {
       setDenying(false);
     }
@@ -227,13 +239,13 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
                   {/* Action buttons */}
                   <div className="ml-4 flex-shrink-0 flex items-center space-x-2">
                     <button
-                      onClick={() => setApproveModal(task)}
+                      onClick={() => { setApproveError(''); setDenyError(''); setApproveModal(task); }}
                       className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                     >
                       {t.approve}
                     </button>
                     <button
-                      onClick={() => setDenyModal(task)}
+                      onClick={() => { setApproveError(''); setDenyError(''); setDenyModal(task); }}
                       className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                     >
                       {t.deny}
@@ -283,10 +295,16 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-green-500 focus:border-green-500"
             />
 
+            {approveError && (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {approveError}
+              </div>
+            )}
+
             <div className="flex justify-end space-x-3 mt-5">
               <button
                 type="button"
-                onClick={() => { setApproveModal(null); setApproveNote(''); }}
+                onClick={() => { setApproveModal(null); setApproveNote(''); setApproveError(''); }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm hover:bg-gray-50"
               >
                 {ct.cancel}
@@ -335,10 +353,16 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-red-500 focus:border-red-500"
             />
 
+            {denyError && (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {denyError}
+              </div>
+            )}
+
             <div className="flex justify-end space-x-3 mt-5">
               <button
                 type="button"
-                onClick={() => { setDenyModal(null); setDenyReason(''); }}
+                onClick={() => { setDenyModal(null); setDenyReason(''); setDenyError(''); }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm hover:bg-gray-50"
               >
                 {ct.cancel}
@@ -450,13 +474,13 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
 
             <div className="flex justify-end space-x-3 mt-5 pt-4 border-t border-gray-200">
               <button
-                onClick={() => { setDetailModal(null); setApproveModal(detailModal); }}
+                onClick={() => { setApproveError(''); setDenyError(''); setDetailModal(null); setApproveModal(detailModal); }}
                 className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700"
               >
                 {t.approve}
               </button>
               <button
-                onClick={() => { setDetailModal(null); setDenyModal(detailModal); }}
+                onClick={() => { setApproveError(''); setDenyError(''); setDetailModal(null); setDenyModal(detailModal); }}
                 className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700"
               >
                 {t.deny}

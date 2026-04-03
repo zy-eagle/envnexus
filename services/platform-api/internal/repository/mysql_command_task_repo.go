@@ -43,6 +43,9 @@ func (r *MySQLCommandTaskRepository) Delete(ctx context.Context, id string) erro
 
 func (r *MySQLCommandTaskRepository) ListByTenant(ctx context.Context, tenantID string, filters CommandTaskFilters, limit, offset int) ([]*domain.CommandTask, int64, error) {
 	query := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
+	if !filters.IncludeArchived {
+		query = query.Where("archived_at IS NULL")
+	}
 	if filters.Status != "" {
 		query = query.Where("status = ?", filters.Status)
 	}
@@ -65,7 +68,7 @@ func (r *MySQLCommandTaskRepository) ListByTenant(ctx context.Context, tenantID 
 func (r *MySQLCommandTaskRepository) ListPendingByApprover(ctx context.Context, tenantID, approverUserID string) ([]*domain.CommandTask, error) {
 	var tasks []*domain.CommandTask
 	err := r.db.WithContext(ctx).
-		Where("tenant_id = ? AND approver_user_id = ? AND status = ?", tenantID, approverUserID, domain.CommandTaskPendingApproval).
+		Where("tenant_id = ? AND approver_user_id = ? AND status = ? AND archived_at IS NULL", tenantID, approverUserID, domain.CommandTaskPendingApproval).
 		Order("created_at DESC").Find(&tasks).Error
 	return tasks, err
 }
@@ -73,7 +76,7 @@ func (r *MySQLCommandTaskRepository) ListPendingByApprover(ctx context.Context, 
 func (r *MySQLCommandTaskRepository) ListPendingByApproverRole(ctx context.Context, tenantID, roleID string) ([]*domain.CommandTask, error) {
 	var tasks []*domain.CommandTask
 	err := r.db.WithContext(ctx).
-		Where("tenant_id = ? AND approver_role_id = ? AND status = ?", tenantID, roleID, domain.CommandTaskPendingApproval).
+		Where("tenant_id = ? AND approver_role_id = ? AND status = ? AND archived_at IS NULL", tenantID, roleID, domain.CommandTaskPendingApproval).
 		Order("created_at DESC").Find(&tasks).Error
 	return tasks, err
 }
@@ -81,7 +84,7 @@ func (r *MySQLCommandTaskRepository) ListPendingByApproverRole(ctx context.Conte
 func (r *MySQLCommandTaskRepository) CountPendingByApprover(ctx context.Context, tenantID, approverUserID string) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&domain.CommandTask{}).
-		Where("tenant_id = ? AND approver_user_id = ? AND status = ?", tenantID, approverUserID, domain.CommandTaskPendingApproval).
+		Where("tenant_id = ? AND approver_user_id = ? AND status = ? AND archived_at IS NULL", tenantID, approverUserID, domain.CommandTaskPendingApproval).
 		Count(&count).Error
 	return count, err
 }
@@ -89,7 +92,7 @@ func (r *MySQLCommandTaskRepository) CountPendingByApprover(ctx context.Context,
 func (r *MySQLCommandTaskRepository) ListExpired(ctx context.Context) ([]*domain.CommandTask, error) {
 	var tasks []*domain.CommandTask
 	err := r.db.WithContext(ctx).
-		Where("status = ? AND expires_at < ?", domain.CommandTaskPendingApproval, time.Now()).
+		Where("status = ? AND expires_at < ? AND archived_at IS NULL", domain.CommandTaskPendingApproval, time.Now()).
 		Find(&tasks).Error
 	return tasks, err
 }

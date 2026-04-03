@@ -62,6 +62,7 @@ type CommandTaskResponse struct {
 	ExpiresAt      time.Time                  `json:"expires_at"`
 	ApprovedAt     *time.Time                 `json:"approved_at"`
 	CompletedAt    *time.Time                 `json:"completed_at"`
+	ArchivedAt     *time.Time                 `json:"archived_at,omitempty"`
 	CreatedAt      time.Time                  `json:"created_at"`
 	UpdatedAt      time.Time                  `json:"updated_at"`
 	Executions     []CommandExecutionResponse `json:"executions,omitempty"`

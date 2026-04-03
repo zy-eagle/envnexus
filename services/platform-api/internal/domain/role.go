@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"sort"
 	"time"
 )
 
@@ -33,7 +34,33 @@ const (
 	PermManageWebhooks       = "webhooks:manage"
 	PermViewMetrics          = "metrics:view"
 	PermManageLicenses       = "licenses:manage"
+	PermCommandEmergency     = "command:emergency"
+	PermCommandBypassApproval = "command:bypass_approval"
 )
+
+// assignablePermissions is the canonical list for role UIs (tenant-scoped roles).
+var assignablePermissions = []string{
+	PermViewTenants, PermManageTenants,
+	PermManageUsers, PermManageRoles,
+	PermManageProfiles, PermViewProfiles,
+	PermManageDevices, PermViewDevices, PermRevokeDevices,
+	PermManageSessions, PermViewSessions,
+	PermApproveActions,
+	PermViewAudit,
+	PermManagePackages, PermManageWebhooks,
+	PermViewMetrics, PermManageLicenses,
+	PermCommandEmergency,
+	PermCommandBypassApproval,
+}
+
+// AssignablePermissions returns every permission that may be granted on a tenant role,
+// sorted lexicographically for stable UI ordering.
+func AssignablePermissions() []string {
+	out := make([]string, len(assignablePermissions))
+	copy(out, assignablePermissions)
+	sort.Strings(out)
+	return out
+}
 
 // DefaultRolePermissions maps role name → permissions slice
 var DefaultRolePermissions = map[string][]string{

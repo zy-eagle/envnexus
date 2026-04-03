@@ -23,6 +23,7 @@ func (h *RBACHandler) RegisterRoutes(rg *gin.RouterGroup) {
 
 	// Roles
 	tenants.GET("/roles", h.ListRoles)
+	tenants.GET("/permission-catalog", h.PermissionCatalog)
 	tenants.POST("/roles", h.CreateRole)
 	tenants.PUT("/roles/:roleId", h.UpdateRole)
 	tenants.DELETE("/roles/:roleId", h.DeleteRole)
@@ -34,6 +35,12 @@ func (h *RBACHandler) RegisterRoutes(rg *gin.RouterGroup) {
 
 	// My permissions
 	rg.GET("/me/permissions", h.MyPermissions)
+}
+
+func (h *RBACHandler) PermissionCatalog(c *gin.Context) {
+	middleware.RespondSuccess(c, http.StatusOK, gin.H{
+		"permissions": domain.AssignablePermissions(),
+	})
 }
 
 func (h *RBACHandler) ListRoles(c *gin.Context) {
