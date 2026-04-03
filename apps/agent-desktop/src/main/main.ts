@@ -37,6 +37,8 @@ let agentCoreLogs: string[] = [];
 const MAX_LOG_LINES = 2000;
 let lastSpawnTime = 0;
 const MIN_SPAWN_INTERVAL_MS = 3000;
+/** Set from POST /local/v1/update/apply so we spawn the same path os.Executable() used (avoids Windows heuristic drift). */
+let postApplyEnxAgentPath: string | null = null;
 
 const DEFAULT_SETTINGS: Settings = {
   language: 'zh',
@@ -179,6 +181,8 @@ function platformAPIRequest(endpoint: string, token: string): Promise<any> {
 // ── Agent Core process management ─────────────────────────────────────────────
 
 const MIN_AGENT_BINARY_SIZE = 12_000;
+/** Second pass: tiny stubs fail, real enx-agent is usually much larger; helps right after replace when AV briefly locks reads. */
+const RELAXED_AGENT_BINARY_SIZE = 4096;
 
 /** Reject empty/corrupt files that existSync would still accept (common right after a failed or partial update). */
 function isLikelyValidAgentBinary(absPath: string): boolean {
@@ -199,6 +203,144 @@ function isLikelyValidAgentBinary(absPath: string): boolean {
   }
 }
 
+function isRelaxedValidAgentBinary(absPath: string): boolean {
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile() || st.size < RELAXED_AGENT_BINARY_SIZE) return false;
+    if (process.platform !== 'win32') return true;
+    const fd = fs.openSync(absPath, 'r');
+    try {
+      const buf = Buffer.alloc(2);
+      fs.readSync(fd, buf, 0, 2, 0);
+      return buf[0] === 0x4d && buf[1] === 0x5a;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+/** If PE header read fails (Defender/AV briefly locks new exe), stat+size still shows a full Go binary — only for packaged bin paths. */
+const TRUST_BUNDLED_AGENT_MIN_BYTES = 256 * 1024;
+
+function isBundledEnxAgentPath(absPath: string): boolean {
+  const binaryName = process.platform === 'win32' ? 'enx-agent.exe' : 'enx-agent';
+  const norm = path.resolve(absPath).toLowerCase();
+  for (const b of getBundledAgentBinCandidates(binaryName)) {
+    if (path.resolve(b).toLowerCase() === norm) return true;
+  }
+  return false;
+}
+
+function trustBundledBinaryBySize(absPath: string): boolean {
+  if (process.platform !== 'win32') return false;
+  if (!isBundledEnxAgentPath(absPath)) return false;
+  try {
+    const st = fs.statSync(absPath);
+    return st.isFile() && st.size >= TRUST_BUNDLED_AGENT_MIN_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+/** Same file Go writes to DataDir after ApplyUpdate — must match updater.CoreInstallPathFile. */
+const CORE_INSTALL_PATH_FILE = 'core_install_path.json';
+
+/**
+ * Authoritative path from ApplyUpdate HTTP or core_install_path.json: real enx-agent is always large.
+ * Avoids trusting tiny junk; PE read can still fail under AV so we do not require MZ here.
+ */
+const TRUST_AUTHORITATIVE_CORE_MIN_BYTES = 64 * 1024;
+
+function isAuthoritativeInstallPathUsable(absPath: string): boolean {
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile() || st.size < TRUST_AUTHORITATIVE_CORE_MIN_BYTES) return false;
+    const base = path.basename(absPath).toLowerCase();
+    if (process.platform === 'win32') return base === 'enx-agent.exe';
+    return base === 'enx-agent';
+  } catch {
+    return false;
+  }
+}
+
+function readPersistedCoreInstallPath(): string {
+  try {
+    const f = path.join(getAgentDataDir(), CORE_INSTALL_PATH_FILE);
+    if (!fs.existsSync(f)) return '';
+    const raw = fs.readFileSync(f, 'utf-8');
+    const o = JSON.parse(raw) as { path?: string };
+    if (!o.path || typeof o.path !== 'string') return '';
+    return path.resolve(o.path.trim());
+  } catch {
+    return '';
+  }
+}
+
+function writePersistedCoreInstallPath(abs: string): void {
+  try {
+    const dir = getAgentDataDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, CORE_INSTALL_PATH_FILE);
+    const tmp = `${target}.tmp`;
+    const payload = { path: path.resolve(abs), updated_unix: Math.floor(Date.now() / 1000) };
+    fs.writeFileSync(tmp, JSON.stringify(payload), 'utf-8');
+    fs.renameSync(tmp, target);
+  } catch (e) {
+    console.warn('[agent-core] could not persist core_install_path.json', e);
+  }
+}
+
+/** Returns a usable path or '' and removes broken pointer file so we fall back to discovery. */
+function takePersistedCoreInstallPathOrCleanup(): string {
+  const p = readPersistedCoreInstallPath();
+  if (!p) return '';
+  if (isAuthoritativeInstallPathUsable(p)) return p;
+  try {
+    fs.unlinkSync(path.join(getAgentDataDir(), CORE_INSTALL_PATH_FILE));
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function anyValidAgentBinary(absPath: string): boolean {
+  return (
+    isLikelyValidAgentBinary(absPath) ||
+    isRelaxedValidAgentBinary(absPath) ||
+    trustBundledBinaryBySize(absPath)
+  );
+}
+
+/** Absolute paths to packaged extraResources/bin (never rely on join('', 'bin') which becomes cwd-relative). */
+function getBundledAgentBinCandidates(binaryName: string): string[] {
+  const exeDir = path.dirname(app.getPath('exe'));
+  const out: string[] = [];
+  if (process.resourcesPath) {
+    out.push(path.resolve(path.join(process.resourcesPath, 'bin', binaryName)));
+  }
+  out.push(path.resolve(path.join(exeDir, 'resources', 'bin', binaryName)));
+  out.push(path.resolve(path.join(exeDir, 'bin', binaryName)));
+  return [...new Set(out)];
+}
+
+/** Stop using settings that point at staged downloads or backup after self-update. */
+function clearStaleAgentCorePathAfterUpdate(): void {
+  const s = loadSettings();
+  const p = (s.agentCorePath || '').trim();
+  if (!p) return;
+  const norm = path.resolve(p).replace(/\\/g, '/').toLowerCase();
+  const bad =
+    norm.includes('/updates/') ||
+    norm.endsWith('.bak') ||
+    norm.endsWith('.exe.tmp');
+  if (!bad) return;
+  s.agentCorePath = '';
+  saveSettings(s);
+  console.log('[agent-core] Cleared stale agentCorePath after core update:', p);
+}
+
 /**
  * Windows often reports libuv errno as Error: spawn UNKNOWN for invalid PEs, torn files, or spawn quirks.
  * execFile + cwd next to the binary is more reliable; always catch synchronous throws so the UI does not crash.
@@ -216,6 +358,21 @@ function startAgentCoreChild(
     windowsHide: process.platform === 'win32',
     cwd: fs.existsSync(cwd) ? cwd : undefined,
   };
+
+  if (process.platform === 'win32') {
+    try {
+      return child_process.execFile(exePath, args, opts);
+    } catch (e) {
+      console.warn('[agent-core] execFile() failed, trying spawn():', e);
+      try {
+        return child_process.spawn(exePath, args, opts);
+      } catch (e2) {
+        console.error('[agent-core] spawn() failed:', e2);
+        appendAgentLog(`[ERROR] Could not start enx-agent: ${(e2 as Error).message}. Check that the file is a valid Windows executable (not blocked or partially updated).`);
+        return null;
+      }
+    }
+  }
 
   try {
     return child_process.spawn(exePath, args, opts);
@@ -242,7 +399,41 @@ function spawnAgentCore(): void {
   lastSpawnTime = now;
 
   const settings = loadSettings();
-  const binaryPath = settings.agentCorePath || findAgentCoreBinary();
+  let binaryPath = '';
+  let trustAuthoritativeInstallPath = false;
+
+  if (postApplyEnxAgentPath) {
+    const hint = path.resolve(postApplyEnxAgentPath);
+    if (isAuthoritativeInstallPathUsable(hint)) {
+      binaryPath = hint;
+      trustAuthoritativeInstallPath = true;
+      console.log('[agent-core] Using installed_binary from ApplyUpdate:', hint);
+    }
+  }
+
+  if (!binaryPath) {
+    const persisted = takePersistedCoreInstallPathOrCleanup();
+    if (persisted) {
+      binaryPath = persisted;
+      trustAuthoritativeInstallPath = true;
+      console.log('[agent-core] Using path from', CORE_INSTALL_PATH_FILE, ':', persisted);
+    }
+  }
+
+  if (!binaryPath) {
+    const configured = (settings.agentCorePath || '').trim();
+    if (configured) {
+      const absCfg = path.resolve(configured);
+      if (anyValidAgentBinary(absCfg)) {
+        binaryPath = absCfg;
+      } else {
+        console.warn('[agent-core] Saved agentCorePath is missing or invalid, using auto-detect:', absCfg);
+      }
+    }
+  }
+  if (!binaryPath) {
+    binaryPath = findAgentCoreBinary();
+  }
 
   if (!binaryPath) {
     console.warn('agent-core binary not found, skipping spawn');
@@ -251,7 +442,10 @@ function spawnAgentCore(): void {
   }
 
   const resolvedBinary = path.resolve(binaryPath);
-  if (!isLikelyValidAgentBinary(resolvedBinary)) {
+  const passesValidators =
+    anyValidAgentBinary(resolvedBinary) ||
+    (trustAuthoritativeInstallPath && isAuthoritativeInstallPathUsable(resolvedBinary));
+  if (!passesValidators) {
     console.warn('agent-core path is missing or not a valid binary:', resolvedBinary);
     appendAgentLog('[WARN] enx-agent is missing or does not look like a valid executable (e.g. still updating or wrong path). Verify resources/bin/enx-agent.exe or set the path in Settings.');
     return;
@@ -302,6 +496,7 @@ function spawnAgentCore(): void {
     return;
   }
   agentCoreProcess = child;
+  postApplyEnxAgentPath = null;
 
   agentCoreProcess.stdout?.on('data', (data) => {
     const line = data.toString().trim();
@@ -329,68 +524,81 @@ function spawnAgentCore(): void {
   });
 }
 
+/** After in-place binary swap, Windows AV may block PE reads or spawn briefly; retry if core is still down. */
+function scheduleSpawnsAfterCoreUpdate(): void {
+  const delays = process.platform === 'win32' ? [4500, 9500, 14500, 22000] : [2000, 5500, 10000];
+  for (const ms of delays) {
+    setTimeout(() => {
+      if (isQuitting || agentCoreProcess) return;
+      lastSpawnTime = 0;
+      spawnAgentCore();
+    }, ms);
+  }
+}
+
 function findAgentCoreBinary(): string {
   const isWin = process.platform === 'win32';
   const binaryName = isWin ? 'enx-agent.exe' : 'enx-agent';
   const appExeDir = path.dirname(app.getPath('exe'));
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 
-  const candidates = [
-    // 1. Electron packaged app: extraResources/bin/
-    path.join(process.resourcesPath || '', 'bin', binaryName),
-    // 2. Same directory as the desktop app exe
-    path.join(appExeDir, binaryName),
-    // 3. bin/ subfolder next to the desktop app
-    path.join(appExeDir, 'bin', binaryName),
-    // 4. Agent data directory (where agent.enx lives)
-    path.join(getAgentDataDir(), binaryName),
-    // 5. Development: project root bin/
-    path.join(app.getAppPath(), '..', '..', 'bin', binaryName),
-    // 6. Current working directory
-    path.join(process.cwd(), binaryName),
-    path.join(process.cwd(), 'bin', binaryName),
-    // 7. User's Downloads folder (common after extracting ZIP)
-    path.join(app.getPath('downloads'), binaryName),
+  const bundled = getBundledAgentBinCandidates(binaryName);
+
+  const candidates: string[] = [
+    ...bundled,
+    path.resolve(path.join(appExeDir, binaryName)),
+    path.resolve(path.join(getAgentDataDir(), binaryName)),
+    path.resolve(path.join(app.getAppPath(), '..', '..', 'bin', binaryName)),
+    path.resolve(path.join(process.cwd(), binaryName)),
+    path.resolve(path.join(process.cwd(), 'bin', binaryName)),
+    path.resolve(path.join(app.getPath('downloads'), binaryName)),
   ];
 
   if (isWin) {
-    // 8. Common Windows install locations
-    candidates.push(path.join(homeDir, '.envnexus', 'agent', binaryName));
-    candidates.push(path.join(homeDir, '.envnexus', binaryName));
-    // 9. Search extracted ZIP folders in Downloads (EnvNexus-Agent-windows-*)
+    candidates.push(path.resolve(path.join(homeDir, '.envnexus', 'agent', binaryName)));
+    candidates.push(path.resolve(path.join(homeDir, '.envnexus', binaryName)));
     try {
       const dlDir = app.getPath('downloads');
       const entries = fs.readdirSync(dlDir);
       for (const entry of entries) {
         if (entry.startsWith('EnvNexus-Agent-') && fs.statSync(path.join(dlDir, entry)).isDirectory()) {
-          candidates.push(path.join(dlDir, entry, binaryName));
+          candidates.push(path.resolve(path.join(dlDir, entry, binaryName)));
         }
       }
     } catch {}
   } else {
     candidates.push('/usr/local/bin/enx-agent');
-    candidates.push(path.join(homeDir, '.local', 'bin', 'enx-agent'));
-    candidates.push(path.join(homeDir, '.envnexus', 'agent', binaryName));
-    candidates.push(path.join(homeDir, '.envnexus', binaryName));
+    candidates.push(path.resolve(path.join(homeDir, '.local', 'bin', 'enx-agent')));
+    candidates.push(path.resolve(path.join(homeDir, '.envnexus', 'agent', binaryName)));
+    candidates.push(path.resolve(path.join(homeDir, '.envnexus', binaryName)));
   }
 
-  const found = candidates.find((p) => {
-    try {
-      const abs = path.resolve(p);
-      return isLikelyValidAgentBinary(abs);
-    } catch {
-      return false;
+  const uniq = [...new Set(candidates)];
+
+  const tryPick = (fn: (abs: string) => boolean): string => {
+    for (const abs of uniq) {
+      try {
+        if (fn(abs)) return abs;
+      } catch {
+        /* continue */
+      }
     }
-  });
+    return '';
+  };
+
+  const found =
+    tryPick(isLikelyValidAgentBinary) ||
+    tryPick(isRelaxedValidAgentBinary) ||
+    tryPick(trustBundledBinaryBySize);
 
   if (found) {
     console.log('[auto-detect] Found enx-agent at:', found);
   } else {
     console.warn('[auto-detect] enx-agent not found in any candidate path');
-    candidates.forEach(c => console.log('  checked:', c));
+    uniq.forEach((c) => console.log('  checked:', c));
   }
 
-  return found || '';
+  return found;
 }
 
 function stopAgentCore(): void {
@@ -1034,7 +1242,10 @@ function registerIPC(): void {
 
   ipcMain.handle('get-detected-agent-path', () => {
     const settings = loadSettings();
-    if (settings.agentCorePath) return settings.agentCorePath;
+    const configured = (settings.agentCorePath || '').trim();
+    if (configured && anyValidAgentBinary(path.resolve(configured))) {
+      return path.resolve(configured);
+    }
     return findAgentCoreBinary();
   });
 
@@ -1052,13 +1263,16 @@ function registerIPC(): void {
   );
 
   ipcMain.handle('agent-update-apply', async () => {
-    const result = await safeLocalAPI('POST', '/local/v1/update/apply');
+    const result = await safeLocalAPI('POST', '/local/v1/update/apply', undefined, 120_000);
     if (result && !result.error) {
+      if (typeof result.installed_binary === 'string' && result.installed_binary.trim()) {
+        const ib = result.installed_binary.trim();
+        postApplyEnxAgentPath = ib;
+        writePersistedCoreInstallPath(ib);
+      }
+      clearStaleAgentCorePathAfterUpdate();
       stopAgentCore();
-      lastSpawnTime = 0;
-      // Windows: allow rename/AV hooks on the replaced enx-agent.exe to settle before spawn (avoids spawn UNKNOWN).
-      const delayMs = process.platform === 'win32' ? 4500 : 2000;
-      setTimeout(spawnAgentCore, delayMs);
+      scheduleSpawnsAfterCoreUpdate();
     }
     return result;
   });

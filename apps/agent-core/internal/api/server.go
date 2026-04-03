@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -532,9 +533,14 @@ func (s *LocalServer) handleUpdateApply(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "updater not available"})
 		return
 	}
-	if err := s.agentUpdater.ApplyUpdate(); err != nil {
+	installedPath, err := s.agentUpdater.ApplyUpdate()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "applied", "message": "binary replaced, restart required"})
+	c.JSON(http.StatusOK, gin.H{
+		"status":            "applied",
+		"message":           "binary replaced, restart required",
+		"installed_binary":  filepath.Clean(installedPath),
+	})
 }

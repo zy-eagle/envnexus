@@ -16,6 +16,46 @@ import (
 	"time"
 )
 
+// CoreInstallPathFile is stored in DataDir so the desktop shell can locate the
+// binary that os.Executable reported even when local HTTP or JSON fails.
+const CoreInstallPathFile = "core_install_path.json"
+
+type coreInstallPathRecord struct {
+	Path         string `json:"path"`
+	UpdatedUnix  int64  `json:"updated_unix"`
+}
+
+func persistCoreInstallPointer(dataDir, abs string) {
+	if dataDir == "" || abs == "" {
+		return
+	}
+	rec := coreInstallPathRecord{
+		Path:        filepath.Clean(abs),
+		UpdatedUnix: time.Now().Unix(),
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		slog.Warn("[updater] marshal core install pointer", "error", err)
+		return
+	}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		slog.Warn("[updater] mkdir for core install pointer", "error", err)
+		return
+	}
+	target := filepath.Join(dataDir, CoreInstallPathFile)
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, b, 0644); err != nil {
+		slog.Warn("[updater] write core install pointer tmp", "error", err)
+		return
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		slog.Warn("[updater] rename core install pointer", "error", err)
+		_ = os.Remove(tmp)
+		return
+	}
+	slog.Info("[updater] Wrote core install pointer for desktop shell", "file", target, "path", rec.Path)
+}
+
 type Config struct {
 	PlatformURL    string
 	DeviceToken    string
@@ -293,23 +333,27 @@ func (u *Updater) DownloadUpdate(ctx context.Context, info *UpdateInfo) (string,
 // On Windows, the old binary is renamed (since the running process holds a lock)
 // and the new one is placed at the original path.
 // The caller should restart the process after this returns.
-func (u *Updater) ApplyUpdate() error {
+// The returned path is the absolute filesystem path where the new binary was
+// installed (same slot as os.Executable); the desktop shell should spawn this
+// exact path to avoid heuristic mismatches on Windows.
+func (u *Updater) ApplyUpdate() (installedPath string, err error) {
 	u.mu.RLock()
 	staged := u.pendingBinary
 	u.mu.RUnlock()
 
 	if staged == "" {
-		return fmt.Errorf("no pending update")
+		return "", fmt.Errorf("no pending update")
 	}
 
 	currentExe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve current executable: %w", err)
+		return "", fmt.Errorf("resolve current executable: %w", err)
 	}
 	currentExe, err = filepath.EvalSymlinks(currentExe)
 	if err != nil {
-		return fmt.Errorf("resolve symlinks: %w", err)
+		return "", fmt.Errorf("resolve symlinks: %w", err)
 	}
+	currentExe = filepath.Clean(currentExe)
 
 	backupPath := currentExe + ".bak"
 
@@ -318,14 +362,14 @@ func (u *Updater) ApplyUpdate() error {
 
 	// Rename current -> backup
 	if err := os.Rename(currentExe, backupPath); err != nil {
-		return fmt.Errorf("backup current binary: %w", err)
+		return "", fmt.Errorf("backup current binary: %w", err)
 	}
 
 	// Move staged -> current
 	if err := os.Rename(staged, currentExe); err != nil {
 		// Rollback: restore backup
 		os.Rename(backupPath, currentExe)
-		return fmt.Errorf("install new binary: %w", err)
+		return "", fmt.Errorf("install new binary: %w", err)
 	}
 
 	if err := os.Chmod(currentExe, 0755); err != nil {
@@ -336,15 +380,17 @@ func (u *Updater) ApplyUpdate() error {
 	u.pendingBinary = ""
 	u.mu.Unlock()
 
-	slog.Info("[updater] Binary replaced successfully, restart required", "old_backup", backupPath)
+	slog.Info("[updater] Binary replaced successfully, restart required", "old_backup", backupPath, "installed_path", currentExe)
+
+	persistCoreInstallPointer(u.config.DataDir, currentExe)
 
 	u.setStatus(Status{
-		State:          "applied",
-		CurrentVersion: u.config.CurrentVersion,
-		PendingRestart: true,
+		State:            "applied",
+		CurrentVersion:   u.config.CurrentVersion,
+		PendingRestart:   true,
 	})
 
-	return nil
+	return currentExe, nil
 }
 
 // Run starts the periodic update check loop. Blocks until context is cancelled.
