@@ -1,6 +1,6 @@
 ---
 description: Core project conventions for EnvNexus
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Project Conventions

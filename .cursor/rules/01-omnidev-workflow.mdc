@@ -5,4 +5,16 @@ globs: []
 ---
 # OmniDev Trigger
 
-When the user's message starts with `/od`, read and follow the OmniDev Skill (`.cursor/skills/od/SKILL.md`).
+When the user's message starts with `/od`:
+
+- Read and follow the OmniDev Skill (`.cursor/skills/od/SKILL.md`).
+- Treat the following rule docs as **OmniDev-only context** (they are not always applied in normal chat):
+  - `rules/git-commit.mdc`
+  - `rules/project-conventions.mdc`
+  - `rules/project-boundaries.mdc`
+  - `rules/open-github-envnexus.mdc`
+  - `rules/02-omnidev-state-sync.mdc`
+  - `rules/03-omnidev-test-deploy.mdc`
+  - `rules/04-omnidev-skills-mcp.mdc`
+  - `rules/05-omnidev-context-management.mdc`
+  - `rules/06-omnidev-self-evolution.mdc`

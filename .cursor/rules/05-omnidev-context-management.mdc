@@ -1,6 +1,6 @@
 ---
 description: OmniDev context bloat and forgetting management specification. Prevents AI hallucinations and excessive Token consumption during long sessions.
-alwaysApply: true
+alwaysApply: false
 ---
 # OmniDev Context Management (Context Pruning)
 

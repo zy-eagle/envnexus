@@ -40,6 +40,8 @@ $RECYCLE.BIN/
 .vscode/
 *.swp
 *.swo
+.cursor/settings.json
+.cursor/_backup-*/
 
 # Node
 node_modules/

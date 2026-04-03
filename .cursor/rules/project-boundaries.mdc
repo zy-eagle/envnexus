@@ -1,6 +1,7 @@
 ---
 description: EnvNexus 项目开发全局指导原则
-globs: *
+alwaysApply: false
+globs: []
 ---
 # EnvNexus 项目开发全局指导原则
 

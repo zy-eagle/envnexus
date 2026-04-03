@@ -1,6 +1,6 @@
 ---
 description: Git commit conventions for this project
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Git Commit Rules

@@ -1,6 +1,7 @@
 ---
 description: 快捷指令：在 GitHub 上打开 envnexus 项目
-globs: *
+alwaysApply: false
+globs: []
 ---
 # 快捷指令：打开 envnexus 项目
 
