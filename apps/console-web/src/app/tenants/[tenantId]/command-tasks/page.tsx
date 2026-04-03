@@ -554,7 +554,12 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setFormNote(task.note || "");
     setFormEmergency(!!task.emergency);
     setFormBypassReason(task.bypass_reason || "");
-    setNlInput("");
+    if (forCopy) {
+      // Keep NL usable for “生成命令”: seed from source title; do not wipe the field.
+      setNlInput(task.title || "");
+    } else {
+      setNlInput("");
+    }
     setNlError("");
     setNlMustSucceed(false);
     if (forCopy) {
