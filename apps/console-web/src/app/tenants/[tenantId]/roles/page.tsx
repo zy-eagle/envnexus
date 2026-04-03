@@ -132,7 +132,10 @@ export default function TenantRolesPage() {
   const selectAllCatalog = () => {
     const s = new Set(selectedPerms);
     permissionCatalog.forEach((p) => s.add(p));
-    setSelectedPerms([...s].sort((a, b) => a.localeCompare(b)));
+    const merged: string[] = [];
+    s.forEach((p) => merged.push(p));
+    merged.sort((a, b) => a.localeCompare(b));
+    setSelectedPerms(merged);
   };
 
   const clearAllSelected = () => setSelectedPerms([]);
