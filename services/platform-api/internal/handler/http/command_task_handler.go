@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -13,10 +14,11 @@ import (
 
 type CommandTaskHandler struct {
 	commandService *command.Service
+	nlGenerator    *command.NLGenerator
 }
 
-func NewCommandTaskHandler(commandService *command.Service) *CommandTaskHandler {
-	return &CommandTaskHandler{commandService: commandService}
+func NewCommandTaskHandler(commandService *command.Service, nlGenerator *command.NLGenerator) *CommandTaskHandler {
+	return &CommandTaskHandler{commandService: commandService, nlGenerator: nlGenerator}
 }
 
 func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -24,6 +26,7 @@ func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		tasks.POST("", h.CreateTask)
 		tasks.GET("", h.ListTasks)
+		tasks.POST("/generate", h.GenerateCommand)
 		tasks.GET("/:taskId", h.GetTask)
 		tasks.POST("/:taskId/approve", h.ApproveTask)
 		tasks.POST("/:taskId/deny", h.DenyTask)
@@ -188,4 +191,28 @@ func (h *CommandTaskHandler) HandleCommandResult(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "received"})
+}
+
+func (h *CommandTaskHandler) GenerateCommand(c *gin.Context) {
+	if h.nlGenerator == nil {
+		mw.RespondError(c, fmt.Errorf("NL command generation is not configured"))
+		return
+	}
+
+	tenantID := c.Param("tenantId")
+	var req struct {
+		Prompt string `json:"prompt" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+
+	result, err := h.nlGenerator.Generate(c.Request.Context(), tenantID, req.Prompt)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, result)
 }

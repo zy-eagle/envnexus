@@ -139,8 +139,211 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [formEmergency, setFormEmergency] = useState(false);
   const [formBypassReason, setFormBypassReason] = useState("");
 
+  const [nlInput, setNlInput] = useState("");
+  const [nlGenerating, setNlGenerating] = useState(false);
+
+  const [formToolName, setFormToolName] = useState("");
+  const [formToolParams, setFormToolParams] = useState<Record<string, string>>({});
+
   const [approvalNote, setApprovalNote] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+
+  const TOOL_CATALOG: {
+    name: string;
+    label: string;
+    description: string;
+    riskLevel: string;
+    params: { key: string; label: string; required: boolean; placeholder: string; enumValues?: string[] }[];
+  }[] = [
+    {
+      name: "system_info",
+      label: lang === "zh" ? "系统信息" : "System Info",
+      description: lang === "zh" ? "获取系统信息（OS、CPU、内存）" : "Get system info (OS, CPU, memory)",
+      riskLevel: "L1",
+      params: [],
+    },
+    {
+      name: "disk_usage",
+      label: lang === "zh" ? "磁盘使用" : "Disk Usage",
+      description: lang === "zh" ? "检查磁盘使用情况" : "Check disk usage",
+      riskLevel: "L1",
+      params: [{ key: "path", label: lang === "zh" ? "路径" : "Path", required: false, placeholder: "/" }],
+    },
+    {
+      name: "process_list",
+      label: lang === "zh" ? "进程列表" : "Process List",
+      description: lang === "zh" ? "列出运行中的进程" : "List running processes",
+      riskLevel: "L1",
+      params: [
+        { key: "sort_by", label: lang === "zh" ? "排序方式" : "Sort By", required: false, placeholder: "cpu", enumValues: ["cpu", "memory", "pid"] },
+        { key: "limit", label: lang === "zh" ? "数量限制" : "Limit", required: false, placeholder: "20" },
+      ],
+    },
+    {
+      name: "check_runtime_deps",
+      label: lang === "zh" ? "运行时依赖" : "Runtime Deps",
+      description: lang === "zh" ? "检测已安装的运行时环境" : "Check installed runtime dependencies",
+      riskLevel: "L1",
+      params: [{ key: "filter", label: lang === "zh" ? "过滤" : "Filter", required: false, placeholder: "python" }],
+    },
+    {
+      name: "env_vars",
+      label: lang === "zh" ? "环境变量" : "Env Variables",
+      description: lang === "zh" ? "获取环境变量信息" : "Get environment variables",
+      riskLevel: "L1",
+      params: [{ key: "filter", label: lang === "zh" ? "过滤" : "Filter", required: false, placeholder: "PATH" }],
+    },
+    {
+      name: "dir_list",
+      label: lang === "zh" ? "目录列表" : "Directory List",
+      description: lang === "zh" ? "列出指定目录内容" : "List directory contents",
+      riskLevel: "L1",
+      params: [
+        { key: "path", label: lang === "zh" ? "路径" : "Path", required: true, placeholder: "/var/log" },
+        { key: "depth", label: lang === "zh" ? "深度" : "Depth", required: false, placeholder: "1" },
+      ],
+    },
+    {
+      name: "installed_apps",
+      label: lang === "zh" ? "已安装应用" : "Installed Apps",
+      description: lang === "zh" ? "列出已安装的应用程序" : "List installed applications",
+      riskLevel: "L1",
+      params: [{ key: "filter", label: lang === "zh" ? "过滤" : "Filter", required: false, placeholder: "nginx" }],
+    },
+    {
+      name: "shell_exec",
+      label: lang === "zh" ? "Shell 执行" : "Shell Exec",
+      description: lang === "zh" ? "在设备上执行 shell 命令" : "Execute a shell command on device",
+      riskLevel: "L2",
+      params: [
+        { key: "command", label: lang === "zh" ? "命令" : "Command", required: true, placeholder: "systemctl status nginx" },
+        { key: "timeout", label: lang === "zh" ? "超时(秒)" : "Timeout(s)", required: false, placeholder: "30" },
+      ],
+    },
+    {
+      name: "config_modify",
+      label: lang === "zh" ? "配置修改" : "Config Modify",
+      description: lang === "zh" ? "修改配置文件内容" : "Modify configuration file content",
+      riskLevel: "L3",
+      params: [
+        { key: "file_path", label: lang === "zh" ? "文件路径" : "File Path", required: true, placeholder: "/etc/nginx/nginx.conf" },
+        { key: "action", label: lang === "zh" ? "操作" : "Action", required: true, placeholder: "replace", enumValues: ["replace", "append", "prepend"] },
+        { key: "content", label: lang === "zh" ? "内容" : "Content", required: true, placeholder: "" },
+      ],
+    },
+    {
+      name: "port_scan",
+      label: lang === "zh" ? "端口扫描" : "Port Scan",
+      description: lang === "zh" ? "扫描目标主机端口" : "Scan common ports on a host",
+      riskLevel: "L1",
+      params: [{ key: "host", label: lang === "zh" ? "主机" : "Host", required: true, placeholder: "localhost" }],
+    },
+    {
+      name: "ping",
+      label: "Ping",
+      description: lang === "zh" ? "Ping 目标主机" : "Ping a target host",
+      riskLevel: "L1",
+      params: [
+        { key: "host", label: lang === "zh" ? "主机" : "Host", required: true, placeholder: "8.8.8.8" },
+        { key: "count", label: lang === "zh" ? "次数" : "Count", required: false, placeholder: "4" },
+      ],
+    },
+    {
+      name: "dns_lookup",
+      label: "DNS Lookup",
+      description: lang === "zh" ? "DNS 查询" : "Perform DNS lookup",
+      riskLevel: "L1",
+      params: [{ key: "domain", label: lang === "zh" ? "域名" : "Domain", required: true, placeholder: "example.com" }],
+    },
+    {
+      name: "http_check",
+      label: "HTTP Check",
+      description: lang === "zh" ? "检测 HTTP 端点" : "Check HTTP endpoint",
+      riskLevel: "L1",
+      params: [
+        { key: "url", label: "URL", required: true, placeholder: "https://example.com/healthz" },
+        { key: "method", label: lang === "zh" ? "方法" : "Method", required: false, placeholder: "GET", enumValues: ["GET", "POST", "HEAD"] },
+      ],
+    },
+    {
+      name: "docker_inspect",
+      label: "Docker Inspect",
+      description: lang === "zh" ? "检查 Docker 容器状态" : "Inspect Docker containers",
+      riskLevel: "L1",
+      params: [{ key: "container", label: lang === "zh" ? "容器" : "Container", required: false, placeholder: "nginx" }],
+    },
+    {
+      name: "docker_compose",
+      label: "Docker Compose",
+      description: lang === "zh" ? "Docker Compose 操作" : "Docker Compose operations",
+      riskLevel: "L2",
+      params: [
+        { key: "action", label: lang === "zh" ? "操作" : "Action", required: true, placeholder: "ps", enumValues: ["ps", "up", "down", "restart", "logs"] },
+        { key: "service", label: lang === "zh" ? "服务" : "Service", required: false, placeholder: "" },
+      ],
+    },
+    {
+      name: "kubectl_diagnose",
+      label: "Kubectl Diagnose",
+      description: lang === "zh" ? "Kubernetes 集群诊断" : "Diagnose Kubernetes cluster",
+      riskLevel: "L1",
+      params: [
+        { key: "action", label: lang === "zh" ? "操作" : "Action", required: true, placeholder: "get-pods", enumValues: ["cluster-info", "get-nodes", "get-pods", "describe-pod", "logs", "get-events", "get-services"] },
+        { key: "namespace", label: "Namespace", required: false, placeholder: "default" },
+        { key: "pod", label: "Pod", required: false, placeholder: "" },
+      ],
+    },
+    {
+      name: "mysql_check",
+      label: "MySQL Check",
+      description: lang === "zh" ? "检查 MySQL 连接和状态" : "Check MySQL connection and status",
+      riskLevel: "L1",
+      params: [
+        { key: "host", label: lang === "zh" ? "主机" : "Host", required: false, placeholder: "localhost" },
+        { key: "port", label: lang === "zh" ? "端口" : "Port", required: false, placeholder: "3306" },
+      ],
+    },
+    {
+      name: "redis_check",
+      label: "Redis Check",
+      description: lang === "zh" ? "检查 Redis 连接和状态" : "Check Redis connection and status",
+      riskLevel: "L1",
+      params: [
+        { key: "host", label: lang === "zh" ? "主机" : "Host", required: false, placeholder: "localhost" },
+        { key: "port", label: lang === "zh" ? "端口" : "Port", required: false, placeholder: "6379" },
+      ],
+    },
+  ];
+
+  const selectedToolDef = TOOL_CATALOG.find((t) => t.name === formToolName);
+
+  const handleNlGenerate = async () => {
+    if (!nlInput.trim()) return;
+    setNlGenerating(true);
+    try {
+      const data = await api.post<{ command: string; risk_level?: string; title?: string }>(
+        `/tenants/${tenantId}/command-tasks/generate`,
+        { prompt: nlInput }
+      );
+      if (data.command) setFormCommandPayload(data.command);
+      if (data.risk_level) setFormRiskLevel(data.risk_level);
+      if (data.title && !formTitle) setFormTitle(data.title);
+    } catch {
+      setFormCommandPayload(nlInput);
+    } finally {
+      setNlGenerating(false);
+    }
+  };
+
+  const buildToolPayload = (): string => {
+    const payload: Record<string, string> = {};
+    if (selectedToolDef) {
+      for (const p of selectedToolDef.params) {
+        if (formToolParams[p.key]) payload[p.key] = formToolParams[p.key];
+      }
+    }
+    return JSON.stringify({ tool_name: formToolName, params: payload });
+  };
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -200,18 +403,23 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setFormNote("");
     setFormEmergency(false);
     setFormBypassReason("");
+    setNlInput("");
+    setFormToolName("");
+    setFormToolParams({});
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    const payload = formCommandType === "tool" ? buildToolPayload() : formCommandPayload;
+    const riskForTool = formCommandType === "tool" && selectedToolDef ? selectedToolDef.riskLevel : formRiskLevel;
     try {
       await api.post(`/tenants/${tenantId}/command-tasks`, {
         title: formTitle,
         command_type: formCommandType,
-        command_payload: formCommandPayload,
+        command_payload: payload,
         device_ids: formDeviceIds,
-        risk_level: formRiskLevel,
+        risk_level: formCommandType === "tool" ? riskForTool : formRiskLevel,
         target_env: formTargetEnv,
         note: formNote,
         emergency: formEmergency,
@@ -635,9 +843,24 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500 max-w-[200px]">
-                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded truncate block overflow-hidden">
-                          {task.command_payload}
-                        </code>
+                        {task.command_type === "tool" ? (
+                          (() => {
+                            try {
+                              const parsed = JSON.parse(task.command_payload);
+                              return (
+                                <span className="inline-flex items-center gap-1.5 text-xs">
+                                  <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">{parsed.tool_name}</span>
+                                </span>
+                              );
+                            } catch {
+                              return <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded truncate block overflow-hidden">{task.command_payload}</code>;
+                            }
+                          })()
+                        ) : (
+                          <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded truncate block overflow-hidden">
+                            {task.command_payload}
+                          </code>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span
@@ -724,44 +947,163 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 />
               </div>
 
-              {/* Command Type */}
+              {/* Command Type Tabs */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {(t as any).commandType}
                 </label>
-                <div className="flex gap-4">
-                  {["shell", "tool"].map((ct_val) => (
-                    <label key={ct_val} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="commandType"
-                        value={ct_val}
-                        checked={formCommandType === ct_val}
-                        onChange={() => setFormCommandType(ct_val)}
-                        className="text-blue-600"
-                      />
-                      {ct_val === "shell"
-                        ? (t as any).typeShell
-                        : (t as any).typeTool}
-                    </label>
+                <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                  {(["shell", "tool"] as const).map((ct_val) => (
+                    <button
+                      key={ct_val}
+                      type="button"
+                      onClick={() => {
+                        setFormCommandType(ct_val);
+                        setFormCommandPayload("");
+                        setFormToolName("");
+                        setFormToolParams({});
+                      }}
+                      className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                        formCommandType === ct_val
+                          ? "bg-blue-600 text-white"
+                          : "bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {ct_val === "shell" ? (t as any).typeShell : (t as any).typeTool}
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Command Content */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {(t as any).commandContent}
-                </label>
-                <textarea
-                  required
-                  value={formCommandPayload}
-                  onChange={(e) => setFormCommandPayload(e.target.value)}
-                  placeholder={(t as any).commandContentPlaceholder}
-                  rows={3}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono"
-                />
-              </div>
+              {/* Shell mode: NL input + command textarea */}
+              {formCommandType === "shell" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {(t as any).nlPrompt}
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={nlInput}
+                        onChange={(e) => setNlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); handleNlGenerate(); }
+                        }}
+                        placeholder={(t as any).nlPlaceholder}
+                        className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleNlGenerate}
+                        disabled={nlGenerating || !nlInput.trim()}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1.5"
+                      >
+                        {nlGenerating ? (
+                          <span className="inline-block animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        )}
+                        {(t as any).nlGenerate}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-400">{(t as any).nlHint}</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {(t as any).commandContent}
+                    </label>
+                    <textarea
+                      required
+                      value={formCommandPayload}
+                      onChange={(e) => setFormCommandPayload(e.target.value)}
+                      placeholder={(t as any).commandContentPlaceholder}
+                      rows={3}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono bg-gray-900 text-green-400"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Tool mode: tool selector + params */}
+              {formCommandType === "tool" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {(t as any).selectTool}
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                      {TOOL_CATALOG.map((tool) => (
+                        <button
+                          key={tool.name}
+                          type="button"
+                          onClick={() => {
+                            setFormToolName(tool.name);
+                            setFormToolParams({});
+                          }}
+                          className={`text-left p-2.5 rounded-md border transition-all text-sm ${
+                            formToolName === tool.name
+                              ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500"
+                              : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                          }`}
+                        >
+                          <div className="font-medium text-gray-900 flex items-center justify-between">
+                            {tool.label}
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${RISK_COLORS[tool.riskLevel] || "bg-gray-100 text-gray-800"}`}>
+                              {tool.riskLevel}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{tool.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedToolDef && selectedToolDef.params.length > 0 && (
+                    <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50">
+                      <h4 className="text-sm font-medium text-gray-700">{(t as any).toolParams}</h4>
+                      {selectedToolDef.params.map((p) => (
+                        <div key={p.key}>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            {p.label} {p.required && <span className="text-red-500">*</span>}
+                          </label>
+                          {p.enumValues ? (
+                            <select
+                              value={formToolParams[p.key] || ""}
+                              onChange={(e) =>
+                                setFormToolParams((prev) => ({ ...prev, [p.key]: e.target.value }))
+                              }
+                              required={p.required}
+                              className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                            >
+                              <option value="">-- {lang === "zh" ? "请选择" : "Select"} --</option>
+                              {p.enumValues.map((v) => (
+                                <option key={v} value={v}>{v}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={formToolParams[p.key] || ""}
+                              onChange={(e) =>
+                                setFormToolParams((prev) => ({ ...prev, [p.key]: e.target.value }))
+                              }
+                              required={p.required}
+                              placeholder={p.placeholder}
+                              className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {selectedToolDef && selectedToolDef.params.length === 0 && (
+                    <p className="text-sm text-gray-500 italic">{(t as any).toolNoParams}</p>
+                  )}
+                </>
+              )}
 
               {/* Target Devices */}
               <div>
@@ -914,7 +1256,12 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting || formDeviceIds.length === 0}
+                  disabled={
+                    submitting ||
+                    formDeviceIds.length === 0 ||
+                    (formCommandType === "shell" && !formCommandPayload.trim()) ||
+                    (formCommandType === "tool" && !formToolName)
+                  }
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (t as any).submitting : (t as any).submit}
