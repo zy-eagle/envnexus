@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
-import { api } from '@/lib/api/client';
+import { api, APIError } from '@/lib/api/client';
 
 interface DownloadPackage {
   id: string;
@@ -147,8 +147,14 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
         setIsModalOpen(false);
       }
       fetchPackages();
-    } catch (err: any) {
-      alert(err.message || ct.error);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof APIError && err.code === 'duplicate_download_package'
+          ? t.duplicatePackageError
+          : err instanceof APIError
+            ? err.message
+            : ct.error;
+      alert(msg);
     } finally {
       setSubmitting(false);
     }

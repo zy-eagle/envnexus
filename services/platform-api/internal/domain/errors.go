@@ -38,6 +38,7 @@ var (
 	ErrInvalidCredentials    = NewAppError("invalid_credentials", "invalid email or password", http.StatusUnauthorized)
 	ErrProfileNotFound       = NewAppError("profile_not_found", "profile not found", http.StatusNotFound)
 	ErrPackageNotFound       = NewAppError("package_not_found", "download package not found", http.StatusNotFound)
+	ErrDuplicateDownloadPackage = NewAppError("duplicate_download_package", "A download package already exists for this agent profile with the same distribution mode, platform, architecture, version, and package type. Delete the existing package or change one of these fields.", http.StatusConflict)
 	ErrTokenNotFound         = NewAppError("token_not_found", "enrollment token not found", http.StatusNotFound)
 	ErrDuplicateSlug         = NewAppError("duplicate_slug", "slug already exists", http.StatusConflict)
 	ErrDuplicateName         = NewAppError("duplicate_name", "name already exists for this tenant", http.StatusConflict)

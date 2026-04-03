@@ -407,6 +407,8 @@ const dictionary = {
       stage_packaging: "Packaging",
       stage_uploading: "Uploading artifact",
       stage_done: "Complete",
+      duplicatePackageError:
+        "A package with the same agent profile, distribution mode, platform, architecture, version, and package type already exists. Delete it or change one of these fields.",
     },
     zh: {
       title: "客户端分发",
@@ -475,6 +477,8 @@ const dictionary = {
       stage_packaging: "打包中",
       stage_uploading: "上传产物",
       stage_done: "完成",
+      duplicatePackageError:
+        "已存在相同的下载包（同一 Agent 配置、分发模式、平台、架构、版本与包类型）。请先删除已有包或修改其中一项后再试。",
     },
   },
   modelProfiles: {

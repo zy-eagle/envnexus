@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/oklog/ulid/v2"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
@@ -31,6 +33,14 @@ func NewService(pkgRepo repository.PackageRepository, enrollRepo repository.Enro
 		bindingRepo: bindingRepo,
 		minioClient: minioClient,
 	}
+}
+
+func isDuplicateDownloadPackageKey(err error) bool {
+	var my *mysql.MySQLError
+	if !errors.As(err, &my) || my.Number != 1062 {
+		return false
+	}
+	return strings.Contains(my.Message, "uk_download_packages_profile_platform")
 }
 
 func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.CreatePackageRequest) (*dto.PackageResponse, error) {
@@ -93,6 +103,9 @@ func (s *Service) CreatePackage(ctx context.Context, tenantID string, req dto.Cr
 		ActivationKey:   activationKey,
 		EnrollmentToken: enrollTokenStr,
 	}); err != nil {
+		if isDuplicateDownloadPackageKey(err) {
+			return nil, domain.ErrDuplicateDownloadPackage
+		}
 		return nil, err
 	}
 
