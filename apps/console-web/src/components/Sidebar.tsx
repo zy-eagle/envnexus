@@ -66,11 +66,11 @@ function NavSection({
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-md text-[10px] font-semibold text-slate-400 uppercase tracking-wider hover:bg-slate-50 hover:text-slate-500 transition-colors"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all duration-150"
       >
         <span className="truncate text-left">{label}</span>
-        <span className={`flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
-          <Icon name="chevronDown" className="w-3 h-3 text-slate-400" />
+        <span className={`flex-shrink-0 text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+          <Icon name="chevronDown" className="w-4 h-4" />
         </span>
       </button>
       {open ? <div className="space-y-0.5">{children}</div> : null}
@@ -241,7 +241,7 @@ export default function Sidebar() {
         {tid && (
           <div className="mt-5">
             <div className="px-3 mb-2">
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t.tenantResources || 'Resources'}</span>
+              <span className="text-[13px] font-medium text-slate-600">{t.tenantResources || 'Resources'}</span>
             </div>
             <div className="space-y-0.5">
               {tenantNavGroups.map((group) => (
@@ -270,7 +270,7 @@ export default function Sidebar() {
 
         <div className="mt-5">
           <div className="px-3 mb-2">
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t.platform}</span>
+            <span className="text-[13px] font-medium text-slate-600">{t.platform}</span>
           </div>
           <div className="space-y-0.5">
             <NavItem href="/settings" icon="settings" label={t.settings} active={isActive('/settings')} />
