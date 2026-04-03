@@ -369,11 +369,7 @@ envnexus/
 │   └── seed.sh                   # 初始化默认租户和管理员
 ├── docs/
 │   ├── user-manual.md            # 用户操作手册
-│   ├── product-requirements.md   # 产品需求文档 (PRD)
-│   ├── product-manual.md         # 商业产品白皮书
-│   ├── technical-architecture.md # 技术架构与实现方案
-│   ├── development-roadmap.md    # Phase 0-6 路线图及完成状态
-│   └── commercialization-plan.md # 商业化计划
+│   └── product-manual.md         # 商业产品白皮书
 ├── Makefile
 └── README.md
 ```
@@ -602,7 +598,7 @@ Bot:   [会话完成卡片]
 
 ## 项目状态
 
-Phase 0-6 核心功能已实现。详细的逐模块完成状态请参阅[开发路线图](docs/development-roadmap.md)。
+Phase 0-6 核心功能已实现。
 
 | 模块 | 完成度 | 核心能力 |
 |------|--------|---------|
@@ -619,11 +615,7 @@ Phase 0-6 核心功能已实现。详细的逐模块完成状态请参阅[开发
 ## 文档
 
 - 用户操作手册：[`docs/user-manual.md`](docs/user-manual.md) — 终端用户和管理员操作指南
-- 产品需求文档：[`docs/product-requirements.md`](docs/product-requirements.md) — PRD 功能规格
 - 商业产品白皮书：[`docs/product-manual.md`](docs/product-manual.md) — 产品定位与商业方案
-- 技术架构文档：[`docs/technical-architecture.md`](docs/technical-architecture.md) — 系统设计与实现细节
-- 开发路线图：[`docs/development-roadmap.md`](docs/development-roadmap.md) — Phase 0-6 完成状态
-- 商业化计划：[`docs/commercialization-plan.md`](docs/commercialization-plan.md) — 商业化计划
 
 ## 许可证
 

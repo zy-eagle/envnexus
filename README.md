@@ -369,11 +369,7 @@ envnexus/
 │   └── seed.sh                   # Seed default tenant + admin
 ├── docs/
 │   ├── user-manual.md            # User operations guide (Chinese)
-│   ├── product-requirements.md   # PRD with functional specs (Chinese)
-│   ├── product-manual.md         # Commercial whitepaper (Chinese)
-│   ├── technical-architecture.md # System design and implementation
-│   ├── development-roadmap.md    # Phase 0-6 roadmap with completion status
-│   └── commercialization-plan.md # Business plan
+│   └── product-manual.md         # Commercial whitepaper (Chinese)
 ├── Makefile
 └── README.md
 ```
@@ -602,7 +598,7 @@ Bot:   [会话完成卡片]
 
 ## Project Status
 
-Phase 0-6 core features are implemented. See the [development roadmap](docs/development-roadmap.md) for detailed completion status per module.
+Phase 0-6 core features are implemented.
 
 | Module | Completion | Key Capabilities |
 |--------|-----------|-----------------|
@@ -619,11 +615,7 @@ Phase 0-6 core features are implemented. See the [development roadmap](docs/deve
 ## Documentation
 
 - User manual: [`docs/user-manual.md`](docs/user-manual.md) — end-user and admin operations guide (Chinese)
-- Product requirements: [`docs/product-requirements.md`](docs/product-requirements.md) — PRD with functional specs (Chinese)
 - Product manual: [`docs/product-manual.md`](docs/product-manual.md) — commercial whitepaper (Chinese)
-- Technical architecture: [`docs/technical-architecture.md`](docs/technical-architecture.md) — system design and implementation details
-- Development roadmap: [`docs/development-roadmap.md`](docs/development-roadmap.md) — Phase 0-6 roadmap with completion status
-- Commercialization plan: [`docs/commercialization-plan.md`](docs/commercialization-plan.md) — business plan
 
 ## License
 
