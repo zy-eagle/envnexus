@@ -95,7 +95,7 @@ function loadSettings(): Settings {
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
       const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-      cachedSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      cachedSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) as Partial<Settings> };
       return { ...cachedSettings };
     }
   } catch {
