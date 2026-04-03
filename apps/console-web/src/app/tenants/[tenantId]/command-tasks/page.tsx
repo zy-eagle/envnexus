@@ -381,7 +381,13 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
         ? `/tenants/${tenantId}/command-tasks?status=${statusFilter}`
         : `/tenants/${tenantId}/command-tasks`;
       const data = await api.get<any>(endpoint);
-      setTasks(Array.isArray(data) ? data : data?.items ?? []);
+      // API standard response unwraps to `data`.
+      // platform-api ListTasks returns `{ tasks: [...], total: n }`.
+      setTasks(
+        Array.isArray(data)
+          ? data
+          : (data?.tasks ?? data?.items ?? [])
+      );
     } catch (error) {
       console.error("Failed to fetch command tasks:", error);
     } finally {
