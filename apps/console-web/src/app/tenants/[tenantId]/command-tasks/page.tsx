@@ -141,6 +141,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
 
   const [nlInput, setNlInput] = useState("");
   const [nlGenerating, setNlGenerating] = useState(false);
+  const [nlError, setNlError] = useState("");
 
   const [formToolName, setFormToolName] = useState("");
   const [formToolParams, setFormToolParams] = useState<Record<string, string>>({});
@@ -320,15 +321,24 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const handleNlGenerate = async () => {
     if (!nlInput.trim()) return;
     setNlGenerating(true);
+    setNlError("");
     try {
       const data = await api.post<{ command: string; risk_level?: string; title?: string }>(
         `/tenants/${tenantId}/command-tasks/generate`,
         { prompt: nlInput }
       );
-      if (data.command) setFormCommandPayload(data.command);
-      if (data.risk_level) setFormRiskLevel(data.risk_level);
-      if (data.title && !formTitle) setFormTitle(data.title);
-    } catch {
+      if (data && data.command) {
+        setFormCommandPayload(data.command);
+      } else {
+        setFormCommandPayload(nlInput);
+        setNlError(lang === "zh" ? "AI 返回了空命令，已使用原始描述作为替代" : "AI returned empty command, using raw description as fallback");
+      }
+      if (data?.risk_level) setFormRiskLevel(data.risk_level);
+      if (data?.title && !formTitle) setFormTitle(data.title);
+    } catch (err: any) {
+      console.error("[nl-gen] Generate failed:", err);
+      const msg = err?.message || (lang === "zh" ? "生成失败" : "Generation failed");
+      setNlError(lang === "zh" ? `命令生成失败: ${msg}` : `Command generation failed: ${msg}`);
       setFormCommandPayload(nlInput);
     } finally {
       setNlGenerating(false);
@@ -404,6 +414,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setFormEmergency(false);
     setFormBypassReason("");
     setNlInput("");
+    setNlError("");
     setFormToolName("");
     setFormToolParams({});
   };
@@ -1008,6 +1019,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                       </button>
                     </div>
                     <p className="mt-1 text-xs text-gray-400">{(t as any).nlHint}</p>
+                    {nlError && (
+                      <p className="mt-1 text-xs text-red-500">{nlError}</p>
+                    )}
                   </div>
 
                   <div>
