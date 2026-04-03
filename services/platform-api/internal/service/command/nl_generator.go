@@ -35,7 +35,7 @@ type GenerateCommandResult struct {
 
 const systemPrompt = `You are an operations assistant. Convert user requests into shell commands. Respond with ONLY a JSON object:
 {"command":"<shell command>","risk_level":"<L1|L2|L3>","title":"<short title>"}
-L1=read-only, L2=service ops, L3=destructive. No markdown, no explanation.`
+L1=read-only, L2=service ops, L3=destructive. For multiple steps, chain with && or use newlines (\n). No markdown, no explanation.`
 
 func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*GenerateCommandResult, error) {
 	start := time.Now()
@@ -69,6 +69,7 @@ func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*G
 		result.RiskLevel = EvaluateRisk("shell", result.Command)
 	}
 
+	slog.Info("[nl-gen] result", "command_len", len(result.Command), "risk", result.RiskLevel, "title", result.Title, "total_ms", time.Since(start).Milliseconds())
 	return &result, nil
 }
 

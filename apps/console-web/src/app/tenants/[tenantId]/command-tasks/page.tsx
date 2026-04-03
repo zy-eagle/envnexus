@@ -341,7 +341,12 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       if (data?.title && !formTitle) setFormTitle(data.title);
     } catch (err: any) {
       console.error("[nl-gen] Generate failed:", err);
-      const msg = err?.message || (lang === "zh" ? "生成失败" : "Generation failed");
+      let msg: string;
+      if (err instanceof TypeError || err?.name === "TypeError") {
+        msg = lang === "zh" ? "网络连接超时，请检查服务端是否正常运行" : "Network timeout, check if server is running";
+      } else {
+        msg = err?.message || (lang === "zh" ? "生成失败" : "Generation failed");
+      }
       setNlError(lang === "zh" ? `命令生成失败: ${msg}` : `Command generation failed: ${msg}`);
       setFormCommandPayload(nlInput);
     } finally {
@@ -1043,8 +1048,8 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                       value={formCommandPayload}
                       onChange={(e) => setFormCommandPayload(e.target.value)}
                       placeholder={(t as any).commandContentPlaceholder}
-                      rows={3}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono bg-gray-900 text-green-400"
+                      rows={Math.max(3, Math.min(10, formCommandPayload.split("\n").length + 1))}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono bg-gray-900 text-green-400 resize-y"
                     />
                   </div>
                 </>

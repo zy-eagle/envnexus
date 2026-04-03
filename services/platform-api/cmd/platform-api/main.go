@@ -399,7 +399,7 @@ func main() {
 		Addr:         ":" + httpPort,
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 60 * time.Second,
 	}
 
 	go func() {
