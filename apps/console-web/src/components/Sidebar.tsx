@@ -97,7 +97,7 @@ function NavSection({
 
 export default function Sidebar() {
   const { lang } = useLanguage();
-  const { activeTenantName, tenants, switchTenant } = useAuth();
+  const { activeTenantId, activeTenantName, tenants, switchTenant } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [tenantOpen, setTenantOpen] = useState(false);
