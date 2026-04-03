@@ -178,6 +178,59 @@ function platformAPIRequest(endpoint: string, token: string): Promise<any> {
 
 // ── Agent Core process management ─────────────────────────────────────────────
 
+const MIN_AGENT_BINARY_SIZE = 12_000;
+
+/** Reject empty/corrupt files that existSync would still accept (common right after a failed or partial update). */
+function isLikelyValidAgentBinary(absPath: string): boolean {
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile() || st.size < MIN_AGENT_BINARY_SIZE) return false;
+    if (process.platform !== 'win32') return true;
+    const fd = fs.openSync(absPath, 'r');
+    try {
+      const buf = Buffer.alloc(2);
+      fs.readSync(fd, buf, 0, 2, 0);
+      return buf[0] === 0x4d && buf[1] === 0x5a;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Windows often reports libuv errno as Error: spawn UNKNOWN for invalid PEs, torn files, or spawn quirks.
+ * execFile + cwd next to the binary is more reliable; always catch synchronous throws so the UI does not crash.
+ */
+function startAgentCoreChild(
+  exePath: string,
+  args: string[],
+  env: Record<string, string>,
+): child_process.ChildProcess | null {
+  const cwd = path.dirname(exePath);
+  const opts: child_process.SpawnOptions = {
+    detached: false,
+    stdio: 'pipe',
+    env,
+    windowsHide: process.platform === 'win32',
+    cwd: fs.existsSync(cwd) ? cwd : undefined,
+  };
+
+  try {
+    return child_process.spawn(exePath, args, opts);
+  } catch (e) {
+    console.warn('[agent-core] spawn() failed, trying execFile():', e);
+    try {
+      return child_process.execFile(exePath, args, opts);
+    } catch (e2) {
+      console.error('[agent-core] execFile() failed:', e2);
+      appendAgentLog(`[ERROR] Could not start enx-agent: ${(e2 as Error).message}. Check that the file is a valid Windows executable (not blocked or partially updated).`);
+      return null;
+    }
+  }
+}
+
 function spawnAgentCore(): void {
   if (agentCoreProcess) return;
 
@@ -191,15 +244,22 @@ function spawnAgentCore(): void {
   const settings = loadSettings();
   const binaryPath = settings.agentCorePath || findAgentCoreBinary();
 
-  if (!binaryPath || !fs.existsSync(binaryPath)) {
+  if (!binaryPath) {
     console.warn('agent-core binary not found, skipping spawn');
     appendAgentLog('[WARN] enx-agent binary not found. It will be auto-detected from common paths. If the problem persists, set the path manually in Settings.');
     return;
   }
 
-  const resolvedBinary = path.resolve(binaryPath).toLowerCase();
+  const resolvedBinary = path.resolve(binaryPath);
+  if (!isLikelyValidAgentBinary(resolvedBinary)) {
+    console.warn('agent-core path is missing or not a valid binary:', resolvedBinary);
+    appendAgentLog('[WARN] enx-agent is missing or does not look like a valid executable (e.g. still updating or wrong path). Verify resources/bin/enx-agent.exe or set the path in Settings.');
+    return;
+  }
+
+  const resolvedBinaryLower = resolvedBinary.toLowerCase();
   const selfExe = path.resolve(app.getPath('exe')).toLowerCase();
-  if (resolvedBinary === selfExe) {
+  if (resolvedBinaryLower === selfExe) {
     console.error('SAFETY: agentCorePath points to the Electron app itself — aborting spawn to prevent infinite loop');
     appendAgentLog('[ERROR] agentCorePath points to the Electron app itself. Please set the correct enx-agent binary path in Settings.');
     return;
@@ -212,7 +272,7 @@ function spawnAgentCore(): void {
     return;
   }
 
-  console.log('Spawning agent-core:', binaryPath);
+  console.log('Spawning agent-core:', resolvedBinary);
 
   const agentDataDir = getAgentDataDir();
   const agentEnv: Record<string, string> = {
@@ -237,11 +297,11 @@ function spawnAgentCore(): void {
   }
 
   console.log('Agent data dir:', agentDataDir);
-  agentCoreProcess = child_process.spawn(binaryPath, args, {
-    detached: false,
-    stdio: 'pipe',
-    env: agentEnv,
-  });
+  const child = startAgentCoreChild(resolvedBinary, args, agentEnv);
+  if (!child) {
+    return;
+  }
+  agentCoreProcess = child;
 
   agentCoreProcess.stdout?.on('data', (data) => {
     const line = data.toString().trim();
@@ -315,7 +375,12 @@ function findAgentCoreBinary(): string {
   }
 
   const found = candidates.find((p) => {
-    try { return fs.existsSync(p); } catch { return false; }
+    try {
+      const abs = path.resolve(p);
+      return isLikelyValidAgentBinary(abs);
+    } catch {
+      return false;
+    }
   });
 
   if (found) {
@@ -991,7 +1056,9 @@ function registerIPC(): void {
     if (result && !result.error) {
       stopAgentCore();
       lastSpawnTime = 0;
-      setTimeout(spawnAgentCore, 2000);
+      // Windows: allow rename/AV hooks on the replaced enx-agent.exe to settle before spawn (avoids spawn UNKNOWN).
+      const delayMs = process.platform === 'win32' ? 4500 : 2000;
+      setTimeout(spawnAgentCore, delayMs);
     }
     return result;
   });
