@@ -913,7 +913,6 @@ const i18n = {
     chat_auto_approve_on: '✓ 已开启自动批准',
     chat_auto_approve_off: '已关闭自动批准',
     chat_auto_approved: '自动批准',
-    chat_approve_and_allow_all: '✓ 批准并允许后续所有',
     chat_conn_error: '无法连接到 agent-core。请确保 agent-core 正在运行。',
     approvals_title: '待审批操作', approvals_refresh: '↻ 刷新',
     approvals_empty: '暂无待审批操作', approvals_risk: '风险',
@@ -1000,7 +999,6 @@ const i18n = {
     chat_auto_approve_on: '✓ Auto-approve enabled',
     chat_auto_approve_off: 'Auto-approve disabled',
     chat_auto_approved: 'Auto-approved',
-    chat_approve_and_allow_all: '✓ Approve & allow all',
     chat_conn_error: 'Cannot connect to agent-core. Make sure agent-core is running.',
     approvals_title: 'Pending Approvals', approvals_refresh: '↻ Refresh',
     approvals_empty: 'No pending approvals', approvals_risk: 'Risk',
@@ -1252,7 +1250,6 @@ function addApprovalCard(data) {
     ${paramsStr ? `<pre style="max-height:80px; margin-bottom:8px; font-size:11px;">${escapeHtml(paramsStr)}</pre>` : ''}
     <div class="approval-btns">
       <button class="btn btn-success" onclick="chatApprove('${data.approval_id}', true, this)">${t('approvals_approve')}</button>
-      <button class="btn btn-success" style="background:var(--emerald-600,#059669);" onclick="chatApproveAndAllowAll('${data.approval_id}', this)">${t('chat_approve_and_allow_all')}</button>
       <button class="btn btn-danger" onclick="chatApprove('${data.approval_id}', false, this)">${t('approvals_reject')}</button>
     </div>
   `;
@@ -1287,21 +1284,6 @@ async function chatApprove(approvalId, approved, btn) {
     if (card) {
       card.innerHTML = `<div style="text-align:center; padding:8px; color:${approved ? 'var(--emerald-700)' : 'var(--red-700)'}; font-weight:600;">${approved ? t('approvals_approved') : t('approvals_rejected')}</div>`;
     }
-  } catch (e) {
-    btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
-  }
-}
-
-async function chatApproveAndAllowAll(approvalId, btn) {
-  btn.disabled = true;
-  btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = true);
-  try {
-    await api.chatApprove(approvalId, true);
-    const card = document.getElementById(`chat-approval-${approvalId}`);
-    if (card) {
-      card.innerHTML = `<div style="text-align:center; padding:8px; color:var(--emerald-700); font-weight:600;">${t('approvals_approved')}</div>`;
-    }
-    await setAutoApprove(true);
   } catch (e) {
     btn.parentElement.querySelectorAll('.btn').forEach(b => b.disabled = false);
   }
