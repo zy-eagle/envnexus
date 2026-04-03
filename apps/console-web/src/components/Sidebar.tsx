@@ -48,28 +48,46 @@ function NavItem({ href, icon, label, active }: { href: string; icon: string; la
 }
 
 type TenantNavLink = { href: string; icon: string; label: string };
-type TenantNavGroup = { id: string; label: string; links: TenantNavLink[] };
+type TenantNavGroup = { id: string; label: string; sectionIcon: string; links: TenantNavLink[] };
 
 function NavSection({
   label,
+  sectionIcon,
   open,
+  activeChild,
   onToggle,
   children,
 }: {
   label: string;
+  sectionIcon: string;
   open: boolean;
+  activeChild: boolean;
   onToggle: () => void;
   children: ReactNode;
 }) {
+  const rowActive = activeChild;
   return (
     <div className="mb-0.5">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all duration-150"
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 ${
+          rowActive
+            ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-50'
+            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+        }`}
       >
-        <span className="truncate text-left">{label}</span>
-        <span className={`flex-shrink-0 text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+        <span className="flex items-center gap-3 min-w-0 flex-1">
+          <span className={`flex-shrink-0 ${rowActive ? 'text-indigo-500' : 'text-slate-400'}`}>
+            <Icon name={sectionIcon} />
+          </span>
+          <span className="truncate text-left">{label}</span>
+        </span>
+        <span
+          className={`flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''} ${
+            rowActive ? 'text-indigo-500' : 'text-slate-400'
+          }`}
+        >
           <Icon name="chevronDown" className="w-4 h-4" />
         </span>
       </button>
@@ -103,6 +121,7 @@ export default function Sidebar() {
       {
         id: 'ops',
         label: t.navGroupOperations,
+        sectionIcon: 'devices',
         links: [
           { href: `/tenants/${tid}/devices`, icon: 'devices', label: t.devices },
           { href: `/tenants/${tid}/sessions`, icon: 'sessions', label: t.sessions },
@@ -112,6 +131,7 @@ export default function Sidebar() {
       {
         id: 'cfg',
         label: t.navGroupConfiguration,
+        sectionIcon: 'policy',
         links: [
           { href: `/tenants/${tid}/model-profiles`, icon: 'model', label: t.modelProfiles },
           { href: `/tenants/${tid}/policy-profiles`, icon: 'policy', label: t.policyProfiles },
@@ -122,6 +142,7 @@ export default function Sidebar() {
       {
         id: 'approval',
         label: t.navGroupApprovals,
+        sectionIcon: 'approval',
         links: [
           { href: `/tenants/${tid}/pending-approvals`, icon: 'approval', label: t.pendingApprovals },
           { href: `/tenants/${tid}/approval-policies`, icon: 'policy', label: t.approvalPolicies },
@@ -130,6 +151,7 @@ export default function Sidebar() {
       {
         id: 'org',
         label: t.navGroupOrganization,
+        sectionIcon: 'users',
         links: [
           { href: `/tenants/${tid}/users`, icon: 'users', label: t.users },
           { href: `/tenants/${tid}/roles`, icon: 'roles', label: t.roles },
@@ -138,6 +160,7 @@ export default function Sidebar() {
       {
         id: 'gov',
         label: t.navGroupGovernance,
+        sectionIcon: 'governance',
         links: [
           { href: `/tenants/${tid}/governance`, icon: 'governance', label: t.governance },
           { href: `/tenants/${tid}/audit-events`, icon: 'audit', label: t.auditEvents },
@@ -239,42 +262,34 @@ export default function Sidebar() {
         </div>
 
         {tid && (
-          <div className="mt-5">
-            <div className="px-3 mb-2">
-              <span className="text-[13px] font-medium text-slate-600">{t.tenantResources || 'Resources'}</span>
-            </div>
-            <div className="space-y-0.5">
-              {tenantNavGroups.map((group) => (
-                <NavSection
-                  key={group.id}
-                  label={group.label}
-                  open={tenantSectionOpen[group.id] === true}
-                  onToggle={() =>
-                    setTenantSectionOpen((s) => ({ ...s, [group.id]: !s[group.id] }))
-                  }
-                >
-                  {group.links.map((link) => (
-                    <NavItem
-                      key={link.href}
-                      href={link.href}
-                      icon={link.icon}
-                      label={link.label}
-                      active={isActive(link.href)}
-                    />
-                  ))}
-                </NavSection>
-              ))}
-            </div>
+          <div className="mt-5 space-y-0.5">
+            {tenantNavGroups.map((group) => (
+              <NavSection
+                key={group.id}
+                label={group.label}
+                sectionIcon={group.sectionIcon}
+                activeChild={group.links.some((l) => isActive(l.href))}
+                open={tenantSectionOpen[group.id] === true}
+                onToggle={() =>
+                  setTenantSectionOpen((s) => ({ ...s, [group.id]: !s[group.id] }))
+                }
+              >
+                {group.links.map((link) => (
+                  <NavItem
+                    key={link.href}
+                    href={link.href}
+                    icon={link.icon}
+                    label={link.label}
+                    active={isActive(link.href)}
+                  />
+                ))}
+              </NavSection>
+            ))}
           </div>
         )}
 
-        <div className="mt-5">
-          <div className="px-3 mb-2">
-            <span className="text-[13px] font-medium text-slate-600">{t.platform}</span>
-          </div>
-          <div className="space-y-0.5">
-            <NavItem href="/settings" icon="settings" label={t.settings} active={isActive('/settings')} />
-          </div>
+        <div className="mt-5 space-y-0.5">
+          <NavItem href="/settings" icon="settings" label={t.settings} active={isActive('/settings')} />
         </div>
       </nav>
 
