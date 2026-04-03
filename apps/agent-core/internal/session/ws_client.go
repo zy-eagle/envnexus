@@ -1,9 +1,9 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,6 +20,11 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
+)
+
+const (
+	maxLogRemoteCommandRunes = 256 * 1024
+	maxLogToolOutputRunes    = 128 * 1024
 )
 
 type EventEnvelope struct {
@@ -357,14 +362,34 @@ func (c *WSClient) handleToolStarted(evt EventEnvelope) {
 
 	tool, found := c.registry.Get(toolName)
 	if !found {
+		slog.Warn("[ws] remote tool: not registered", "session_id", evt.SessionID, "tool_name", toolName)
 		c.sendToolResult(evt.SessionID, toolName, nil, fmt.Errorf("tool not found: %s", toolName))
 		return
 	}
 
 	params, _ := payloadMap["params"].(map[string]interface{})
+	paramsLog := mustJSONForLog(params)
+
+	slog.Info("[ws] remote tool.execute",
+		"session_id", evt.SessionID,
+		"tool_name", toolName,
+		"params", paramsLog,
+	)
 
 	approved, err := c.policyEngine.Check(context.Background(), tool, params)
 	if err != nil || !approved {
+		reason := ""
+		if err != nil {
+			reason = err.Error()
+		} else {
+			reason = "not approved"
+		}
+		slog.Info("[ws] remote tool.denied",
+			"session_id", evt.SessionID,
+			"tool_name", toolName,
+			"params", paramsLog,
+			"reason", reason,
+		)
 		c.auditClient.ReportEvent(context.Background(), "tool.denied", evt.SessionID, map[string]interface{}{
 			"tool_name": toolName,
 			"reason":    fmt.Sprintf("%v", err),
@@ -378,6 +403,28 @@ func (c *WSClient) handleToolStarted(evt EventEnvelope) {
 	eventType := "tool.completed"
 	if err != nil || (result != nil && result.Status == "failed") {
 		eventType = "tool.failed"
+	}
+
+	if err != nil {
+		slog.Info("[ws] remote tool.execute result",
+			"session_id", evt.SessionID,
+			"tool_name", toolName,
+			"event_type", eventType,
+			"invoke_error", err.Error(),
+		)
+	} else if result != nil {
+		outStr := stringFromToolOutput(result.Output)
+		slog.Info("[ws] remote tool.execute result",
+			"session_id", evt.SessionID,
+			"tool_name", toolName,
+			"event_type", eventType,
+			"status", result.Status,
+			"duration_ms", result.DurationMs,
+			"summary", result.Summary,
+			"output", truncateRunes(outStr, maxLogToolOutputRunes),
+			"output_runes", len([]rune(outStr)),
+			"result_error", result.Error,
+		)
 	}
 
 	c.auditClient.ReportEvent(context.Background(), eventType, evt.SessionID, map[string]interface{}{
@@ -469,11 +516,14 @@ func (c *WSClient) handleCommandExecute(evt EventEnvelope) {
 		return
 	}
 
+	cmdForLog, cmdTrunc := truncateRunesWithFlag(commandPayload, maxLogRemoteCommandRunes)
 	slog.Info("[ws] remote command.execute",
 		"execution_id", executionID,
 		"task_id", taskID,
 		"command_type", commandType,
-		"command", truncRemoteCmdLog(commandPayload, 8192),
+		"command_runes", len([]rune(commandPayload)),
+		"command_truncated", cmdTrunc,
+		"command", cmdForLog,
 	)
 
 	go func() {
@@ -512,15 +562,19 @@ func (c *WSClient) handleCommandExecute(evt EventEnvelope) {
 			Payload:   resultPayload,
 		})
 
+		outForLog, outTrunc := truncateRunesWithFlag(output, maxLogToolOutputRunes)
+		errForLog, errTrunc := truncateRunesWithFlag(errMsg, 32*1024)
 		slog.Info("[ws] remote command.execute result",
 			"execution_id", executionID,
 			"task_id", taskID,
-			"command", truncRemoteCmdLog(commandPayload, 8192),
 			"status", status,
 			"exit_code", exitCode,
 			"duration_ms", durationMs,
-			"output_excerpt", truncRemoteCmdLog(output, 4000),
-			"stderr_or_err", truncRemoteCmdLog(errMsg, 2000),
+			"stdout", outForLog,
+			"stdout_runes", len([]rune(output)),
+			"stdout_truncated", outTrunc,
+			"stderr_or_err", errForLog,
+			"stderr_truncated", errTrunc,
 		)
 	}()
 }
@@ -578,10 +632,55 @@ func executeShellCommand(command string) (status, output, errMsg string, exitCod
 	return "succeeded", out, "", 0
 }
 
-func truncRemoteCmdLog(s string, max int) string {
+func stringFromToolOutput(out interface{}) string {
+	if out == nil {
+		return ""
+	}
+	switch v := out.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", out)
+		}
+		return string(b)
+	}
+}
+
+func mustJSONForLog(v interface{}) string {
+	if v == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%+v", v)
+	}
+	return string(b)
+}
+
+func truncateRunes(s string, maxRunes int) string {
 	s = strings.TrimSpace(s)
-	if max <= 0 || len(s) <= max {
+	if maxRunes <= 0 {
 		return s
 	}
-	return s[:max] + "…"
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes]) + "…"
+}
+
+func truncateRunesWithFlag(s string, maxRunes int) (text string, truncated bool) {
+	s = strings.TrimSpace(s)
+	if maxRunes <= 0 {
+		return s, false
+	}
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s, false
+	}
+	return string(r[:maxRunes]) + "…", true
 }
