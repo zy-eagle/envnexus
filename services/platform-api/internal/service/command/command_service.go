@@ -399,7 +399,9 @@ func (s *Service) ApproveTask(ctx context.Context, pathTenantID, taskID, approve
 			return err
 		}
 	}
-	if task.CreatedByUserID == approverUserID {
+	// Platform super admins may approve any task for the tenant (including self-created),
+	// per product intent; SoD still applies to normal tenant operators.
+	if !isPlatformSuperAdmin && task.CreatedByUserID == approverUserID {
 		policy, _ := s.policyService.FindPolicy(ctx, task.TenantID, task.EffectiveRisk)
 		if policy != nil && policy.SeparationOfDuty {
 			return domain.ErrSeparationOfDutyViolation
