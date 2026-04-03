@@ -23,7 +23,7 @@ type NLGenerator struct {
 func NewNLGenerator(modelRepo repository.ModelProfileRepository) *NLGenerator {
 	return &NLGenerator{
 		modelRepo:  modelRepo,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 55 * time.Second},
 	}
 }
 
