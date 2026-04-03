@@ -1643,7 +1643,8 @@ function scheduleEarlyHealthCheck(): void {
       if (currentStatus === 'online') return;
       try {
         await localAPIRequest('GET', '/local/v1/runtime/status', undefined, 3000);
-        if (currentStatus !== 'online') {
+        // Re-check after await – currentStatus may have been mutated by another async path
+        if ((currentStatus as ConnectionStatus) !== 'online') {
           updateTrayStatus('online');
           mainWindow?.webContents.send('connection-status', 'online');
         }
