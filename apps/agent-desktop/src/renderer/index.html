@@ -832,6 +832,11 @@
           <option value="false" id="opt-auto-start-off">禁用</option>
         </select>
       </div>
+      <div class="form-group">
+        <label class="form-label" id="label-max-iterations">AI 最大工具调用次数</label>
+        <input class="form-input" id="setting-max-iterations" type="number" min="1" max="100" value="10" style="width:120px">
+        <div class="form-hint" id="hint-max-iterations">单次对话中 AI 最多可执行的工具调用轮数，默认 10</div>
+      </div>
     </div>
 
     <div class="card">
@@ -940,6 +945,8 @@ const i18n = {
     settings_auto_detect: '自动检测',
     settings_choose_binary_title: '选择 enx-agent 可执行文件',
     settings_detected: '自动检测到',
+    settings_max_iterations: 'AI 最大工具调用次数',
+    settings_max_iterations_hint: '单次对话中 AI 最多可执行的工具调用轮数，默认 10',
     logs_title: 'Agent Core 运行日志', logs_refresh: '↻ 刷新', logs_clear: '清空',
     logs_waiting: '等待日志...', logs_empty: '暂无日志输出。Agent Core 可能未启动。',
     logs_hint: '实时显示 agent-core 进程的 stdout/stderr 输出。最多保留 2000 行。',
@@ -958,6 +965,7 @@ const i18n = {
     update_check: '检查更新',
     update_checking: '检查中...',
     update_no_update: '已是最新版本',
+    update_check_failed: '检查失败',
     update_error: '更新失败',
   },
   en: {
@@ -1026,6 +1034,8 @@ const i18n = {
     settings_auto_detect: 'Auto-detect',
     settings_choose_binary_title: 'Select enx-agent executable',
     settings_detected: 'Auto-detected',
+    settings_max_iterations: 'Max AI Tool Iterations',
+    settings_max_iterations_hint: 'Maximum tool call rounds per chat session, default 10',
     logs_title: 'Agent Core Logs', logs_refresh: '↻ Refresh', logs_clear: 'Clear',
     logs_waiting: 'Waiting for logs...', logs_empty: 'No log output. Agent Core may not be running.',
     logs_hint: 'Real-time stdout/stderr output from agent-core process. Up to 2000 lines retained.',
@@ -1044,6 +1054,7 @@ const i18n = {
     update_check: 'Check for Updates',
     update_checking: 'Checking...',
     update_no_update: 'Up to date',
+    update_check_failed: 'Check failed',
     update_error: 'Update failed',
   }
 };
@@ -1106,6 +1117,8 @@ function applyLanguage(lang) {
   document.getElementById('label-auto-start').textContent = t('settings_auto_start');
   document.getElementById('opt-auto-start-on').textContent = t('settings_enabled');
   document.getElementById('opt-auto-start-off').textContent = t('settings_disabled');
+  document.getElementById('label-max-iterations').textContent = t('settings_max_iterations');
+  document.getElementById('hint-max-iterations').textContent = t('settings_max_iterations_hint');
   document.getElementById('settings-binary-title').textContent = t('settings_agent_binary');
   document.getElementById('setting-agent-path').placeholder = t('settings_auto_detect');
   document.getElementById('btn-browse').textContent = t('settings_browse');
@@ -1337,10 +1350,31 @@ if (api.onChatEvent) {
         const cards = chatBox.querySelectorAll('.msg-tool');
         const lastCard = cards[cards.length - 1];
         if (lastCard) {
-          const statusIcon = c.status === 'ok' || c.status === 'success' ? '✅' : c.status === 'rejected' ? '🚫' : '❌';
+          const isOk = c.status === 'ok' || c.status === 'success' || c.status === 'succeeded';
+          const isRejected = c.status === 'rejected';
+          const statusIcon = isOk ? '✅' : isRejected ? '🚫' : '❌';
           lastCard.querySelector('.tool-header').innerHTML = `${statusIcon} <span>🔧 ${escapeHtml(c.tool_name || '?')}</span>`;
-          lastCard.querySelector('.tool-status').textContent = c.summary || c.status || '';
-          if (c.duration_ms) lastCard.querySelector('.tool-status').textContent += ` (${c.duration_ms}ms)`;
+          let statusText = c.summary || c.status || '';
+          if (c.duration_ms) statusText += ` (${c.duration_ms}ms)`;
+          lastCard.querySelector('.tool-status').textContent = statusText;
+          const errText = c.error || (c.output && c.output.error);
+          if (errText && !isOk) {
+            const errDiv = document.createElement('div');
+            errDiv.className = 'tool-output';
+            errDiv.style.background = 'var(--red-50, #fef2f2)';
+            errDiv.style.color = 'var(--red-700, #b91c1c)';
+            errDiv.style.border = '1px solid var(--red-200, #fecaca)';
+            errDiv.textContent = typeof errText === 'string' ? errText : JSON.stringify(errText, null, 2);
+            lastCard.appendChild(errDiv);
+          } else if (c.output && !isRejected) {
+            const outText = typeof c.output === 'string' ? c.output : (c.output.output || c.summary || '');
+            if (outText && outText.length > 0 && outText !== statusText.replace(/ \(\d+ms\)$/, '')) {
+              const outDiv = document.createElement('div');
+              outDiv.className = 'tool-output';
+              outDiv.textContent = typeof outText === 'string' ? outText : JSON.stringify(outText, null, 2);
+              lastCard.appendChild(outDiv);
+            }
+          }
         }
         break;
       }
@@ -1361,6 +1395,10 @@ if (api.onChatEvent) {
       }
       case 'message': {
         if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+        const msgContent = evt.content?.content;
+        if (msgContent) {
+          addMsg(`<div style="white-space:pre-wrap;">${escapeHtml(msgContent)}</div>`, 'agent');
+        }
         break;
       }
     }
@@ -1538,6 +1576,7 @@ async function loadSettings_() {
     document.getElementById('setting-log-level').value = s.logLevel || 'info';
     document.getElementById('setting-agent-path').value = s.agentCorePath || '';
     document.getElementById('setting-auto-start').value = s.autoStart ? 'true' : 'false';
+    document.getElementById('setting-max-iterations').value = s.maxIterations || 10;
     const ver = await api.getAppVersion();
     document.getElementById('about-version').textContent = 'v' + ver;
 
@@ -1568,6 +1607,7 @@ async function saveSettings() {
     logLevel: document.getElementById('setting-log-level').value,
     agentCorePath: document.getElementById('setting-agent-path').value,
     autoStart: document.getElementById('setting-auto-start').value === 'true',
+    maxIterations: parseInt(document.getElementById('setting-max-iterations').value, 10) || 10,
   };
 
   try {
@@ -1791,26 +1831,42 @@ async function triggerCheckUpdate() {
   btn.disabled = true;
   btn.textContent = t('update_checking');
   msg.textContent = '';
+  msg.style.color = '';
   let foundUpdate = false;
+  const errors = [];
+
   try {
-    // Check agent-core updates
     const agentResult = await api.checkAgentUpdate();
-    if (agentResult && agentResult.has_update && agentResult.latest_version) {
+    if (agentResult && agentResult.error) {
+      errors.push('Agent Core: ' + agentResult.error);
+    } else if (agentResult && agentResult.has_update && agentResult.latest_version) {
       showUpdateBanner('agent', agentResult.latest_version);
       foundUpdate = true;
     }
-  } catch {}
+  } catch (e) {
+    errors.push('Agent Core: ' + (e.message || t('update_error')));
+  }
+
   try {
-    // Check desktop updates
     if (api.checkDesktopUpdate) {
       const desktopResult = await api.checkDesktopUpdate();
-      if (desktopResult && desktopResult.has_update && desktopResult.latest_version) {
+      if (desktopResult && desktopResult.error) {
+        errors.push('Desktop: ' + desktopResult.error);
+      } else if (desktopResult && desktopResult.has_update && desktopResult.latest_version) {
         showUpdateBanner('desktop', desktopResult.latest_version);
         foundUpdate = true;
       }
     }
-  } catch {}
-  if (!foundUpdate) {
+  } catch (e) {
+    errors.push('Desktop: ' + (e.message || t('update_error')));
+  }
+
+  if (foundUpdate) {
+    // banner already shown
+  } else if (errors.length > 0) {
+    msg.textContent = t('update_check_failed') + ': ' + errors.join('; ');
+    msg.style.color = 'var(--red-600, #dc2626)';
+  } else {
     msg.textContent = t('update_no_update');
     msg.style.color = 'var(--emerald-700)';
   }

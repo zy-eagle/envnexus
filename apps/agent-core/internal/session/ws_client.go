@@ -408,6 +408,12 @@ func (c *WSClient) sendToolResult(sessionID, toolName string, result *tools.Tool
 		payload["output"] = result.Output
 		payload["summary"] = result.Summary
 		payload["duration_ms"] = result.DurationMs
+		if result.Error != "" {
+			payload["error"] = result.Error
+		}
+		if result.Status == "failed" {
+			evtType = "tool.failed"
+		}
 	}
 
 	envelope := EventEnvelope{
@@ -509,13 +515,24 @@ func (c *WSClient) handleCommandExecute(evt EventEnvelope) {
 	}()
 }
 
+func findPowerShellExe() string {
+	if p, err := exec.LookPath("pwsh"); err == nil {
+		return p
+	}
+	if p, err := exec.LookPath("powershell"); err == nil {
+		return p
+	}
+	return "powershell"
+}
+
 func executeShellCommand(command string) (status, output, errMsg string, exitCode int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+		psExe := findPowerShellExe()
+		cmd = exec.CommandContext(ctx, psExe, "-NoProfile", "-NonInteractive", "-Command", command)
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}

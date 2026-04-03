@@ -293,7 +293,8 @@ func (s *LocalServer) handleRecentSessions(c *gin.Context) {
 }
 
 type ChatRequest struct {
-	Messages []ChatMessage `json:"messages" binding:"required"`
+	Messages      []ChatMessage `json:"messages" binding:"required"`
+	MaxIterations int           `json:"max_iterations,omitempty"`
 }
 
 type ChatMessage struct {
@@ -345,10 +346,15 @@ func (s *LocalServer) handleChat(c *gin.Context) {
 
 	writeSSE("session", gin.H{"session_id": chatSessionID})
 
+	maxIter := agent.DefaultMaxIterations
+	if req.MaxIterations > 0 {
+		maxIter = req.MaxIterations
+	}
+
 	loop := agent.NewLoop(
 		s.llmRouter,
 		s.toolRegistry,
-		agent.WithMaxIterations(10),
+		agent.WithMaxIterations(maxIter),
 		agent.WithEventHandler(func(evt agent.Event) {
 			writeSSE(string(evt.Type), evt.Content)
 		}),

@@ -24,6 +24,7 @@ interface Settings {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   agentCorePath: string;
   autoStart: boolean;
+  maxIterations: number;
 }
 
 // ── State ──────────────────────────────────────────────────────────────────────
@@ -43,6 +44,7 @@ const DEFAULT_SETTINGS: Settings = {
   logLevel: 'info',
   agentCorePath: '',
   autoStart: true,
+  maxIterations: 10,
 };
 
 // Portable mode: when a `.portable` marker file exists next to the exe,
@@ -818,7 +820,12 @@ function registerIPC(): void {
         resolve(val);
       };
 
-      const postData = JSON.stringify({ messages });
+      const settings = loadSettings();
+      const chatBody: Record<string, unknown> = { messages };
+      if (settings.maxIterations && settings.maxIterations > 0) {
+        chatBody.max_iterations = settings.maxIterations;
+      }
+      const postData = JSON.stringify(chatBody);
       const req = http.request({
         hostname: '127.0.0.1',
         port: 17700,

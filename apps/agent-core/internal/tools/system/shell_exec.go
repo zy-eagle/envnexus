@@ -25,6 +25,18 @@ var safeReadOnlyCommands = map[string]map[string]bool{
 		"hostname": true, "systeminfo": true, "tasklist": true, "whoami": true,
 		"findstr": true, "type": true, "dir": true, "where": true,
 		"echo": true, "ver": true, "vol": true, "tree": true, "set": true,
+		"get-childitem": true, "get-content": true, "get-item": true,
+		"get-itemproperty": true, "get-process": true, "get-service": true,
+		"get-netadapter": true, "get-netipaddress": true, "get-netroute": true,
+		"get-nettcpconnection": true, "get-disk": true, "get-volume": true,
+		"get-psdrive": true, "get-hotfix": true, "get-computerinfo": true,
+		"get-wmiobject": true, "get-ciminstance": true, "get-date": true,
+		"get-host": true, "get-location": true, "get-command": true,
+		"select-object": true, "where-object": true, "format-table": true,
+		"format-list": true, "out-string": true, "measure-object": true,
+		"sort-object": true, "group-object": true, "select-string": true,
+		"test-connection": true, "test-netconnection": true, "test-path": true,
+		"resolve-dnsname": true, "write-output": true, "write-host": true,
 	},
 	"linux": {
 		"ifconfig": true, "netstat": true, "ss": true,
@@ -58,7 +70,10 @@ func NewShellExecTool() *ShellExecTool { return &ShellExecTool{} }
 
 func (t *ShellExecTool) Name() string { return "shell_exec" }
 func (t *ShellExecTool) Description() string {
-	return "Executes a shell command on the local machine. Whitelisted diagnostic commands (e.g. ipconfig, netstat, ping, systeminfo, dir, ls, ps, df) run directly. Non-whitelisted or write commands (e.g. mkdir, copy, move) require user approval before execution."
+	if runtime.GOOS == "windows" {
+		return "Executes a PowerShell command on the local Windows machine. Whitelisted diagnostic commands (e.g. ipconfig, netstat, ping, systeminfo, Get-ChildItem, Get-Process) run directly. Non-whitelisted or write commands require user approval before execution. Use PowerShell syntax."
+	}
+	return "Executes a shell command on the local machine via sh. Whitelisted diagnostic commands (e.g. ifconfig, netstat, ping, ls, ps, df) run directly. Non-whitelisted or write commands require user approval before execution."
 }
 func (t *ShellExecTool) IsReadOnly() bool  { return false }
 func (t *ShellExecTool) RiskLevel() string { return "L2" }
@@ -86,7 +101,7 @@ func (t *ShellExecTool) Parameters() *tools.ParamSchema {
 		Properties: map[string]tools.ParamProperty{
 			"command": {
 				Type:        "string",
-				Description: "Shell command to execute. Whitelisted diagnostic commands (ipconfig, netstat, ping, systeminfo, dir, ls, ps, df, etc.) run directly. Other commands (mkdir, copy, move, etc.) require user approval first.",
+				Description: "Command to execute. On Windows, this runs in PowerShell (use PowerShell syntax like Get-ChildItem, Rename-Item, etc.). On Linux/macOS, this runs in sh. Whitelisted read-only commands run directly; write commands require user approval.",
 			},
 		},
 		Required: []string{"command"},
@@ -111,7 +126,8 @@ func (t *ShellExecTool) Execute(ctx context.Context, params map[string]interface
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.CommandContext(execCtx, "cmd", "/C", command)
+		psExe := findPowerShell()
+		cmd = exec.CommandContext(execCtx, psExe, "-NoProfile", "-NonInteractive", "-Command", command)
 	default:
 		cmd = exec.CommandContext(execCtx, "sh", "-c", command)
 	}
@@ -146,6 +162,16 @@ func (t *ShellExecTool) Execute(ctx context.Context, params map[string]interface
 		Output:     map[string]interface{}{"command": command, "exit_code": 0, "output": outputStr, "os": runtime.GOOS},
 		DurationMs: elapsed.Milliseconds(),
 	}, nil
+}
+
+func findPowerShell() string {
+	if p, err := exec.LookPath("pwsh"); err == nil {
+		return p
+	}
+	if p, err := exec.LookPath("powershell"); err == nil {
+		return p
+	}
+	return "powershell"
 }
 
 func parseCommand(cmd string) []string {

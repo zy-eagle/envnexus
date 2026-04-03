@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/router"
@@ -153,8 +155,14 @@ func (l *Loop) Run(ctx context.Context, messages []router.Message) (string, erro
 	}
 
 	l.emit(Event{Type: EventThinking, Content: map[string]interface{}{
-		"detail": "Max iterations reached, generating final response...",
+		"detail":  fmt.Sprintf("Reached maximum of %d tool iterations. Generating summary...", l.maxIterations),
+		"warning": "max_iterations_reached",
 	}})
+
+	fullMessages = append(fullMessages, router.Message{
+		Role:    "user",
+		Content: "You have reached the maximum number of tool call iterations. Stop calling tools. Summarize what you accomplished, what failed (include specific error messages), and what remains to be done.",
+	})
 
 	resp, err := l.llmRouter.Complete(ctx, &router.CompletionRequest{
 		Messages:    fullMessages,
@@ -182,13 +190,15 @@ func (l *Loop) executeTool(ctx context.Context, tc router.ToolCall) map[string]i
 
 	tool, found := l.registry.Get(toolName)
 	if !found {
+		errMsg := fmt.Sprintf("tool '%s' not found", toolName)
 		result := map[string]interface{}{
-			"error": fmt.Sprintf("tool '%s' not found", toolName),
+			"error": errMsg,
 		}
 		l.emit(Event{Type: EventToolResult, Content: map[string]interface{}{
 			"tool_name": toolName,
 			"call_id":   tc.ID,
 			"status":    "failed",
+			"error":     errMsg,
 			"output":    result,
 		}})
 		return result
@@ -240,6 +250,7 @@ func (l *Loop) executeTool(ctx context.Context, tc router.ToolCall) map[string]i
 			"tool_name":   toolName,
 			"call_id":     tc.ID,
 			"status":      "failed",
+			"error":       err.Error(),
 			"output":      result,
 			"duration_ms": elapsed.Milliseconds(),
 		}})
@@ -256,13 +267,20 @@ func (l *Loop) executeTool(ctx context.Context, tc router.ToolCall) map[string]i
 		result["error"] = toolResult.Error
 	}
 
-	l.emit(Event{Type: EventToolResult, Content: map[string]interface{}{
+	evtContent := map[string]interface{}{
 		"tool_name":   toolName,
 		"call_id":     tc.ID,
 		"status":      toolResult.Status,
 		"summary":     toolResult.Summary,
 		"duration_ms": toolResult.DurationMs,
-	}})
+	}
+	if toolResult.Error != "" {
+		evtContent["error"] = toolResult.Error
+	}
+	if toolResult.Status == "failed" {
+		evtContent["output"] = toolResult.Output
+	}
+	l.emit(Event{Type: EventToolResult, Content: evtContent})
 
 	slog.Info("[agent] Tool executed", "tool", toolName, "status", toolResult.Status, "duration_ms", toolResult.DurationMs)
 	return result
@@ -307,9 +325,10 @@ func (l *Loop) buildToolDefinitions() []router.ToolDefinition {
 }
 
 func (l *Loop) buildSystemPrompt() string {
+	envInfo := collectEnvironmentInfo()
 	return fmt.Sprintf(`You are EnvNexus Agent, a local IT diagnostic and operations assistant running on the user's machine.
 
-System: %s/%s
+%s
 
 You have access to a set of tools that can inspect and operate on this machine. Use them to answer the user's questions accurately.
 
@@ -320,5 +339,64 @@ Guidelines:
 - ALWAYS call tools directly when the user requests an action. NEVER ask the user for confirmation yourself — the system has a built-in approval mechanism that will automatically prompt the user for approval on sensitive operations. Just call the tool and the system handles the rest.
 - Do NOT simulate or role-play an approval process in your text responses. Do NOT say things like "Do you want me to proceed?" or "Please confirm". Simply call the appropriate tool.
 - If a tool call fails, explain the error and suggest alternatives.
-- Respond in the same language as the user's message.`, runtime.GOOS, runtime.GOARCH)
+- When using shell_exec, generate commands appropriate for the shell listed above. On Windows use PowerShell syntax; on Linux/macOS use sh/bash syntax.
+- Respond in the same language as the user's message.`, envInfo)
+}
+
+func collectEnvironmentInfo() string {
+	hostname, _ := os.Hostname()
+
+	var lines []string
+	lines = append(lines, fmt.Sprintf("OS: %s", runtime.GOOS))
+	lines = append(lines, fmt.Sprintf("Architecture: %s", runtime.GOARCH))
+	if hostname != "" {
+		lines = append(lines, fmt.Sprintf("Hostname: %s", hostname))
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		if v := os.Getenv("OS"); v != "" {
+			lines = append(lines, fmt.Sprintf("OS Version: %s", v))
+		}
+		if v := os.Getenv("PROCESSOR_ARCHITECTURE"); v != "" {
+			lines = append(lines, fmt.Sprintf("Processor: %s", v))
+		}
+		lines = append(lines, "Shell (shell_exec uses): PowerShell (-NoProfile -NonInteractive)")
+		lines = append(lines, "Use PowerShell syntax: cmdlets (Get-ChildItem, Rename-Item, Get-Process), pipelines, variables ($env:PATH). Avoid cmd-only syntax like 'dir /s' — use 'Get-ChildItem -Recurse' instead.")
+		if v := os.Getenv("USERPROFILE"); v != "" {
+			lines = append(lines, fmt.Sprintf("Home: %s", v))
+		}
+		if v := os.Getenv("SystemRoot"); v != "" {
+			lines = append(lines, fmt.Sprintf("SystemRoot: %s", v))
+		}
+	default:
+		lines = append(lines, "Shell (shell_exec uses): sh -c")
+		if userShell := os.Getenv("SHELL"); userShell != "" {
+			lines = append(lines, fmt.Sprintf("User default shell: %s", userShell))
+		}
+		if v := os.Getenv("HOME"); v != "" {
+			lines = append(lines, fmt.Sprintf("Home: %s", v))
+		}
+		if v := os.Getenv("LANG"); v != "" {
+			lines = append(lines, fmt.Sprintf("Locale: %s", v))
+		}
+	}
+
+	if v := os.Getenv("PATH"); v != "" {
+		sep := ":"
+		if runtime.GOOS == "windows" {
+			sep = ";"
+		}
+		paths := strings.Split(v, sep)
+		if len(paths) > 10 {
+			paths = paths[:10]
+		}
+		lines = append(lines, fmt.Sprintf("PATH (first %d): %s", len(paths), strings.Join(paths, sep)))
+	}
+
+	if wd, err := os.Getwd(); err == nil {
+		lines = append(lines, fmt.Sprintf("Working Directory: %s", wd))
+	}
+
+	return "System Environment:\n" + strings.Join(lines, "\n")
 }
