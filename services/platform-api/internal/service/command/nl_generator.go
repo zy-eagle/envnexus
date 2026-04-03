@@ -21,7 +21,7 @@ import (
 const nlGenHTTPTimeout = 4*time.Minute + 45*time.Second
 
 // nlGenMaxTokens leaves room for JSON metadata plus a multi-line shell/PowerShell command.
-const nlGenMaxTokens = 512
+const nlGenMaxTokens = 1024
 
 type NLGenerator struct {
 	modelRepo  repository.ModelProfileRepository
@@ -41,13 +41,16 @@ type GenerateCommandResult struct {
 	Title     string `json:"title,omitempty"`
 }
 
-const systemPrompt = `You are an operations assistant. Convert user requests into a single executable shell command. Respond with ONLY a JSON object:
-{"command":"<shell command>","risk_level":"<L1|L2|L3>","title":"<short title>"}
+const systemPrompt = `You convert operations requests into ONE executable shell/PowerShell line. Your entire reply MUST be a single JSON object and nothing else.
 
-Rules:
-- Prefer cross-platform commands when possible.
-- For multiple steps, prefer newlines (\n) or PowerShell ";" separators. Avoid using "&&" because it is not supported by Windows PowerShell 5.x.
-- No markdown, no explanation.`
+Required JSON shape (all three keys):
+{"command":"<one runnable shell command>","risk_level":"<L1|L2|L3>","title":"<short title>"}
+
+Hard rules:
+- First character MUST be "{". Last MUST be "}". No text before or after the JSON.
+- Do NOT explain, paraphrase the user request, restate these rules, or think step-by-step in the reply. No markdown, no code fences.
+- Put the real command only inside the "command" string.
+- Prefer cross-platform commands. For multiple steps use newlines (\n) or PowerShell ";". Do not use "&&" (not supported in Windows PowerShell 5.x).`
 
 func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*GenerateCommandResult, error) {
 	start := time.Now()
@@ -80,6 +83,18 @@ func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*G
 			err = json.Unmarshal([]byte(cleaned), &result)
 		}
 		if err != nil {
+			if cmdObj := jsonObjectContainingCommandKey(respText); cmdObj != "" {
+				cleaned = normalizeLLMTextForJSON(cmdObj)
+				err = json.Unmarshal([]byte(cleaned), &result)
+			}
+		}
+		if err != nil {
+			if responseLooksLikeExplanationNotJSON(respText) {
+				slog.Warn("[nl-gen] model returned explanation instead of JSON", "raw_len", len(respText))
+				return nil, domain.NewAppError("llm_format_error",
+					"模型返回了说明文字而非 JSON 命令，请改用非推理模型、调高遵循指令，或重试生成",
+					http.StatusUnprocessableEntity)
+			}
 			slog.Warn("[nl-gen] Failed to parse LLM JSON, using raw text as command", "raw", respText)
 			result.Command = strings.TrimSpace(respText)
 			result.RiskLevel = EvaluateRisk("shell", result.Command)
@@ -98,6 +113,23 @@ func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*G
 					}
 				}
 			}
+		}
+	}
+	// Model sometimes returns valid JSON but puts chain-of-thought into "command" instead of a shell line.
+	if strings.TrimSpace(result.Command) != "" && responseLooksLikeExplanationNotJSON(result.Command) {
+		slog.Warn("[nl-gen] command field looks like prose not a shell line", "len", len(result.Command))
+		if altObj := jsonObjectContainingCommandKey(respText); altObj != "" {
+			var alt GenerateCommandResult
+			cleanAlt := normalizeLLMTextForJSON(altObj)
+			if json.Unmarshal([]byte(cleanAlt), &alt) == nil && strings.TrimSpace(alt.Command) != "" &&
+				!responseLooksLikeExplanationNotJSON(alt.Command) {
+				result = alt
+			}
+		}
+		if strings.TrimSpace(result.Command) != "" && responseLooksLikeExplanationNotJSON(result.Command) {
+			return nil, domain.NewAppError("llm_format_error",
+				"模型把说明文字写进了 command 字段；请改用 deepseek-chat 等非推理模型并打开 JSON 输出，或重试生成",
+				http.StatusUnprocessableEntity)
 		}
 	}
 	// If the provider returned an empty content despite a 200 OK, surface a clear error.
@@ -138,6 +170,49 @@ func normalizeLLMTextForJSON(s string) string {
 	cleaned = strings.TrimPrefix(cleaned, "```")
 	cleaned = strings.TrimSuffix(cleaned, "```")
 	return strings.TrimSpace(cleaned)
+}
+
+// jsonObjectContainingCommandKey finds a JSON object in s that includes a "command" field (handles prose then JSON from chatty models).
+func jsonObjectContainingCommandKey(s string) string {
+	const needle = `"command"`
+	idx := strings.LastIndex(s, needle)
+	if idx < 0 {
+		return ""
+	}
+	for j := idx; j >= 0; j-- {
+		if s[j] != '{' {
+			continue
+		}
+		obj := firstJSONObject(s[j:])
+		if obj != "" && strings.Contains(obj, needle) {
+			return obj
+		}
+	}
+	return ""
+}
+
+// responseLooksLikeExplanationNotJSON detects chain-of-thought / help text mistakenly used as the only assistant content.
+func responseLooksLikeExplanationNotJSON(s string) bool {
+	t := strings.TrimSpace(s)
+	if strings.HasPrefix(t, "{") {
+		return false
+	}
+	if len(t) < 80 {
+		return false
+	}
+	lower := strings.ToLower(t)
+	markers := []string{
+		"first,", "the user request", "user's request", "i need to", "translates to:",
+		"as an operations assistant", "required json", "let me ", "i'll ", "i will ",
+		"hard rules", "operations assistant",
+		"用户请求", "用户的要求", "我需要", "首先",
+	}
+	for _, m := range markers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // firstJSONObject returns the substring of the first top-level JSON object in s, if any.
@@ -253,12 +328,7 @@ func decodeAssistantContent(raw json.RawMessage) string {
 				b.WriteString(c)
 			}
 		case "reasoning":
-			// DeepSeek / o1-style block: prefer explicit summary field if present
-			if txt, ok := p["text"].(string); ok {
-				b.WriteString(txt)
-			} else if txt, ok := p["summary"].(string); ok {
-				b.WriteString(txt)
-			}
+			// NL command generation must never merge chain-of-thought into the payload.
 		default:
 			// Unknown block: still try common text fields (provider-specific types).
 			if txt, ok := p["text"].(string); ok {
@@ -307,16 +377,9 @@ func textFromChoiceMap(choice map[string]interface{}) string {
 		if s := stringifyContentField(msg["content"]); strings.TrimSpace(s) != "" {
 			return s
 		}
-		// DeepSeek-V3/R1 reasoner: chain-of-thought; final answer should be in content, but some gateways leave content empty.
-		if s := stringifyContentField(msg["reasoning_content"]); strings.TrimSpace(s) != "" {
-			return s
-		}
 	}
 	if d, ok := choice["delta"].(map[string]interface{}); ok {
 		if s := stringifyContentField(d["content"]); strings.TrimSpace(s) != "" {
-			return s
-		}
-		if s := stringifyContentField(d["reasoning_content"]); strings.TrimSpace(s) != "" {
 			return s
 		}
 	}
@@ -348,45 +411,66 @@ func extractAssistantTextFromRawResponse(raw []byte) string {
 	return ""
 }
 
+func (g *NLGenerator) postChatCompletions(ctx context.Context, baseURL, apiKey string, body map[string]interface{}) ([]byte, int, error) {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(payload))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := g.httpClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, resp.StatusCode, readErr
+	}
+	return raw, resp.StatusCode, nil
+}
+
 func (g *NLGenerator) callLLM(ctx context.Context, model *domain.ModelProfile, userMessage string) (string, error) {
 	baseURL := strings.TrimSuffix(model.BaseURL, "/")
 
+	userContent := strings.TrimSpace(userMessage) + "\n\nReply with ONLY one JSON object (keys: command, risk_level, title). No explanation, no reasoning text outside JSON."
 	body := map[string]interface{}{
 		"model": model.ModelName,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userMessage},
+			{"role": "user", "content": userContent},
 		},
-		"temperature": 0.1,
-		"max_tokens":  nlGenMaxTokens,
+		"temperature":     0,
+		"max_tokens":      nlGenMaxTokens,
+		"response_format": map[string]string{"type": "json_object"},
 	}
 
-	payload, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(payload))
+	raw, status, err := g.postChatCompletions(ctx, baseURL, model.APIKey, body)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+model.APIKey)
-
-	resp, err := g.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	raw, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return "", readErr
+	if status == http.StatusBadRequest {
+		if _, has := body["response_format"]; has {
+			delete(body, "response_format")
+			slog.Info("[nl-gen] retrying chat without response_format (provider may not support json_object)")
+			raw, status, err = g.postChatCompletions(ctx, baseURL, model.APIKey, body)
+			if err != nil {
+				return "", err
+			}
+		}
 	}
 
-	if resp.StatusCode >= 400 {
+	if status >= 400 {
 		if msg, ok := extractOpenAICompatError(raw); ok {
 			return "", domain.NewAppError("llm_provider_error",
-				fmt.Sprintf("%s (HTTP %d)", msg, resp.StatusCode), http.StatusBadGateway)
+				fmt.Sprintf("%s (HTTP %d)", msg, status), http.StatusBadGateway)
 		}
 		return "", domain.NewAppError("llm_provider_error",
-			fmt.Sprintf("LLM API HTTP %d: %s", resp.StatusCode, truncateForDisplay(string(raw), 1200)),
+			fmt.Sprintf("LLM API HTTP %d: %s", status, truncateForDisplay(string(raw), 1200)),
 			http.StatusBadGateway)
 	}
 
@@ -428,28 +512,14 @@ func (g *NLGenerator) callLLM(ctx context.Context, model *domain.ModelProfile, u
 
 	for i := range chatResp.Choices {
 		c0 := chatResp.Choices[i]
-		if c0.Message != nil {
-			if len(c0.Message.Content) > 0 {
-				if t := decodeAssistantContent(c0.Message.Content); strings.TrimSpace(t) != "" {
-					return t, nil
-				}
-			}
-			if len(c0.Message.ReasoningContent) > 0 {
-				if t := decodeAssistantContent(c0.Message.ReasoningContent); strings.TrimSpace(t) != "" {
-					return t, nil
-				}
+		if c0.Message != nil && len(c0.Message.Content) > 0 {
+			if t := decodeAssistantContent(c0.Message.Content); strings.TrimSpace(t) != "" {
+				return t, nil
 			}
 		}
-		if c0.Delta != nil {
-			if len(c0.Delta.Content) > 0 {
-				if t := decodeAssistantContent(c0.Delta.Content); strings.TrimSpace(t) != "" {
-					return t, nil
-				}
-			}
-			if len(c0.Delta.ReasoningContent) > 0 {
-				if t := decodeAssistantContent(c0.Delta.ReasoningContent); strings.TrimSpace(t) != "" {
-					return t, nil
-				}
+		if c0.Delta != nil && len(c0.Delta.Content) > 0 {
+			if t := decodeAssistantContent(c0.Delta.Content); strings.TrimSpace(t) != "" {
+				return t, nil
 			}
 		}
 		if c0.Text != nil && strings.TrimSpace(*c0.Text) != "" {
