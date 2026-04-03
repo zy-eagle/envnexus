@@ -214,8 +214,8 @@ EnvNexus 采用完全不同的方式：
 
 | 模块 | 语言 | 职责 |
 |------|------|------|
-| **agent-core** | Go | 本地执行内核。以 `enx-agent` 进程运行在受管终端上，通过 localhost:17700 暴露 API。核心组件：LLM Router（7 个 Provider：OpenAI、Anthropic、DeepSeek、Gemini、OpenRouter、Ollama、本地模型）、工具注册表（10 个结构化工具）、诊断引擎（5 步流水线）、策略引擎、治理引擎（基线采集+漂移检测）、审计客户端（缓冲上传）、SQLite 本地存储。支持离线降级模式。 |
-| **agent-desktop** | Electron 30 | 桌面 UI 外壳。系统托盘显示连接状态（在线/离线/连接中）。5 个页面：仪表盘（状态卡片）、诊断对话（多轮聊天）、待审批操作（批准/拒绝）、历史会话、设置（语言、平台地址、日志级别、Agent 路径）。管理 agent-core 子进程生命周期。10 个 IPC 通道通过 contextBridge 暴露。 |
+| **agent-core** | Go | 本地执行内核。以 `enx-agent` 进程运行在受管终端上，通过 localhost:17700 暴露 API。核心组件：LLM Router（7 个 Provider：OpenAI、Anthropic、DeepSeek、Gemini、OpenRouter、Ollama、本地模型）、工具注册表（10 个结构化工具）、诊断引擎（5 步流水线）、策略引擎、治理引擎（基线采集+漂移检测）、审计客户端（缓冲上传）、SQLite 本地存储、**OTA 自更新器**（检查更新、下载、应用，Windows 平台含杀毒预热）、**AES-256-GCM 配置加密**（基于机器指纹的 PBKDF2 密钥）。支持离线降级模式。心跳中同时上报 Agent Core 版本和分发包版本。 |
+| **agent-desktop** | Electron 30 | 桌面 UI 外壳。系统托盘显示连接状态（在线/离线/连接中）。6 个页面：仪表盘（状态卡片）、诊断对话（多轮聊天）、待审批操作（批准/拒绝）、历史会话、设置（语言、平台地址、日志级别、Agent 路径）、**更新管理**（Agent + 桌面端双通道更新横幅+进度）。管理 agent-core 子进程生命周期。10 个 IPC 通道通过 contextBridge 暴露。**加密设置存储**（AES-256-GCM）。更新后通过 `core_install_path.json` 协调进程启动路径。 |
 
 ### 集成模块
 
@@ -258,6 +258,7 @@ EnvNexus 采用完全不同的方式：
 | **RBAC** | 5 种预置角色：`platform_super_admin`（平台超管）、`tenant_admin`（租户管理员）、`security_auditor`（安全审计员）、`ops_operator`（运维操作员）、`read_only_observer`（只读观察者）。17 条权限常量。`RequirePermission` 中间件。 |
 | **Rate Limiting** | 登录接口：10 次/分钟/IP。通用 API：50 次/秒/IP。 |
 | **CORS** | 通过 `ENX_CORS_ALLOWED_ORIGINS` 环境变量配置。 |
+| **本地配置加密** | Agent 配置文件（`.enx`）和桌面端设置使用 AES-256-GCM 加密，密钥通过 PBKDF2 从机器指纹（主机名 + 可执行文件路径）派生。`ENX_ENC:` 前缀标识加密文件。 |
 
 ---
 
@@ -271,6 +272,8 @@ EnvNexus 采用完全不同的方式：
 - **离线可用**：平台不可达时 agent-core 优雅降级（只读工具可用，本地 SQLite 持久化）
 - **全量审计链**：每个动作都被记录、可查询、可归档（MinIO 或本地文件系统回退）
 - **可扩展工具系统**：实现一个 Go 接口即可添加新工具
+- **OTA 自动更新**：Agent Core 自动向平台检查更新，下载并应用新版本二进制（Windows 平台含杀毒安全预热）；桌面端协调更新后的进程启动路径
+- **本地配置加密**：Agent 和桌面端配置文件静态加密，使用机器绑定的 AES-256-GCM 密钥
 - **私有化就绪**：Helm Chart、离线 License Key、本地 LLM（Ollama）、无云依赖
 
 ### 当前不足
@@ -323,12 +326,15 @@ envnexus/
 │       ├── cmd/enx-agent/        #   入口
 │       └── internal/
 │           ├── bootstrap/        #   10 步启动序列
+│           ├── config/           #   配置管理 + AES-256-GCM 加密
 │           ├── llm/              #   Router + 7 个 Provider
 │           ├── tools/            #   10 个结构化工具（system/network/service/cache）
 │           ├── governance/       #   基线采集 + 漂移检测
 │           ├── diagnosis/        #   5 步诊断引擎
 │           ├── store/            #   SQLite 本地持久化
 │           ├── session/          #   WebSocket 客户端
+│           ├── lifecycle/        #   平台心跳、配置拉取、会话管理
+│           ├── updater/          #   OTA 自更新（检查、下载、应用）
 │           └── api/              #   本地 HTTP 服务 (:17700)
 ├── services/
 │   ├── platform-api/             # Go 核心 API（Gin + GORM）
@@ -362,7 +368,10 @@ envnexus/
 │   ├── smoke-test.sh             # MVP 12 步冒烟测试
 │   └── seed.sh                   # 初始化默认租户和管理员
 ├── docs/
-│   ├── envnexus-proposal.md      # 完整产品方案
+│   ├── user-manual.md            # 用户操作手册
+│   ├── product-requirements.md   # 产品需求文档 (PRD)
+│   ├── product-manual.md         # 商业产品白皮书
+│   ├── technical-architecture.md # 技术架构与实现方案
 │   ├── development-roadmap.md    # Phase 0-6 路线图及完成状态
 │   └── commercialization-plan.md # 商业化计划
 ├── Makefile
@@ -373,9 +382,42 @@ envnexus/
 
 ## 部署指南
 
-### 方式一：Docker Compose（推荐用于开发和单机部署）
+### 方式一：智能部署脚本（推荐）
 
-**前置条件**：Docker 24+、Docker Compose v2、Git
+**前置条件**：Docker 20.10+、Docker Compose v2、Git、Bash
+
+`deploy.sh` 脚本提供智能部署功能，包含源码变更检测、自动 `.env` 生成和并行 Agent 构建：
+
+```bash
+# 1. 克隆并部署
+git clone https://github.com/zy-eagle/envnexus.git
+cd envnexus
+./deploy.sh start
+```
+
+脚本自动完成以下工作：
+- 检测宿主机 IP，生成 `deploy/docker/.env` 并自动填充随机密钥
+- 计算每个服务源码目录的 SHA256 内容 hash，仅重建有变更的服务
+- 交叉编译 Agent 二进制 + Electron 桌面安装包，上传至 MinIO
+- 启动所有基础设施（MySQL、Redis、MinIO）和应用服务
+
+**常用命令**：
+
+| 命令 | 说明 |
+|------|------|
+| `./deploy.sh start` | **智能部署**（推荐）：检测变更，仅重建有变化的服务 |
+| `./deploy.sh full` | 强制全量重建所有服务和 Agent 安装包 |
+| `./deploy.sh web` | 仅重建并部署前端 |
+| `./deploy.sh api` | 仅重建并部署后端服务 |
+| `./deploy.sh agents` | 强制重新编译 Agent 安装包并上传 MinIO |
+| `./deploy.sh stop` | 停止所有服务（数据保留在 volumes 中） |
+| `./deploy.sh status` | 查看服务运行状态 |
+| `./deploy.sh logs [服务名]` | 查看服务日志 |
+| `./deploy.sh reset` | 删除所有数据，恢复全新状态 |
+
+### 方式一（备选）：手动 Docker Compose
+
+如需手动控制：
 
 ```bash
 # 1. 克隆仓库
@@ -576,9 +618,12 @@ Phase 0-6 核心功能已实现。详细的逐模块完成状态请参阅[开发
 
 ## 文档
 
-- 产品方案：[`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
-- 开发路线图：[`docs/development-roadmap.md`](docs/development-roadmap.md)
-- 商业化计划：[`docs/commercialization-plan.md`](docs/commercialization-plan.md)
+- 用户操作手册：[`docs/user-manual.md`](docs/user-manual.md) — 终端用户和管理员操作指南
+- 产品需求文档：[`docs/product-requirements.md`](docs/product-requirements.md) — PRD 功能规格
+- 商业产品白皮书：[`docs/product-manual.md`](docs/product-manual.md) — 产品定位与商业方案
+- 技术架构文档：[`docs/technical-architecture.md`](docs/technical-architecture.md) — 系统设计与实现细节
+- 开发路线图：[`docs/development-roadmap.md`](docs/development-roadmap.md) — Phase 0-6 完成状态
+- 商业化计划：[`docs/commercialization-plan.md`](docs/commercialization-plan.md) — 商业化计划
 
 ## 许可证
 

@@ -214,8 +214,8 @@ EnvNexus takes a different approach:
 
 | Module | Language | Description |
 |--------|----------|-------------|
-| **agent-core** | Go | Local execution core. Runs on the managed endpoint as `enx-agent`. Exposes a localhost-only API on port 17700. Contains: LLM Router (7 providers: OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Ollama, local), Tool Registry (10 tools), Diagnosis Engine (5-step), Policy Engine, Governance Engine (baseline + drift), Audit Client (buffered upload), SQLite local store. Supports offline degraded mode. |
-| **agent-desktop** | Electron 30 | Desktop UI shell. System tray with connection status. 5 pages: dashboard (status cards), diagnosis chat (multi-turn), pending approvals (approve/reject), session history, settings (language, platform URL, log level, agent binary path). Manages agent-core subprocess lifecycle. 10 IPC channels via contextBridge. |
+| **agent-core** | Go | Local execution core. Runs on the managed endpoint as `enx-agent`. Exposes a localhost-only API on port 17700. Contains: LLM Router (7 providers: OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Ollama, local), Tool Registry (10 tools), Diagnosis Engine (5-step), Policy Engine, Governance Engine (baseline + drift), Audit Client (buffered upload), SQLite local store, **OTA Self-Updater** (check-update, download, apply with AV warmup), **AES-256-GCM config encryption** (machine-bound PBKDF2 key). Supports offline degraded mode. Reports both core version and distribution package version in heartbeats. |
+| **agent-desktop** | Electron 30 | Desktop UI shell. System tray with connection status. 6 pages: dashboard (status cards), diagnosis chat (multi-turn), pending approvals (approve/reject), session history, settings (language, platform URL, log level, agent binary path), **update management** (agent + desktop update banners with progress). Manages agent-core subprocess lifecycle. 10 IPC channels via contextBridge. **Encrypted settings storage** (AES-256-GCM). Post-update spawn path coordination via `core_install_path.json`. |
 
 ### Integrations
 
@@ -258,6 +258,7 @@ EnvNexus takes a different approach:
 | **RBAC** | 5 preset roles: `platform_super_admin`, `tenant_admin`, `security_auditor`, `ops_operator`, `read_only_observer`. 17 permission constants. `RequirePermission` middleware. |
 | **Rate Limiting** | Login: 10 req/min/IP. General API: 50 req/s/IP. |
 | **CORS** | Configurable via `ENX_CORS_ALLOWED_ORIGINS`. |
+| **Local Config Encryption** | Agent config files (`.enx`) and desktop settings use AES-256-GCM encryption with PBKDF2-derived keys from machine fingerprint (hostname + executable path). Prevents casual plaintext access. `ENX_ENC:` header identifies encrypted files. |
 
 ---
 
@@ -271,6 +272,8 @@ EnvNexus takes a different approach:
 - **Offline-capable**: agent-core degrades gracefully when platform is unreachable (read-only tools, local SQLite)
 - **Full audit trail**: every action is recorded, queryable, archivable (MinIO or local FS fallback)
 - **Extensible tool system**: add new tools by implementing a single Go interface
+- **OTA self-update**: agent-core checks for updates against the platform, downloads and applies new binaries with AV-safe warmup on Windows; desktop shell coordinates spawn path after updates
+- **Encrypted local config**: agent and desktop settings encrypted at rest with machine-bound AES-256-GCM keys
 - **Private deployment ready**: Helm chart, offline license key, local LLM (Ollama), no cloud dependency required
 
 ### Current Limitations
@@ -323,12 +326,15 @@ envnexus/
 │       ├── cmd/enx-agent/        #   Entry point
 │       └── internal/
 │           ├── bootstrap/        #   10-step boot sequence
+│           ├── config/           #   Config management + AES-256-GCM encryption
 │           ├── llm/              #   Router + 7 providers
 │           ├── tools/            #   10 structured tools (system/network/service/cache)
 │           ├── governance/       #   Baseline capture + drift detection
 │           ├── diagnosis/        #   5-step diagnosis engine
 │           ├── store/            #   SQLite local persistence
 │           ├── session/          #   WebSocket client
+│           ├── lifecycle/        #   Platform heartbeat, config pull, session management
+│           ├── updater/          #   OTA self-update (check, download, apply)
 │           └── api/              #   Local HTTP server (:17700)
 ├── services/
 │   ├── platform-api/             # Go central API (Gin + GORM)
@@ -362,7 +368,10 @@ envnexus/
 │   ├── smoke-test.sh             # MVP 12-step smoke test
 │   └── seed.sh                   # Seed default tenant + admin
 ├── docs/
-│   ├── envnexus-proposal.md      # Full product proposal
+│   ├── user-manual.md            # User operations guide (Chinese)
+│   ├── product-requirements.md   # PRD with functional specs (Chinese)
+│   ├── product-manual.md         # Commercial whitepaper (Chinese)
+│   ├── technical-architecture.md # System design and implementation
 │   ├── development-roadmap.md    # Phase 0-6 roadmap with completion status
 │   └── commercialization-plan.md # Business plan
 ├── Makefile
@@ -373,9 +382,42 @@ envnexus/
 
 ## Deployment
 
-### Option 1: Docker Compose (Recommended for Development & Single-Host)
+### Option 1: Smart Deploy Script (Recommended)
 
-**Prerequisites**: Docker 24+, Docker Compose v2, Git
+**Prerequisites**: Docker 20.10+, Docker Compose v2, Git, Bash
+
+The `deploy.sh` script provides intelligent deployment with content-hash change detection, automatic `.env` generation, and parallel agent builds:
+
+```bash
+# 1. Clone & deploy
+git clone https://github.com/zy-eagle/envnexus.git
+cd envnexus
+./deploy.sh start
+```
+
+The script automatically:
+- Detects the host IP and generates `deploy/docker/.env` with random secrets
+- Computes source-code SHA256 hashes per service, only rebuilding changed services
+- Cross-compiles agent binaries + Electron desktop installers and uploads to MinIO
+- Starts all infrastructure (MySQL, Redis, MinIO) and application services
+
+**Common commands**:
+
+| Command | Description |
+|---------|-------------|
+| `./deploy.sh start` | Smart deploy (recommended): detect changes, rebuild only what changed |
+| `./deploy.sh full` | Force rebuild all services and agent packages |
+| `./deploy.sh web` | Rebuild and redeploy console-web only |
+| `./deploy.sh api` | Rebuild and redeploy backend services only |
+| `./deploy.sh agents` | Force rebuild agent packages and upload to MinIO |
+| `./deploy.sh stop` | Stop all services (data preserved in volumes) |
+| `./deploy.sh status` | View service status |
+| `./deploy.sh logs [svc]` | View service logs |
+| `./deploy.sh reset` | Delete all data and start fresh |
+
+### Option 1b: Manual Docker Compose
+
+If you prefer manual control:
 
 ```bash
 # 1. Clone
@@ -576,9 +618,12 @@ Phase 0-6 core features are implemented. See the [development roadmap](docs/deve
 
 ## Documentation
 
-- Product proposal: [`docs/envnexus-proposal.md`](docs/envnexus-proposal.md)
-- Development roadmap: [`docs/development-roadmap.md`](docs/development-roadmap.md)
-- Commercialization plan: [`docs/commercialization-plan.md`](docs/commercialization-plan.md)
+- User manual: [`docs/user-manual.md`](docs/user-manual.md) — end-user and admin operations guide (Chinese)
+- Product requirements: [`docs/product-requirements.md`](docs/product-requirements.md) — PRD with functional specs (Chinese)
+- Product manual: [`docs/product-manual.md`](docs/product-manual.md) — commercial whitepaper (Chinese)
+- Technical architecture: [`docs/technical-architecture.md`](docs/technical-architecture.md) — system design and implementation details
+- Development roadmap: [`docs/development-roadmap.md`](docs/development-roadmap.md) — Phase 0-6 roadmap with completion status
+- Commercialization plan: [`docs/commercialization-plan.md`](docs/commercialization-plan.md) — business plan
 
 ## License
 
