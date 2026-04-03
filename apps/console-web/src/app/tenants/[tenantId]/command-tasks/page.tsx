@@ -214,6 +214,16 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       params: [{ key: "filter", label: lang === "zh" ? "过滤" : "Filter", required: false, placeholder: "nginx" }],
     },
     {
+      name: "file_rename",
+      label: lang === "zh" ? "文件重命名" : "File Rename",
+      description: lang === "zh" ? "重命名或移动文件/文件夹" : "Rename or move a file/directory",
+      riskLevel: "L2",
+      params: [
+        { key: "source", label: lang === "zh" ? "原路径" : "Source", required: true, placeholder: "D:\\old_name" },
+        { key: "destination", label: lang === "zh" ? "新路径" : "Destination", required: true, placeholder: "D:\\new_name" },
+      ],
+    },
+    {
       name: "shell_exec",
       label: lang === "zh" ? "Shell 执行" : "Shell Exec",
       description: lang === "zh" ? "在设备上执行 shell 命令" : "Execute a shell command on device",
