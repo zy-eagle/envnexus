@@ -12,15 +12,18 @@ import (
 )
 
 type AgentConfig struct {
-	PlatformURL      string `json:"platform_url" toml:"platform_url"`
-	WSURL            string `json:"ws_url" toml:"ws_url"`
-	EnrollmentToken  string `json:"enrollment_token" toml:"enrollment_token"`
-	ConfigVersion    int    `json:"config_version" toml:"config_version"`
-	HeartbeatSeconds int    `json:"heartbeat_seconds" toml:"heartbeat_seconds"`
-	AgentVersion     string `json:"agent_version" toml:"agent_version"`
-	ActivationMode   string `json:"activation_mode,omitempty" toml:"activation_mode,omitempty"`
-	ActivationKey    string `json:"activation_key,omitempty" toml:"activation_key,omitempty"`
-	AutoUpdate       bool   `json:"auto_update,omitempty" toml:"auto_update,omitempty"`
+	PlatformURL                 string `json:"platform_url" toml:"platform_url"`
+	WSURL                       string `json:"ws_url" toml:"ws_url"`
+	EnrollmentToken             string `json:"enrollment_token" toml:"enrollment_token"`
+	ConfigVersion               int    `json:"config_version" toml:"config_version"`
+	HeartbeatSeconds            int    `json:"heartbeat_seconds" toml:"heartbeat_seconds"`
+	AgentVersion                string `json:"agent_version" toml:"agent_version"`
+	// DistributionPackageVersion is the console download-package semver (installer/ZIP bundle).
+	// Used for /agent/v1/check-update — not the embedded agent-core binary version.
+	DistributionPackageVersion string `json:"distribution_package_version,omitempty" toml:"distribution_package_version,omitempty"`
+	ActivationMode              string `json:"activation_mode,omitempty" toml:"activation_mode,omitempty"`
+	ActivationKey               string `json:"activation_key,omitempty" toml:"activation_key,omitempty"`
+	AutoUpdate                  bool   `json:"auto_update,omitempty" toml:"auto_update,omitempty"`
 }
 
 // CLIOverrides holds values from command-line flags (highest priority).
@@ -250,6 +253,15 @@ func (m *Manager) applyPartial(src *AgentConfig) {
 	}
 	if src.ActivationKey != "" {
 		m.config.ActivationKey = src.ActivationKey
+	}
+	if src.AgentVersion != "" {
+		m.config.AgentVersion = src.AgentVersion
+	}
+	if src.DistributionPackageVersion != "" {
+		m.config.DistributionPackageVersion = src.DistributionPackageVersion
+	}
+	if src.AutoUpdate {
+		m.config.AutoUpdate = true
 	}
 }
 

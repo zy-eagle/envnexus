@@ -37,6 +37,7 @@ type packageBuildPayload struct {
 	TenantID        string `json:"tenant_id"`
 	Platform        string `json:"platform"`
 	Arch            string `json:"arch"`
+	Version         string `json:"version,omitempty"`
 	PackageType     string `json:"package_type,omitempty"`
 	ActivationMode  string `json:"activation_mode,omitempty"`
 	ActivationKey   string `json:"activation_key,omitempty"`
@@ -536,6 +537,9 @@ func (w *PackageBuildWorker) buildConfigENX(p packageBuildPayload) []byte {
 	}
 	if (p.ActivationMode == "auto" || p.ActivationMode == "both") && p.ActivationKey != "" {
 		buf.WriteString(fmt.Sprintf("activation_key = %q\n", p.ActivationKey))
+	}
+	if p.Version != "" {
+		buf.WriteString(fmt.Sprintf("distribution_package_version = %q\n", p.Version))
 	}
 
 	return buf.Bytes()

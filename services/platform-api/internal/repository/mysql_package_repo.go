@@ -44,6 +44,7 @@ func (r *MySQLPackageRepository) Create(ctx context.Context, pkg *domain.Downloa
 			"tenant_id":  pkg.TenantID,
 			"platform":   pkg.Platform,
 			"arch":       pkg.Arch,
+			"version":    pkg.Version,
 		}
 		if pkg.PackageType != "" {
 			payload["package_type"] = pkg.PackageType

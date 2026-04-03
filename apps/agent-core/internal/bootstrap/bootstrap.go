@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/activation"
@@ -355,10 +356,19 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 
 	// Step 9: Initialize self-updater (only when platform reachable and device enrolled)
 	if deviceToken != "" && platformReachable {
+		updateCheckVer := strings.TrimSpace(cfg.DistributionPackageVersion)
+		if updateCheckVer == "" {
+			updateCheckVer = b.version
+			slog.Warn("[boot] distribution_package_version not set in config; using agent-core version for update checks",
+				"version", updateCheckVer,
+				"hint", "reinstall from a newly built download package, or add distribution_package_version to agent.enx",
+			)
+		}
 		agentUpdater := updater.New(updater.Config{
 			PlatformURL:    cfg.PlatformURL,
 			DeviceToken:    deviceToken,
-			CurrentVersion: b.version,
+			CurrentVersion: updateCheckVer,
+			CoreVersion:    b.version,
 			AutoUpdate:     cfg.AutoUpdate,
 			CheckInterval:  1 * time.Hour,
 			DataDir:        b.configDir,
@@ -374,7 +384,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 					return err
 				}
 				if info.HasUpdate {
-					slog.Info("[updater] Update available", "current", b.version, "latest", info.LatestVersion)
+					slog.Info("[updater] Update available", "distribution_version", updateCheckVer, "core_version", b.version, "latest", info.LatestVersion)
 					if cfg.AutoUpdate {
 						if _, dlErr := agentUpdater.DownloadUpdate(ctx, info); dlErr != nil {
 							slog.Error("[updater] Download failed", "error", dlErr)

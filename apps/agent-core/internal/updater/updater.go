@@ -19,7 +19,10 @@ import (
 type Config struct {
 	PlatformURL    string
 	DeviceToken    string
+	// CurrentVersion is the semver sent to /agent/v1/check-update (distribution bundle by default).
 	CurrentVersion string
+	// CoreVersion is the embedded agent-core binary semver (for status/diagnostics only).
+	CoreVersion    string
 	AutoUpdate     bool
 	CheckInterval  time.Duration
 	DataDir        string
@@ -41,6 +44,7 @@ type StatusListener func(status Status)
 type Status struct {
 	State          string `json:"state"`
 	CurrentVersion string `json:"current_version"`
+	CoreVersion    string `json:"core_version,omitempty"`
 	LatestVersion  string `json:"latest_version,omitempty"`
 	Progress       int    `json:"progress,omitempty"`
 	Error          string `json:"error,omitempty"`
@@ -70,6 +74,7 @@ func New(cfg Config) *Updater {
 		status: Status{
 			State:          "idle",
 			CurrentVersion: cfg.CurrentVersion,
+			CoreVersion:    cfg.CoreVersion,
 		},
 	}
 }
@@ -87,6 +92,9 @@ func (u *Updater) GetStatus() Status {
 }
 
 func (u *Updater) setStatus(s Status) {
+	if s.CoreVersion == "" {
+		s.CoreVersion = u.config.CoreVersion
+	}
 	u.mu.Lock()
 	u.status = s
 	listeners := make([]StatusListener, len(u.listeners))
