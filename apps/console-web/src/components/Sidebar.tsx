@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -47,12 +47,44 @@ function NavItem({ href, icon, label, active }: { href: string; icon: string; la
   );
 }
 
+type TenantNavLink = { href: string; icon: string; label: string };
+type TenantNavGroup = { id: string; label: string; links: TenantNavLink[] };
+
+function NavSection({
+  label,
+  open,
+  onToggle,
+  children,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mb-0.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-md text-[10px] font-semibold text-slate-400 uppercase tracking-wider hover:bg-slate-50 hover:text-slate-500 transition-colors"
+      >
+        <span className="truncate text-left">{label}</span>
+        <span className={`flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+          <Icon name="chevronDown" className="w-3 h-3 text-slate-400" />
+        </span>
+      </button>
+      {open ? <div className="space-y-0.5">{children}</div> : null}
+    </div>
+  );
+}
+
 export default function Sidebar() {
   const { lang } = useLanguage();
   const { user, myRolesInTenant, tenantId, activeTenantId, activeTenantName, tenants, switchTenant, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [tenantOpen, setTenantOpen] = useState(false);
+  const [tenantSectionOpen, setTenantSectionOpen] = useState<Record<string, boolean>>({});
 
   const t = useDict('nav', lang);
   const tid = activeTenantId;
@@ -65,21 +97,68 @@ export default function Sidebar() {
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + '/');
 
-  const tenantLinks = [
-    { href: `/tenants/${tid}/devices`, icon: 'devices', label: t.devices },
-    { href: `/tenants/${tid}/sessions`, icon: 'sessions', label: t.sessions },
-    { href: `/tenants/${tid}/command-tasks`, icon: 'command', label: t.commandTasks },
-    { href: `/tenants/${tid}/pending-approvals`, icon: 'approval', label: t.pendingApprovals },
-    { href: `/tenants/${tid}/approval-policies`, icon: 'policy', label: t.approvalPolicies },
-    { href: `/tenants/${tid}/users`, icon: 'users', label: t.users },
-    { href: `/tenants/${tid}/roles`, icon: 'roles', label: t.roles },
-    { href: `/tenants/${tid}/governance`, icon: 'governance', label: t.governance },
-    { href: `/tenants/${tid}/audit-events`, icon: 'audit', label: t.auditEvents },
-    { href: `/tenants/${tid}/model-profiles`, icon: 'model', label: t.modelProfiles },
-    { href: `/tenants/${tid}/policy-profiles`, icon: 'policy', label: t.policyProfiles },
-    { href: `/tenants/${tid}/agent-profiles`, icon: 'agent', label: t.agentProfiles },
-    { href: `/tenants/${tid}/download-packages`, icon: 'download', label: t.downloadPackages },
-  ];
+  const tenantNavGroups: TenantNavGroup[] = useMemo(() => {
+    if (!tid) return [];
+    return [
+      {
+        id: 'ops',
+        label: t.navGroupOperations,
+        links: [
+          { href: `/tenants/${tid}/devices`, icon: 'devices', label: t.devices },
+          { href: `/tenants/${tid}/sessions`, icon: 'sessions', label: t.sessions },
+          { href: `/tenants/${tid}/command-tasks`, icon: 'command', label: t.commandTasks },
+        ],
+      },
+      {
+        id: 'cfg',
+        label: t.navGroupConfiguration,
+        links: [
+          { href: `/tenants/${tid}/model-profiles`, icon: 'model', label: t.modelProfiles },
+          { href: `/tenants/${tid}/policy-profiles`, icon: 'policy', label: t.policyProfiles },
+          { href: `/tenants/${tid}/agent-profiles`, icon: 'agent', label: t.agentProfiles },
+          { href: `/tenants/${tid}/download-packages`, icon: 'download', label: t.downloadPackages },
+        ],
+      },
+      {
+        id: 'approval',
+        label: t.navGroupApprovals,
+        links: [
+          { href: `/tenants/${tid}/pending-approvals`, icon: 'approval', label: t.pendingApprovals },
+          { href: `/tenants/${tid}/approval-policies`, icon: 'policy', label: t.approvalPolicies },
+        ],
+      },
+      {
+        id: 'org',
+        label: t.navGroupOrganization,
+        links: [
+          { href: `/tenants/${tid}/users`, icon: 'users', label: t.users },
+          { href: `/tenants/${tid}/roles`, icon: 'roles', label: t.roles },
+        ],
+      },
+      {
+        id: 'gov',
+        label: t.navGroupGovernance,
+        links: [
+          { href: `/tenants/${tid}/governance`, icon: 'governance', label: t.governance },
+          { href: `/tenants/${tid}/audit-events`, icon: 'audit', label: t.auditEvents },
+        ],
+      },
+    ];
+  }, [tid, t]);
+
+  useLayoutEffect(() => {
+    if (!tid || tenantNavGroups.length === 0) return;
+    const pathActive = (path: string) => pathname === path || pathname.startsWith(path + '/');
+    setTenantSectionOpen((prev) => {
+      const next = { ...prev };
+      for (const g of tenantNavGroups) {
+        if (g.links.some((l) => pathActive(l.href))) {
+          next[g.id] = true;
+        }
+      }
+      return next;
+    });
+  }, [pathname, tid, tenantNavGroups]);
 
   return (
     <aside className="w-[260px] bg-white border-r border-slate-200/80 flex flex-col h-full">
@@ -165,8 +244,25 @@ export default function Sidebar() {
               <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t.tenantResources || 'Resources'}</span>
             </div>
             <div className="space-y-0.5">
-              {tenantLinks.map(link => (
-                <NavItem key={link.href} href={link.href} icon={link.icon} label={link.label} active={isActive(link.href)} />
+              {tenantNavGroups.map((group) => (
+                <NavSection
+                  key={group.id}
+                  label={group.label}
+                  open={tenantSectionOpen[group.id] === true}
+                  onToggle={() =>
+                    setTenantSectionOpen((s) => ({ ...s, [group.id]: !s[group.id] }))
+                  }
+                >
+                  {group.links.map((link) => (
+                    <NavItem
+                      key={link.href}
+                      href={link.href}
+                      icon={link.icon}
+                      label={link.label}
+                      active={isActive(link.href)}
+                    />
+                  ))}
+                </NavSection>
               ))}
             </div>
           </div>
