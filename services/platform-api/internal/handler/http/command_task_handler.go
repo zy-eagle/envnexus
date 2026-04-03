@@ -3,10 +3,11 @@ package http
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zy-eagle/envnexus/libs/shared/pkg/agentprompt"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
@@ -16,10 +17,11 @@ import (
 type CommandTaskHandler struct {
 	commandService *command.Service
 	nlGenerator    *command.NLGenerator
+	deviceRepo     repository.DeviceRepository
 }
 
-func NewCommandTaskHandler(commandService *command.Service, nlGenerator *command.NLGenerator) *CommandTaskHandler {
-	return &CommandTaskHandler{commandService: commandService, nlGenerator: nlGenerator}
+func NewCommandTaskHandler(commandService *command.Service, nlGenerator *command.NLGenerator, deviceRepo repository.DeviceRepository) *CommandTaskHandler {
+	return &CommandTaskHandler{commandService: commandService, nlGenerator: nlGenerator, deviceRepo: deviceRepo}
 }
 
 func (h *CommandTaskHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -233,14 +235,33 @@ func (h *CommandTaskHandler) GenerateCommand(c *gin.Context) {
 
 	tenantID := c.Param("tenantId")
 	var req struct {
-		Prompt string `json:"prompt" binding:"required"`
+		Prompt   string `json:"prompt" binding:"required"`
+		DeviceID string `json:"device_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		mw.RespondValidationError(c, err.Error())
 		return
 	}
 
-	result, err := h.nlGenerator.Generate(c.Request.Context(), tenantID, req.Prompt)
+	target := agentprompt.DefaultNLTargetWhenNoDevice()
+	if did := strings.TrimSpace(req.DeviceID); did != "" {
+		if h.deviceRepo == nil {
+			mw.RespondError(c, fmt.Errorf("device repository not available"))
+			return
+		}
+		dev, err := h.deviceRepo.GetByID(c.Request.Context(), did)
+		if err != nil {
+			mw.RespondError(c, err)
+			return
+		}
+		if dev == nil || dev.TenantID != tenantID {
+			mw.RespondValidationError(c, "device not found")
+			return
+		}
+		target = command.NLTargetFromDevice(dev)
+	}
+
+	result, err := h.nlGenerator.Generate(c.Request.Context(), tenantID, req.Prompt, target)
 	if err != nil {
 		mw.RespondError(c, err)
 		return

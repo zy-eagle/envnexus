@@ -19,11 +19,20 @@ type AgentVersionInfo struct {
 }
 
 type AgentHeartbeatRequest struct {
-	DeviceID      string  `json:"device_id" binding:"required"`
-	Status        string  `json:"status"`
-	AgentVersion  string  `json:"agent_version"`
-	PolicyVersion int     `json:"policy_version"`
-	Stats         *Stats  `json:"stats,omitempty"`
+	DeviceID      string                   `json:"device_id" binding:"required"`
+	Status        string                   `json:"status"`
+	AgentVersion  string                   `json:"agent_version"`
+	PolicyVersion int                      `json:"policy_version"`
+	Stats         *Stats                   `json:"stats,omitempty"`
+	Environment   *AgentRuntimeEnvironment `json:"environment,omitempty"`
+}
+
+// AgentRuntimeEnvironment is reported by agent-core on heartbeat for console/LLM context.
+type AgentRuntimeEnvironment struct {
+	OSVersion string `json:"os_version,omitempty"`
+	Shell     string `json:"shell,omitempty"`
+	WorkDir   string `json:"work_dir,omitempty"`
+	User      string `json:"user,omitempty"`
 }
 
 type Stats struct {

@@ -257,7 +257,7 @@ func main() {
 	if modelProfileRepo != nil {
 		nlGenerator = command_svc.NewNLGenerator(modelProfileRepo)
 	}
-	commandTaskHandler := httphandler.NewCommandTaskHandler(commandService, nlGenerator)
+	commandTaskHandler := httphandler.NewCommandTaskHandler(commandService, nlGenerator, deviceRepo)
 	approvalPolicyHandler := httphandler.NewApprovalPolicyHandler(approvalPolicyService)
 	imProviderHandler := httphandler.NewIMProviderHandler(imProviderRepo, notifChannelRepo, cryptoService)
 	var metricsHandler *httphandler.MetricsHandler

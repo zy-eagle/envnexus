@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
@@ -38,6 +39,7 @@ func (s *Service) ListDevices(ctx context.Context, tenantID string) ([]*dto.Devi
 			Hostname:        hostname,
 			Platform:        d.Platform,
 			Arch:            d.Arch,
+			RuntimeMetadata: rawJSONPtr(d.RuntimeMetadata),
 			EnvironmentType: d.EnvironmentType,
 			AgentVersion:    d.AgentVersion,
 			Status:          string(d.Status),
@@ -82,6 +84,7 @@ func (s *Service) UpdateDevice(ctx context.Context, tenantID, id string, req dto
 		Hostname:        hostname,
 		Platform:        device.Platform,
 		Arch:            device.Arch,
+		RuntimeMetadata: rawJSONPtr(device.RuntimeMetadata),
 		EnvironmentType: device.EnvironmentType,
 		AgentVersion:    device.AgentVersion,
 		Status:          string(device.Status),
@@ -97,7 +100,7 @@ func (s *Service) DeleteDevice(ctx context.Context, tenantID, id string) error {
 }
 
 // Heartbeat records a device heartbeat and returns updated state.
-func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion string, policyVersion int) (*domain.Device, error) {
+func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion string, policyVersion int, env *dto.AgentRuntimeEnvironment) (*domain.Device, error) {
 	device, err := s.deviceRepo.GetByID(ctx, deviceID)
 	if err != nil {
 		return nil, domain.ErrInternalError
@@ -110,10 +113,23 @@ func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion string, 
 	}
 
 	device.RecordHeartbeat(agentVersion, policyVersion)
+	if env != nil {
+		if b, err := json.Marshal(env); err == nil {
+			meta := string(b)
+			device.RuntimeMetadata = &meta
+		}
+	}
 	if err := s.deviceRepo.Update(ctx, device); err != nil {
 		return nil, domain.ErrInternalError
 	}
 	return device, nil
+}
+
+func rawJSONPtr(s *string) json.RawMessage {
+	if s == nil || *s == "" {
+		return nil
+	}
+	return json.RawMessage(*s)
 }
 
 // GetConfig returns the full config payload for a device (agent profile + model + policy).

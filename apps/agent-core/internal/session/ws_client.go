@@ -265,7 +265,6 @@ func (c *WSClient) handleServerEvent(evt EventEnvelope) {
 		slog.Info("[ws] Session completed", "session_id", evt.SessionID)
 
 	case "command.execute":
-		slog.Info("[ws] Remote command execute", "session_id", evt.SessionID)
 		c.handleCommandExecute(evt)
 
 	case "heartbeat.pong":
@@ -470,6 +469,13 @@ func (c *WSClient) handleCommandExecute(evt EventEnvelope) {
 		return
 	}
 
+	slog.Info("[ws] remote command.execute",
+		"execution_id", executionID,
+		"task_id", taskID,
+		"command_type", commandType,
+		"command", truncRemoteCmdLog(commandPayload, 8192),
+	)
+
 	go func() {
 		start := time.Now()
 		var status, output, errMsg string
@@ -506,11 +512,15 @@ func (c *WSClient) handleCommandExecute(evt EventEnvelope) {
 			Payload:   resultPayload,
 		})
 
-		slog.Info("[ws] command.execute completed",
+		slog.Info("[ws] remote command.execute result",
 			"execution_id", executionID,
+			"task_id", taskID,
+			"command", truncRemoteCmdLog(commandPayload, 8192),
 			"status", status,
 			"exit_code", exitCode,
 			"duration_ms", durationMs,
+			"output_excerpt", truncRemoteCmdLog(output, 4000),
+			"stderr_or_err", truncRemoteCmdLog(errMsg, 2000),
 		)
 	}()
 }
@@ -566,4 +576,12 @@ func executeShellCommand(command string) (status, output, errMsg string, exitCod
 	}
 
 	return "succeeded", out, "", 0
+}
+
+func truncRemoteCmdLog(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }

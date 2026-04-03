@@ -23,6 +23,7 @@ type Device struct {
 	Hostname        *string
 	Platform        string
 	Arch            string
+	RuntimeMetadata *string `gorm:"column:runtime_metadata;type:json"`
 	EnvironmentType string
 	AgentVersion    string
 	Status          DeviceStatus

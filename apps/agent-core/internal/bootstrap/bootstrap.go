@@ -316,7 +316,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 			Interval: time.Duration(cfg.HeartbeatSeconds) * time.Second,
 			Fn: func(ctx context.Context) error {
 				currentCfg := b.configManager.Get()
-				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion)
+				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.ConfigVersion, lifecycle.CollectRuntimeEnvironment())
 			},
 		})
 	}

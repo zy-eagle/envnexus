@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -119,6 +120,8 @@ func (t *ShellExecTool) Execute(ctx context.Context, params map[string]interface
 		return &tools.ToolResult{ToolName: t.Name(), Status: "failed", Error: "empty command"}, nil
 	}
 
+	slog.Info("[agent] shell_exec start", "command", truncShellLog(command, 4096), "os", runtime.GOOS)
+
 	start := time.Now()
 	execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -146,6 +149,7 @@ func (t *ShellExecTool) Execute(ctx context.Context, params map[string]interface
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		}
+		slog.Info("[agent] shell_exec done", "command", truncShellLog(command, 4096), "exit_code", exitCode, "output_excerpt", truncShellLog(outputStr, 2000), "error", err.Error(), "duration_ms", elapsed.Milliseconds())
 		return &tools.ToolResult{
 			ToolName:   t.Name(),
 			Status:     "succeeded",
@@ -155,6 +159,7 @@ func (t *ShellExecTool) Execute(ctx context.Context, params map[string]interface
 		}, nil
 	}
 
+	slog.Info("[agent] shell_exec done", "command", truncShellLog(command, 4096), "exit_code", 0, "output_excerpt", truncShellLog(outputStr, 2000), "duration_ms", elapsed.Milliseconds())
 	return &tools.ToolResult{
 		ToolName:   t.Name(),
 		Status:     "succeeded",
@@ -206,3 +211,10 @@ func parseCommand(cmd string) []string {
 	return parts
 }
 
+func truncShellLog(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
+}

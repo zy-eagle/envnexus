@@ -349,9 +349,13 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setNlElapsed(0);
     nlTimerRef.current = setInterval(() => setNlElapsed((s) => s + 1), 1000);
     try {
+      const body: { prompt: string; device_id?: string } = { prompt: nlInput };
+      if (formDeviceIds.length === 1) {
+        body.device_id = formDeviceIds[0];
+      }
       const data = await api.post<{ command: string; risk_level?: string; title?: string }>(
         `/tenants/${tenantId}/command-tasks/generate`,
-        { prompt: nlInput },
+        body,
         { timeoutMs: 5 * 60 * 1000 }
       );
       if (data && data.command) {

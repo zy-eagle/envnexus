@@ -12,6 +12,7 @@ import (
 
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/router"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
+	"github.com/zy-eagle/envnexus/libs/shared/pkg/agentprompt"
 )
 
 const (
@@ -325,60 +326,40 @@ func (l *Loop) buildToolDefinitions() []router.ToolDefinition {
 }
 
 func (l *Loop) buildSystemPrompt() string {
-	envInfo := collectEnvironmentInfo()
-	return fmt.Sprintf(`You are EnvNexus Agent, a local IT diagnostic and operations assistant running on the user's machine.
-
-%s
-
-You have access to a set of tools that can inspect and operate on this machine. Use them to answer the user's questions accurately.
-
-Guidelines:
-- When the user asks about system state (IP, files, processes, etc.), call the appropriate tool to get real data. Do NOT guess or make up information.
-- You may call multiple tools in sequence if needed to fully answer a question.
-- Present results in a clear, readable format. Summarize key findings.
-- ALWAYS call tools directly when the user requests an action. NEVER ask the user for confirmation yourself — the system has a built-in approval mechanism that will automatically prompt the user for approval on sensitive operations. Just call the tool and the system handles the rest.
-- Do NOT simulate or role-play an approval process in your text responses. Do NOT say things like "Do you want me to proceed?" or "Please confirm". Simply call the appropriate tool.
-- If a tool call fails, explain the error and suggest alternatives.
-- When using shell_exec, generate commands appropriate for the shell listed above. On Windows use PowerShell syntax; on Linux/macOS use sh/bash syntax.
-- Respond in the same language as the user's message.`, envInfo)
+	return agentprompt.BuildAgentLoopSystemPrompt(collectEnvironmentSnapshot())
 }
 
-func collectEnvironmentInfo() string {
+func collectEnvironmentSnapshot() agentprompt.Snapshot {
 	hostname, _ := os.Hostname()
-
-	var lines []string
-	lines = append(lines, fmt.Sprintf("OS: %s", runtime.GOOS))
-	lines = append(lines, fmt.Sprintf("Architecture: %s", runtime.GOARCH))
-	if hostname != "" {
-		lines = append(lines, fmt.Sprintf("Hostname: %s", hostname))
+	s := agentprompt.Snapshot{
+		OS:       runtime.GOOS,
+		Arch:     runtime.GOARCH,
+		Hostname: hostname,
 	}
 
 	switch runtime.GOOS {
 	case "windows":
 		if v := os.Getenv("OS"); v != "" {
-			lines = append(lines, fmt.Sprintf("OS Version: %s", v))
+			s.OSVersion = v
 		}
 		if v := os.Getenv("PROCESSOR_ARCHITECTURE"); v != "" {
-			lines = append(lines, fmt.Sprintf("Processor: %s", v))
+			s.Processor = v
 		}
-		lines = append(lines, "Shell (shell_exec uses): PowerShell (-NoProfile -NonInteractive)")
-		lines = append(lines, "Use PowerShell syntax: cmdlets (Get-ChildItem, Rename-Item, Get-Process), pipelines, variables ($env:PATH). Avoid cmd-only syntax like 'dir /s' — use 'Get-ChildItem -Recurse' instead.")
 		if v := os.Getenv("USERPROFILE"); v != "" {
-			lines = append(lines, fmt.Sprintf("Home: %s", v))
+			s.UserProfile = v
 		}
 		if v := os.Getenv("SystemRoot"); v != "" {
-			lines = append(lines, fmt.Sprintf("SystemRoot: %s", v))
+			s.SystemRoot = v
 		}
 	default:
-		lines = append(lines, "Shell (shell_exec uses): sh -c")
-		if userShell := os.Getenv("SHELL"); userShell != "" {
-			lines = append(lines, fmt.Sprintf("User default shell: %s", userShell))
+		if v := os.Getenv("SHELL"); v != "" {
+			s.ExtraLines = append(s.ExtraLines, fmt.Sprintf("User default shell: %s", v))
 		}
 		if v := os.Getenv("HOME"); v != "" {
-			lines = append(lines, fmt.Sprintf("Home: %s", v))
+			s.UserProfile = v
 		}
 		if v := os.Getenv("LANG"); v != "" {
-			lines = append(lines, fmt.Sprintf("Locale: %s", v))
+			s.Lang = v
 		}
 	}
 
@@ -391,12 +372,12 @@ func collectEnvironmentInfo() string {
 		if len(paths) > 10 {
 			paths = paths[:10]
 		}
-		lines = append(lines, fmt.Sprintf("PATH (first %d): %s", len(paths), strings.Join(paths, sep)))
+		s.PathHead = fmt.Sprintf("first %d entries: %s", len(paths), strings.Join(paths, sep))
 	}
 
 	if wd, err := os.Getwd(); err == nil {
-		lines = append(lines, fmt.Sprintf("Working Directory: %s", wd))
+		s.WorkDir = wd
 	}
 
-	return "System Environment:\n" + strings.Join(lines, "\n")
+	return agentprompt.NormalizeSnapshot(s)
 }

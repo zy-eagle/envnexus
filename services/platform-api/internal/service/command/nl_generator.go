@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zy-eagle/envnexus/libs/shared/pkg/agentprompt"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 )
@@ -41,18 +42,7 @@ type GenerateCommandResult struct {
 	Title     string `json:"title,omitempty"`
 }
 
-const systemPrompt = `You convert operations requests into ONE executable shell/PowerShell line. Your entire reply MUST be a single JSON object and nothing else.
-
-Required JSON shape (all three keys):
-{"command":"<one runnable shell command>","risk_level":"<L1|L2|L3>","title":"<short title>"}
-
-Hard rules:
-- First character MUST be "{". Last MUST be "}". No text before or after the JSON.
-- Do NOT explain, paraphrase the user request, restate these rules, or think step-by-step in the reply. No markdown, no code fences.
-- Put the real command only inside the "command" string.
-- Prefer cross-platform commands. For multiple steps use newlines (\n) or PowerShell ";". Do not use "&&" (not supported in Windows PowerShell 5.x).`
-
-func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*GenerateCommandResult, error) {
+func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string, target agentprompt.Snapshot) (*GenerateCommandResult, error) {
 	start := time.Now()
 	model, err := g.pickModel(ctx, tenantID)
 	if err != nil {
@@ -61,7 +51,8 @@ func (g *NLGenerator) Generate(ctx context.Context, tenantID, prompt string) (*G
 	slog.Info("[nl-gen] picked model", "model", model.ModelName, "elapsed_ms", time.Since(start).Milliseconds())
 
 	llmStart := time.Now()
-	respText, err := g.callLLM(ctx, model, prompt)
+	system := agentprompt.BuildNLCommandSystemPrompt(target)
+	respText, err := g.callLLM(ctx, model, prompt, system)
 	if err != nil {
 		var appErr *domain.AppError
 		if errors.As(err, &appErr) {
@@ -434,10 +425,13 @@ func (g *NLGenerator) postChatCompletions(ctx context.Context, baseURL, apiKey s
 	return raw, resp.StatusCode, nil
 }
 
-func (g *NLGenerator) callLLM(ctx context.Context, model *domain.ModelProfile, userMessage string) (string, error) {
+func (g *NLGenerator) callLLM(ctx context.Context, model *domain.ModelProfile, userMessage, systemPrompt string) (string, error) {
 	baseURL := strings.TrimSuffix(model.BaseURL, "/")
 
-	userContent := strings.TrimSpace(userMessage) + "\n\nReply with ONLY one JSON object (keys: command, risk_level, title). No explanation, no reasoning text outside JSON."
+	userContent := strings.TrimSpace(userMessage)
+	if userContent != "" {
+		userContent += "\n\nOutput ONLY one JSON object (keys: command, risk_level, title) as defined in the system message."
+	}
 	body := map[string]interface{}{
 		"model": model.ModelName,
 		"messages": []map[string]string{

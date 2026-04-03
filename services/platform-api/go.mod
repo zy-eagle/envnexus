@@ -3,6 +3,7 @@ module github.com/zy-eagle/envnexus/services/platform-api
 go 1.25.0
 
 require (
+	github.com/zy-eagle/envnexus/libs/shared v0.0.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.9.3
@@ -63,3 +64,5 @@ require (
 	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/zy-eagle/envnexus/libs/shared => ../../libs/shared
