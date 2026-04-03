@@ -16,10 +16,13 @@
 
 # ── Stage 1: Cross-compile Agent Core (Go) ──────────────────────────────────
 FROM golang:1.25-alpine AS go-builder
+# Monorepo layout: go.mod replace ../../libs/shared must resolve (from apps/agent-core)
+WORKDIR /src
 
-WORKDIR /app
+COPY libs/shared ./libs/shared
 
-COPY apps/agent-core/go.mod apps/agent-core/go.sum ./
+COPY apps/agent-core/go.mod apps/agent-core/go.sum ./apps/agent-core/
+WORKDIR /src/apps/agent-core
 ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download

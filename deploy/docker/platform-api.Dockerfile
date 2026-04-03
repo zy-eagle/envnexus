@@ -1,8 +1,12 @@
 # syntax=docker/dockerfile:1
 FROM golang:1.25-alpine AS builder
-WORKDIR /app
+# Monorepo layout: go.mod replace ../../libs/shared must resolve (from services/platform-api)
+WORKDIR /src
 
-COPY services/platform-api/go.mod services/platform-api/go.sum ./
+COPY libs/shared ./libs/shared
+
+COPY services/platform-api/go.mod services/platform-api/go.sum ./services/platform-api/
+WORKDIR /src/services/platform-api
 ENV GOWORK=off GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
@@ -18,7 +22,7 @@ ARG ENX_BUILD_REVISION=unknown
 LABEL org.opencontainers.image.revision="${ENX_BUILD_REVISION}"
 RUN apk --no-cache add curl tzdata
 WORKDIR /app
-COPY --from=builder /app/platform-api .
-COPY --from=builder /app/config ./config
+COPY --from=builder /src/services/platform-api/platform-api .
+COPY --from=builder /src/services/platform-api/config ./config
 EXPOSE 8080
 CMD ["./platform-api"]
