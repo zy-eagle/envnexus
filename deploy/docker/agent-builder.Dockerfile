@@ -65,16 +65,10 @@ WORKDIR /project/apps/agent-desktop
 RUN echo "=== Building Windows NSIS installer ===" && \
     npx electron-builder --win nsis --x64 \
         --config.directories.output=/installers/win-nsis \
-        --config.extraResources.0.from=../../bin/ \
-        --config.extraResources.0.to=bin \
-        --config.extraResources.0.filter[0]=enx-agent.exe \
     2>&1 | tail -15 && \
     echo "=== Building Windows Portable ZIP ===" && \
     npx electron-builder --win zip --x64 \
         --config.directories.output=/installers/win-zip \
-        --config.extraResources.0.from=../../bin/ \
-        --config.extraResources.0.to=bin \
-        --config.extraResources.0.filter[0]=enx-agent.exe \
     2>&1 | tail -15 && \
     echo "=== Injecting .portable marker into ZIP ===" && \
     echo "portable" > /tmp/.portable && \
@@ -87,9 +81,6 @@ RUN echo "=== Building Windows NSIS installer ===" && \
     echo "=== Building Linux AppImage ===" && \
     npx electron-builder --linux --x64 \
         --config.directories.output=/installers/linux \
-        --config.extraResources.0.from=../../bin/ \
-        --config.extraResources.0.to=bin \
-        --config.extraResources.0.filter[0]=enx-agent \
     2>&1 | tail -15 && \
     echo "=== Normalizing output filenames ===" && \
     mkdir -p /out/installers && \

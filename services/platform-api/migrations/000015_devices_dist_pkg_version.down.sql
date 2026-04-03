@@ -1,1 +1,1 @@
-ALTER TABLE devices DROP COLUMN IF EXISTS distribution_package_version;
+ALTER TABLE devices DROP COLUMN distribution_package_version;

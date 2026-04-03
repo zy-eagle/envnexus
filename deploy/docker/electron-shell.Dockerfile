@@ -44,15 +44,9 @@ RUN mkdir -p /project/bin && \
     chmod +x /project/bin/enx-agent && \
     (npx electron-builder --win --x64 --dir \
         --config.directories.output=/tmp/warmup-win \
-        --config.extraResources.0.from=/project/bin/ \
-        --config.extraResources.0.to=bin \
-        --config.extraResources.0.filter[0]=enx-agent.exe \
     2>&1 | tail -5 || true) && \
     (npx electron-builder --linux --x64 --dir \
         --config.directories.output=/tmp/warmup-linux \
-        --config.extraResources.0.from=/project/bin/ \
-        --config.extraResources.0.to=bin \
-        --config.extraResources.0.filter[0]=enx-agent \
     2>&1 | tail -5 || true) && \
     rm -rf /tmp/warmup-* /project/bin && \
     echo "✓ electron-builder cache warmed"
