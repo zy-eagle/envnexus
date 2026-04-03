@@ -48,7 +48,7 @@ func RespondError(c *gin.Context, err error) {
 		Data:      nil,
 		Error: &APIError{
 			Code:    "internal_error",
-			Message: "internal server error",
+			Message: err.Error(),
 		},
 	})
 }

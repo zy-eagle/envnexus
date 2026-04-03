@@ -62,7 +62,6 @@ const dictionary = {
       settings: "Settings",
       signOut: "Sign Out",
       commandTasks: "Command Tasks",
-      pendingApprovals: "Pending Approvals",
       approvalPolicies: "Approval Policies",
     },
     zh: {
@@ -85,7 +84,6 @@ const dictionary = {
       settings: "系统设置",
       signOut: "退出登录",
       commandTasks: "命令任务",
-      pendingApprovals: "待审批",
       approvalPolicies: "审批策略",
     },
   },
