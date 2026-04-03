@@ -102,6 +102,14 @@ func (u *Updater) CheckForUpdate(ctx context.Context) (*UpdateInfo, error) {
 	url := fmt.Sprintf("%s/agent/v1/check-update?current_version=%s&platform=%s&arch=%s",
 		u.config.PlatformURL, u.config.CurrentVersion, runtime.GOOS, runtime.GOARCH)
 
+	slog.Info("[updater] check-update request",
+		"platform_url", u.config.PlatformURL,
+		"current_version", u.config.CurrentVersion,
+		"platform", runtime.GOOS,
+		"arch", runtime.GOARCH,
+		"url", url,
+	)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

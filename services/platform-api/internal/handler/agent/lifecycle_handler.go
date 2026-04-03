@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -134,6 +135,11 @@ func (h *LifecycleHandler) CheckUpdate(c *gin.Context) {
 	arch := c.Query("arch")
 
 	if currentVersion == "" || platform == "" || arch == "" {
+		slog.Warn("[agent] check-update missing query params",
+			"current_version", currentVersion,
+			"platform", platform,
+			"arch", arch,
+		)
 		mw.RespondValidationError(c, "current_version, platform, and arch are required")
 		return
 	}
@@ -148,6 +154,18 @@ func (h *LifecycleHandler) CheckUpdate(c *gin.Context) {
 			tenantID = dev.TenantID
 		}
 	}
+
+	didStr := ""
+	if v, ok := deviceID.(string); ok {
+		didStr = v
+	}
+	slog.Info("[agent] check-update request",
+		"device_id", didStr,
+		"tenant_id", tenantID,
+		"current_version", currentVersion,
+		"platform", platform,
+		"arch", arch,
+	)
 
 	if tenantID == "" {
 		mw.RespondSuccess(c, http.StatusOK, dto.CheckUpdateResponse{
@@ -184,6 +202,20 @@ func (h *LifecycleHandler) CheckUpdate(c *gin.Context) {
 			best = pkg
 		}
 	}
+
+	hasUpdate := best != nil && compareSemver(best.Version, currentVersion) > 0
+	latestReady := ""
+	if best != nil {
+		latestReady = best.Version
+	}
+	slog.Info("[agent] check-update resolved",
+		"tenant_id", tenantID,
+		"current_version", currentVersion,
+		"platform", platform,
+		"arch", arch,
+		"latest_ready_match", latestReady,
+		"has_update", hasUpdate,
+	)
 
 	if best == nil || compareSemver(best.Version, currentVersion) <= 0 {
 		mw.RespondSuccess(c, http.StatusOK, dto.CheckUpdateResponse{
