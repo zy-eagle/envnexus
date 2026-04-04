@@ -124,6 +124,24 @@ const POLL_INTERVAL_MS = 15_000;
 /** Device picker: only active targets (aligned with command dispatch rules). */
 const DEVICES_FOR_COMMAND_QUERY = "?active_only=true";
 
+function normalizeDevicesResponse(data: unknown): Device[] {
+  if (Array.isArray(data)) return data as Device[];
+  if (
+    data &&
+    typeof data === "object" &&
+    Array.isArray((data as { items?: unknown }).items)
+  ) {
+    return (data as { items: Device[] }).items;
+  }
+  return [];
+}
+
+/** Keep only IDs still present in the loaded active-device list (drops soft-deleted / inactive rows). */
+function intersectDeviceSelection(selected: string[], loaded: Device[]): string[] {
+  const allowed = new Set(loaded.map((d) => d.id));
+  return selected.filter((id) => allowed.has(id));
+}
+
 function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const { lang } = useLanguage();
   const t = useDict("commandTasks", lang);
@@ -431,6 +449,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   };
 
   const validateTaskForm = (): string | null => {
+    if (!formTitle.trim()) {
+      return lang === "zh" ? "请填写任务标题" : "Enter a task title";
+    }
     if (
       formCommandType === "shell" &&
       nlMustSucceed &&
@@ -442,7 +463,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
         : "Natural language cannot be dispatched. Generate a command successfully, or clear NL and enter a runnable command.";
     }
     if (formDeviceIds.length === 0) {
-      return lang === "zh" ? "请选择至少一台目标设备" : "Select at least one device";
+      return lang === "zh" ? "请选择至少一台目标设备" : "Select at least one target device";
     }
     if (formCommandType === "shell" && !formCommandPayload.trim()) {
       return lang === "zh" ? "请填写命令内容" : "Enter command content";
@@ -450,7 +471,38 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     if (formCommandType === "tool" && !formToolName) {
       return lang === "zh" ? "请选择工具" : "Select a tool";
     }
+    if (formCommandType === "tool" && selectedToolDef) {
+      for (const p of selectedToolDef.params) {
+        if (p.required && !String(formToolParams[p.key] ?? "").trim()) {
+          return lang === "zh" ? `请填写工具必填参数：${p.label}` : `Fill required tool parameter: ${p.label}`;
+        }
+      }
+    }
+    if (formEmergency && !formBypassReason.trim()) {
+      return lang === "zh" ? "紧急通道请填写原因说明" : "Enter a reason for emergency bypass";
+    }
     return null;
+  };
+
+  /** Disables save/submit when required modal fields are incomplete (mirrors validateTaskForm). */
+  const isModalFormIncomplete = (): boolean => {
+    if (!formTitle.trim()) return true;
+    if (formDeviceIds.length === 0) return true;
+    if (formEmergency && !formBypassReason.trim()) return true;
+    if (formCommandType === "shell") {
+      if (!formCommandPayload.trim()) return true;
+      if (nlMustSucceed && nlInput.trim() && formCommandPayload.trim() === nlInput.trim()) return true;
+    }
+    if (formCommandType === "tool") {
+      if (!formToolName) return true;
+      const def = TOOL_CATALOG.find((x) => x.name === formToolName);
+      if (def) {
+        for (const p of def.params) {
+          if (p.required && !String(formToolParams[p.key] ?? "").trim()) return true;
+        }
+      }
+    }
+    return false;
   };
 
   const fetchTasks = useCallback(async () => {
@@ -527,7 +579,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setDevicesLoading(true);
     try {
       const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
-      setDevices(Array.isArray(data) ? data : data?.items ?? []);
+      const list = normalizeDevicesResponse(data);
+      setDevices(list);
+      setFormDeviceIds((prev) => intersectDeviceSelection(prev, list));
     } catch (error) {
       console.error("Failed to fetch devices:", error);
     } finally {
@@ -551,7 +605,11 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     );
     const ctype = task.command_type === "tool" ? "tool" : "shell";
     setFormCommandType(ctype);
-    setFormDeviceIds(parseDeviceIds(task.device_ids));
+    if (forCopy) {
+      setFormDeviceIds([]);
+    } else {
+      setFormDeviceIds(parseDeviceIds(task.device_ids));
+    }
     setFormRiskLevel(task.risk_level || "L1");
     setFormTargetEnv(task.target_env || "");
     setFormNote(task.note || "");
@@ -566,7 +624,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setNlError("");
     setNlMustSucceed(false);
     if (forCopy) {
-      // Copy keeps targets/metadata but clears executable payload so the draft is not dangerous-by-default.
+      // Copy clears targets (user must re-pick devices) and executable payload so the draft is not dangerous-by-default.
       setFormCommandPayload("");
       setFormToolName("");
       setFormToolParams({});
@@ -604,7 +662,18 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setDevicesLoading(true);
     try {
       const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
-      setDevices(Array.isArray(data) ? data : data?.items ?? []);
+      const list = normalizeDevicesResponse(data);
+      setDevices(list);
+      const wanted = parseDeviceIds(task.device_ids);
+      const cleaned = intersectDeviceSelection(wanted, list);
+      setFormDeviceIds(cleaned);
+      if (cleaned.length < wanted.length) {
+        setFormError(
+          lang === "zh"
+            ? "部分目标设备已不可用（已删除或非激活），已自动取消勾选，请确认后提交。"
+            : "Some targets are no longer available and were unchecked. Please confirm and submit."
+        );
+      }
     } catch (error) {
       console.error("Failed to fetch devices:", error);
     } finally {
@@ -620,7 +689,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setDevicesLoading(true);
     try {
       const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
-      setDevices(Array.isArray(data) ? data : data?.items ?? []);
+      const list = normalizeDevicesResponse(data);
+      setDevices(list);
+      setFormDeviceIds([]);
     } catch (error) {
       console.error("Failed to fetch devices:", error);
     } finally {
@@ -705,23 +776,6 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       setFormError(apiErrMessage(error, lang === "zh" ? "提交失败" : "Submit failed"));
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleSubmitDraftFromDetail = async (taskId: string) => {
-    setActionLoading(true);
-    setApprovalFlowError("");
-    try {
-      await api.post(`/tenants/${tenantId}/command-tasks/${taskId}/submit`, {});
-      await fetchDetail(taskId);
-      fetchTasks();
-    } catch (error) {
-      console.error("Failed to submit task:", error);
-      setApprovalFlowError(
-        apiErrMessage(error, lang === "zh" ? "提交失败" : "Submit failed")
-      );
-    } finally {
-      setActionLoading(false);
     }
   };
 
@@ -823,6 +877,71 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     return [];
   };
 
+  const validateStoredTaskForSubmit = (task: CommandTask | TaskDetail): string | null => {
+    if (!String(task.title || "").trim()) {
+      return lang === "zh" ? "请填写任务标题" : "Task title is required";
+    }
+    const ids = parseDeviceIds(task.device_ids);
+    if (ids.length === 0) {
+      return lang === "zh" ? "请至少选择一台目标设备" : "Select at least one target device";
+    }
+    if (task.emergency && !String(task.bypass_reason || "").trim()) {
+      return lang === "zh" ? "紧急通道请填写原因说明" : "Emergency bypass requires a reason";
+    }
+    const ctype = task.command_type === "tool" ? "tool" : "shell";
+    if (ctype === "shell") {
+      if (!String(task.command_payload || "").trim()) {
+        return lang === "zh" ? "请填写命令内容" : "Command content is required";
+      }
+      return null;
+    }
+    let parsed: { tool_name?: string; params?: Record<string, string> };
+    try {
+      parsed = JSON.parse(task.command_payload || "{}");
+    } catch {
+      return lang === "zh" ? "工具任务参数无效" : "Invalid tool task payload";
+    }
+    const toolName = typeof parsed.tool_name === "string" ? parsed.tool_name : "";
+    if (!toolName) {
+      return lang === "zh" ? "请选择工具" : "Select a tool";
+    }
+    const def = TOOL_CATALOG.find((x) => x.name === toolName);
+    if (def) {
+      const params =
+        parsed.params && typeof parsed.params === "object" && !Array.isArray(parsed.params)
+          ? parsed.params
+          : {};
+      for (const p of def.params) {
+        if (p.required && !String(params[p.key] ?? "").trim()) {
+          return lang === "zh" ? `请填写工具必填参数：${p.label}` : `Required tool parameter: ${p.label}`;
+        }
+      }
+    }
+    return null;
+  };
+
+  const handleSubmitDraftFromDetail = async (task: CommandTask | TaskDetail) => {
+    const msg = validateStoredTaskForSubmit(task);
+    if (msg) {
+      setApprovalFlowError(msg);
+      return;
+    }
+    setActionLoading(true);
+    setApprovalFlowError("");
+    try {
+      await api.post(`/tenants/${tenantId}/command-tasks/${task.id}/submit`, {});
+      await fetchDetail(task.id);
+      fetchTasks();
+    } catch (error) {
+      console.error("Failed to submit task:", error);
+      setApprovalFlowError(
+        apiErrMessage(error, lang === "zh" ? "提交失败" : "Submit failed")
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const formatTime = (iso: string) => {
     try {
       return new Date(iso).toLocaleString();
@@ -838,6 +957,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     const isDraft = task.status === "draft";
     const isPending = task.status === "pending_approval";
     const isCreator = user?.id === task.created_by;
+    const draftSubmitBlockReason = validateStoredTaskForSubmit(task);
 
     return (
       <div className="space-y-6">
@@ -902,8 +1022,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSubmitDraftFromDetail(task.id)}
-                    disabled={actionLoading}
+                    onClick={() => handleSubmitDraftFromDetail(task)}
+                    disabled={actionLoading || !!draftSubmitBlockReason}
+                    title={draftSubmitBlockReason ?? undefined}
                     className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                   >
                     {(t as any).submitForApproval}
@@ -1746,16 +1867,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 <button
                   type="button"
                   onClick={handleSaveDraft}
-                  disabled={
-                    submitting ||
-                    formDeviceIds.length === 0 ||
-                    (formCommandType === "shell" && !formCommandPayload.trim()) ||
-                    (formCommandType === "shell" &&
-                      nlMustSucceed &&
-                      nlInput.trim() &&
-                      formCommandPayload.trim() === nlInput.trim()) ||
-                    (formCommandType === "tool" && !formToolName)
-                  }
+                  disabled={submitting || isModalFormIncomplete()}
                   className="px-4 py-2 border border-gray-400 text-gray-800 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {modalSavingDraft ? ct.loading : (t as any).saveDraft}
@@ -1763,16 +1875,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 <button
                   type="button"
                   onClick={handleSubmitForApproval}
-                  disabled={
-                    submitting ||
-                    formDeviceIds.length === 0 ||
-                    (formCommandType === "shell" && !formCommandPayload.trim()) ||
-                    (formCommandType === "shell" &&
-                      nlMustSucceed &&
-                      nlInput.trim() &&
-                      formCommandPayload.trim() === nlInput.trim()) ||
-                    (formCommandType === "tool" && !formToolName)
-                  }
+                  disabled={submitting || isModalFormIncomplete()}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting && !modalSavingDraft
