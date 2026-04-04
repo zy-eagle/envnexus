@@ -6,12 +6,15 @@ import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
 
 
-const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
-const POLL_INTERVAL_MS = 30 * 1000;
+/** Agent default heartbeat is 30s; treat as offline after ~3 missed beats (avoid long "ghost" online after exit). */
+const ONLINE_THRESHOLD_MS = 90 * 1000;
+const POLL_INTERVAL_MS = 20 * 1000;
+/** Re-evaluate online vs last_seen using local clock without waiting for the next list fetch. */
+const PRESENCE_TICK_MS = 10 * 1000;
 
-function isOnline(lastSeenAt: string | null): boolean {
+function isOnline(lastSeenAt: string | null, nowMs: number): boolean {
   if (!lastSeenAt) return false;
-  return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_THRESHOLD_MS;
+  return nowMs - new Date(lastSeenAt).getTime() < ONLINE_THRESHOLD_MS;
 }
 
 function DevicesContent({ tenantId }: { tenantId: string }) {
@@ -20,6 +23,12 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
   const ct = useDict('common', lang);
   const [devices, setDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [presenceNow, setPresenceNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setPresenceNow(Date.now()), PRESENCE_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -58,7 +67,7 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const onlineCount = devices.filter(d => isOnline(d.last_seen_at)).length;
+  const onlineCount = devices.filter((d) => isOnline(d.last_seen_at, presenceNow)).length;
   const offlineCount = devices.length - onlineCount;
 
   return (
@@ -103,13 +112,17 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {devices.map((d: any) => {
-                  const online = isOnline(d.last_seen_at);
+                  const online = isOnline(d.last_seen_at, presenceNow);
+                  const presenceHint =
+                    lang === "zh"
+                      ? `最近心跳在 ${Math.round(ONLINE_THRESHOLD_MS / 1000)} 秒内视为在线`
+                      : `Online if last heartbeat within ${Math.round(ONLINE_THRESHOLD_MS / 1000)}s`;
                   return (
                     <tr key={d.id} className="hover:bg-gray-50">
                       <td className="px-3 py-4 whitespace-nowrap">
                         <span
                           className={`inline-block w-2.5 h-2.5 rounded-full ${online ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}
-                          title={online ? 'Online' : 'Offline'}
+                          title={online ? `Online — ${presenceHint}` : `Offline — ${presenceHint}`}
                         />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{d.device_name}</td>
