@@ -206,14 +206,29 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
                             {renameError ? <p className="text-xs text-red-600">{renameError}</p> : null}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-medium">{d.device_name}</span>
                             <button
                               type="button"
                               onClick={() => startRename(d)}
-                              className="text-blue-600 hover:text-blue-800 text-xs font-medium shrink-0"
+                              className="inline-flex items-center justify-center rounded p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 shrink-0"
+                              title={(t as any).renameDeviceHint}
+                              aria-label={(t as any).renameDeviceHint}
                             >
-                              {(t as any).renameDevice}
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.5}
+                                stroke="currentColor"
+                                aria-hidden
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                                />
+                              </svg>
                             </button>
                           </div>
                         )}
