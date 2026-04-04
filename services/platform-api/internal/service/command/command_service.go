@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -116,11 +117,16 @@ func draftExpiresAt(policy *domain.ApprovalPolicy) time.Time {
 	return d
 }
 
-// validateCommandDeviceTargets ensures each target exists, belongs to the tenant, and is active (same rules as dispatch).
+func normOSArch(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// validateCommandDeviceTargets ensures each target exists, belongs to the tenant, is active, and when multiple targets are selected they share the same platform and architecture (shell commands must be portable).
 func (s *Service) validateCommandDeviceTargets(ctx context.Context, tenantID string, deviceIDs []string) error {
 	if s.deviceRepo == nil || len(deviceIDs) == 0 {
 		return nil
 	}
+	var resolved []*domain.Device
 	for _, id := range deviceIDs {
 		dev, err := s.deviceRepo.GetByID(ctx, id)
 		if err != nil {
@@ -134,6 +140,21 @@ func (s *Service) validateCommandDeviceTargets(ctx context.Context, tenantID str
 		}
 		if dev.Status != domain.DeviceStatusActive {
 			return domain.NewAppError("command_target_device_invalid", fmt.Sprintf("device %s is not active (status=%s)", id, dev.Status), 400)
+		}
+		if strings.TrimSpace(dev.Platform) == "" || strings.TrimSpace(dev.Arch) == "" {
+			return domain.NewAppError("command_target_device_invalid", fmt.Sprintf("device %s is missing platform or architecture metadata", id), 400)
+		}
+		resolved = append(resolved, dev)
+	}
+	if len(resolved) > 1 {
+		p0, a0 := normOSArch(resolved[0].Platform), normOSArch(resolved[0].Arch)
+		for i := 1; i < len(resolved); i++ {
+			p, a := normOSArch(resolved[i].Platform), normOSArch(resolved[i].Arch)
+			if p != p0 || a != a0 {
+				return domain.NewAppError("command_target_device_invalid",
+					fmt.Sprintf("all target devices must share the same OS and architecture (cannot mix %s/%s with %s/%s)",
+						resolved[0].Platform, resolved[0].Arch, resolved[i].Platform, resolved[i].Arch), 400)
+			}
 		}
 	}
 	return nil

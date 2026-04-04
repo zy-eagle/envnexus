@@ -76,8 +76,9 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 func (h *DeviceHandler) ListDevices(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	activeOnly := c.Query("active_only") == "true" || c.Query("active_only") == "1"
+	requirePlatformArch := c.Query("require_platform_arch") == "true" || c.Query("require_platform_arch") == "1"
 
-	resp, err := h.deviceService.ListDevices(c.Request.Context(), tenantID, activeOnly)
+	resp, err := h.deviceService.ListDevices(c.Request.Context(), tenantID, activeOnly, requirePlatformArch)
 	if err != nil {
 		mw.RespondError(c, err)
 		return

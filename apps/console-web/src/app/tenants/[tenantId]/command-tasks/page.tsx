@@ -65,6 +65,35 @@ interface Device {
   device_name: string;
   hostname: string;
   status: string;
+  platform?: string;
+  arch?: string;
+}
+
+/** Multi-target shell/tool commands must run on the same OS and CPU arch. */
+function homogeneousPlatformArchForSelection(
+  selectedIds: string[],
+  loadedDevices: Device[],
+  lang: string
+): string | null {
+  if (selectedIds.length <= 1) return null;
+  const rows: Device[] = [];
+  for (const id of selectedIds) {
+    const d = loadedDevices.find((x) => x.id === id);
+    if (d) rows.push(d);
+  }
+  if (rows.length !== selectedIds.length) return null;
+  const p0 = (rows[0].platform ?? "").trim().toLowerCase();
+  const a0 = (rows[0].arch ?? "").trim().toLowerCase();
+  for (let i = 1; i < rows.length; i++) {
+    const p = (rows[i].platform ?? "").trim().toLowerCase();
+    const a = (rows[i].arch ?? "").trim().toLowerCase();
+    if (p !== p0 || a !== a0) {
+      return lang === "zh"
+        ? `所选设备须为同一系统与架构（${rows[0].platform}/${rows[0].arch} 与 ${rows[i].platform}/${rows[i].arch} 不可混选）。`
+        : `All targets must share the same OS and architecture; cannot mix ${rows[0].platform}/${rows[0].arch} with ${rows[i].platform}/${rows[i].arch}.`;
+    }
+  }
+  return null;
 }
 
 type StatusFilter =
@@ -121,8 +150,8 @@ const EXEC_STATUS_ICONS: Record<string, string> = {
 
 const POLL_INTERVAL_MS = 15_000;
 
-/** Device picker: only active targets (aligned with command dispatch rules). */
-const DEVICES_FOR_COMMAND_QUERY = "?active_only=true";
+/** Device picker: active targets with OS + arch set (required for multi-target command portability). */
+const DEVICES_FOR_COMMAND_QUERY = "?active_only=true&require_platform_arch=true";
 
 function normalizeDevicesResponse(data: unknown): Device[] {
   if (Array.isArray(data)) return data as Device[];
@@ -188,6 +217,8 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [approvalNote, setApprovalNote] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [approvalFlowError, setApprovalFlowError] = useState("");
+  /** Active devices for draft detail view (platform/arch check before submit-from-detail). */
+  const [detailActiveDevices, setDetailActiveDevices] = useState<Device[]>([]);
 
   const TOOL_CATALOG: {
     name: string;
@@ -465,6 +496,10 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     if (formDeviceIds.length === 0) {
       return lang === "zh" ? "请选择至少一台目标设备" : "Select at least one target device";
     }
+    {
+      const mix = homogeneousPlatformArchForSelection(formDeviceIds, devices, lang);
+      if (mix) return mix;
+    }
     if (formCommandType === "shell" && !formCommandPayload.trim()) {
       return lang === "zh" ? "请填写命令内容" : "Enter command content";
     }
@@ -488,6 +523,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const isModalFormIncomplete = (): boolean => {
     if (!formTitle.trim()) return true;
     if (formDeviceIds.length === 0) return true;
+    if (homogeneousPlatformArchForSelection(formDeviceIds, devices, lang)) return true;
     if (formEmergency && !formBypassReason.trim()) return true;
     if (formCommandType === "shell") {
       if (!formCommandPayload.trim()) return true;
@@ -548,6 +584,26 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     const interval = setInterval(fetchTasks, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchTasks, fetchApprovalPolicies]);
+
+  useEffect(() => {
+    if (!selectedTask || selectedTask.status !== "draft") {
+      setDetailActiveDevices([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api.get<unknown>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
+        const list = normalizeDevicesResponse(data);
+        if (!cancelled) setDetailActiveDevices(list);
+      } catch {
+        if (!cancelled) setDetailActiveDevices([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTask?.id, selectedTask?.status, tenantId]);
 
   const getApprovalPolicyDisplay = (task: CommandTask) => {
     if (!task.policy_snapshot_id) return (t as any).tenantAdminApproval;
@@ -877,13 +933,17 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     return [];
   };
 
-  const validateStoredTaskForSubmit = (task: CommandTask | TaskDetail): string | null => {
+  const validateStoredTaskForSubmit = (task: CommandTask | TaskDetail, loadedDevices: Device[]): string | null => {
     if (!String(task.title || "").trim()) {
       return lang === "zh" ? "请填写任务标题" : "Task title is required";
     }
     const ids = parseDeviceIds(task.device_ids);
     if (ids.length === 0) {
       return lang === "zh" ? "请至少选择一台目标设备" : "Select at least one target device";
+    }
+    {
+      const mix = homogeneousPlatformArchForSelection(ids, loadedDevices, lang);
+      if (mix) return mix;
     }
     if (task.emergency && !String(task.bypass_reason || "").trim()) {
       return lang === "zh" ? "紧急通道请填写原因说明" : "Emergency bypass requires a reason";
@@ -921,7 +981,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   };
 
   const handleSubmitDraftFromDetail = async (task: CommandTask | TaskDetail) => {
-    const msg = validateStoredTaskForSubmit(task);
+    const msg = validateStoredTaskForSubmit(task, detailActiveDevices);
     if (msg) {
       setApprovalFlowError(msg);
       return;
@@ -957,7 +1017,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     const isDraft = task.status === "draft";
     const isPending = task.status === "pending_approval";
     const isCreator = user?.id === task.created_by;
-    const draftSubmitBlockReason = validateStoredTaskForSubmit(task);
+    const draftSubmitBlockReason = validateStoredTaskForSubmit(task, detailActiveDevices);
 
     return (
       <div className="space-y-6">
@@ -1572,6 +1632,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                         </span>
                         <span className="text-gray-400 text-xs">
                           {d.hostname}
+                        </span>
+                        <span className="text-gray-500 text-xs font-mono shrink-0" title={lang === "zh" ? "系统/架构" : "OS / arch"}>
+                          {d.platform}/{d.arch}
                         </span>
                       </label>
                     ))
