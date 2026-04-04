@@ -260,6 +260,9 @@ const dictionary = {
       revoke: "Revoke",
       online: "Online",
       offline: "Offline",
+      renameDevice: "Rename",
+      deviceNameRequired: "Device name cannot be empty.",
+      renameFailed: "Failed to update device name.",
     },
     zh: {
       title: "设备管理",
@@ -273,6 +276,9 @@ const dictionary = {
       revoke: "撤销",
       online: "在线",
       offline: "离线",
+      renameDevice: "修改名称",
+      deviceNameRequired: "设备名称不能为空。",
+      renameFailed: "更新设备名称失败。",
     },
   },
   sessions: {

@@ -221,11 +221,6 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     }
   };
 
-  const agentProfileName = (profileId: string) => {
-    const ap = agentProfiles.find(p => p.id === profileId);
-    return ap ? ap.name : profileId || '-';
-  };
-
   const modeLabel = (mode: string) => {
     if (mode === 'both') return t.activationModeBoth || 'Auto + Manual';
     return mode === 'manual' ? t.activationModeManual : t.activationModeAuto;
@@ -613,24 +608,22 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
         ) : packages.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noPackages}</div>
         ) : (
-          <table className="w-full divide-y divide-gray-200 table-fixed" style={{ minWidth: '900px' }}>
+          <table className="w-full divide-y divide-gray-200 table-fixed" style={{ minWidth: '780px' }}>
             <thead className="bg-gray-50">
               <tr>
-                <th className="w-[22%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.packageName}</th>
-                <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.agentProfileId}</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.platform}</th>
-                <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.activationMode}</th>
-                <th className="w-[7%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.boundCount}</th>
-                <th className="w-[13%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.buildStatus}</th>
-                <th className="w-[17%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
+                <th className="w-[28%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.packageName}</th>
+                <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.platform}</th>
+                <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.version}</th>
+                <th className="w-[11%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.activationMode}</th>
+                <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.boundCount}</th>
+                <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t.buildStatus}</th>
+                <th className="w-[19%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {packages.map((pkg) => (
                 <tr key={pkg.id}>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900 truncate" title={pkg.package_name}>{pkg.package_name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 truncate" title={agentProfileName(pkg.agent_profile_id)}>{agentProfileName(pkg.agent_profile_id)}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     <div>{pkg.platform}/{pkg.arch}</div>
                     {pkg.package_type === 'portable' && (

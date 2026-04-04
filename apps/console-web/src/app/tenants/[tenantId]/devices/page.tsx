@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
-import { api } from '@/lib/api/client';
+import { api, APIError } from '@/lib/api/client';
 
 
 /** Agent default heartbeat is 30s; treat as offline after ~3 missed beats (avoid long "ghost" online after exit). */
@@ -24,6 +24,10 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
   const [devices, setDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [editNameDraft, setEditNameDraft] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState('');
 
   useEffect(() => {
     const id = setInterval(() => setPresenceNow(Date.now()), PRESENCE_TICK_MS);
@@ -45,9 +49,50 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
     if (!confirm(t.revokeConfirm)) return;
     try {
       await api.delete(`/tenants/${tenantId}/devices/${id}`);
+      if (editingDeviceId === id) {
+        setEditingDeviceId(null);
+        setEditNameDraft('');
+        setRenameError('');
+      }
       fetchDevices();
     } catch (error) {
       console.error('Error deleting device:', error);
+    }
+  };
+
+  const startRename = (d: { id: string; device_name: string }) => {
+    setEditingDeviceId(d.id);
+    setEditNameDraft(d.device_name || '');
+    setRenameError('');
+  };
+
+  const cancelRename = () => {
+    setEditingDeviceId(null);
+    setEditNameDraft('');
+    setRenameError('');
+  };
+
+  const saveRename = async () => {
+    if (!editingDeviceId) return;
+    const trimmed = editNameDraft.trim();
+    if (!trimmed) {
+      setRenameError((t as any).deviceNameRequired);
+      return;
+    }
+    setRenameSaving(true);
+    setRenameError('');
+    try {
+      await api.put(`/tenants/${tenantId}/devices/${editingDeviceId}`, { device_name: trimmed });
+      cancelRename();
+      fetchDevices();
+    } catch (error) {
+      const msg =
+        error instanceof APIError
+          ? error.message
+          : (t as any).renameFailed;
+      setRenameError(msg);
+    } finally {
+      setRenameSaving(false);
     }
   };
 
@@ -125,7 +170,54 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
                           title={online ? `Online — ${presenceHint}` : `Offline — ${presenceHint}`}
                         />
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{d.device_name}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900 min-w-[200px]">
+                        {editingDeviceId === d.id ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                value={editNameDraft}
+                                onChange={(e) => setEditNameDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveRename();
+                                  if (e.key === 'Escape') cancelRename();
+                                }}
+                                className="border border-gray-300 rounded-md px-2 py-1 text-sm min-w-[10rem] max-w-[20rem]"
+                                disabled={renameSaving}
+                                autoFocus
+                              />
+                              <button
+                                type="button"
+                                onClick={saveRename}
+                                disabled={renameSaving}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium disabled:opacity-50"
+                              >
+                                {ct.save}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelRename}
+                                disabled={renameSaving}
+                                className="text-gray-600 hover:text-gray-800 text-sm disabled:opacity-50"
+                              >
+                                {ct.cancel}
+                              </button>
+                            </div>
+                            {renameError ? <p className="text-xs text-red-600">{renameError}</p> : null}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{d.device_name}</span>
+                            <button
+                              type="button"
+                              onClick={() => startRename(d)}
+                              className="text-blue-600 hover:text-blue-800 text-xs font-medium shrink-0"
+                            >
+                              {(t as any).renameDevice}
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{d.hostname || '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
