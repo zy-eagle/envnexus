@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type DeviceStatus string
 
@@ -42,7 +45,7 @@ func (d *Device) RecordHeartbeat(agentVersion, distPkgVersion string, policyVers
 	d.LastSeenAt = &now
 	d.AgentVersion = agentVersion
 	if distPkgVersion != "" {
-		d.DistributionPackageVersion = distPkgVersion
+		d.DistributionPackageVersion = strings.TrimPrefix(strings.TrimPrefix(distPkgVersion, "v"), "V")
 	}
 	d.PolicyVersion = policyVersion
 	if d.Status == DeviceStatusPendingActivation {

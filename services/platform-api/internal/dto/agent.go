@@ -20,6 +20,7 @@ type AgentVersionInfo struct {
 
 type AgentHeartbeatRequest struct {
 	DeviceID                   string                   `json:"device_id" binding:"required"`
+	DeviceCode                 string                   `json:"device_code,omitempty"`
 	Status                     string                   `json:"status"`
 	AgentVersion               string                   `json:"agent_version"`
 	DistributionPackageVersion string                   `json:"distribution_package_version,omitempty"`

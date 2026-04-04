@@ -319,7 +319,11 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 			Interval: time.Duration(cfg.HeartbeatSeconds) * time.Second,
 			Fn: func(ctx context.Context) error {
 				currentCfg := b.configManager.Get()
-				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.DistributionPackageVersion, currentCfg.ConfigVersion, lifecycle.CollectRuntimeEnvironment())
+				var devCode string
+				if activationMgr != nil {
+					devCode = activationMgr.GetDeviceCode()
+				}
+				return lifecycleClient.Heartbeat(ctx, currentCfg.AgentVersion, currentCfg.DistributionPackageVersion, currentCfg.ConfigVersion, lifecycle.CollectRuntimeEnvironment(), devCode)
 			},
 		})
 	}

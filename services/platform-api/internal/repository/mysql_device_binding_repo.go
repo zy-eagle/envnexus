@@ -32,6 +32,7 @@ type DeviceBindingRepository interface {
 	IncrementBoundCount(ctx context.Context, packageID string) error
 	DecrementBoundCount(ctx context.Context, packageID string) error
 	DeleteByPackage(ctx context.Context, packageID string) error
+	UpdateBindingPackage(ctx context.Context, bindingID, newPackageID string) error
 }
 
 type MySQLDeviceBindingRepository struct {
@@ -175,4 +176,10 @@ func (r *MySQLDeviceBindingRepository) DecrementBoundCount(ctx context.Context, 
 
 func (r *MySQLDeviceBindingRepository) DeleteByPackage(ctx context.Context, packageID string) error {
 	return r.db.WithContext(ctx).Where("package_id = ?", packageID).Delete(&domain.DeviceBinding{}).Error
+}
+
+func (r *MySQLDeviceBindingRepository) UpdateBindingPackage(ctx context.Context, bindingID, newPackageID string) error {
+	return r.db.WithContext(ctx).Model(&domain.DeviceBinding{}).
+		Where("id = ?", bindingID).
+		Update("package_id", newPackageID).Error
 }

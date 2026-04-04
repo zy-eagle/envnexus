@@ -271,7 +271,7 @@ func main() {
 
 	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
 	agentAuditHandler := agent.NewAuditHandler(auditService)
-	agentLifecycleHandler := agent.NewLifecycleHandler(deviceService, agentProfileRepo, modelProfileRepo, policyProfileRepo, pkgRepo, minioClient)
+	agentLifecycleHandler := agent.NewLifecycleHandler(deviceService, bindingService, agentProfileRepo, modelProfileRepo, policyProfileRepo, pkgRepo, minioClient)
 	agentApprovalHandler := agent.NewApprovalHandler(sessionService)
 	agentActivateHandler := agent.NewActivateHandler(bindingService)
 	agentGovernanceHandler := agent.NewGovernanceHandler(governanceService)

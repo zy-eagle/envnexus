@@ -29,6 +29,7 @@ func NewClient(baseURL, deviceID, deviceToken string) *Client {
 
 type HeartbeatRequest struct {
 	DeviceID                   string               `json:"device_id"`
+	DeviceCode                 string               `json:"device_code,omitempty"`
 	Status                     string               `json:"status"`
 	AgentVersion               string               `json:"agent_version"`
 	DistributionPackageVersion string               `json:"distribution_package_version,omitempty"`
@@ -44,9 +45,10 @@ type ConfigResponse struct {
 	PolicyProfile json.RawMessage `json:"policy_profile"`
 }
 
-func (c *Client) Heartbeat(ctx context.Context, agentVersion string, distPkgVersion string, policyVersion int, env *RuntimeEnvironment) error {
+func (c *Client) Heartbeat(ctx context.Context, agentVersion string, distPkgVersion string, policyVersion int, env *RuntimeEnvironment, deviceCode string) error {
 	reqBody := HeartbeatRequest{
 		DeviceID:                   c.deviceID,
+		DeviceCode:                 deviceCode,
 		Status:                     "active",
 		AgentVersion:               agentVersion,
 		DistributionPackageVersion: distPkgVersion,

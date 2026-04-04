@@ -248,6 +248,74 @@ func (s *Service) GetActivationStatus(ctx context.Context, deviceCode string) (*
 	}, nil
 }
 
+// MigrateBindingForVersionChange moves a device's binding from the old package
+// to the new package when the agent reports an updated distribution_package_version.
+func (s *Service) MigrateBindingForVersionChange(ctx context.Context, deviceCode, tenantID, platform, arch, newVersion string) error {
+	newVersion = stripVersionPrefix(newVersion)
+	if deviceCode == "" || newVersion == "" {
+		return nil
+	}
+
+	binding, err := s.bindingRepo.GetByDeviceCode(ctx, deviceCode)
+	if err != nil || binding == nil {
+		return err
+	}
+
+	oldPkg, err := s.pkgRepo.GetByID(ctx, binding.PackageID)
+	if err != nil || oldPkg == nil {
+		return err
+	}
+
+	if stripVersionPrefix(oldPkg.Version) == newVersion {
+		return nil
+	}
+
+	packages, err := s.pkgRepo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+
+	var newPkg *domain.DownloadPackage
+	for _, pkg := range packages {
+		if pkg.Platform == platform && pkg.Arch == arch && stripVersionPrefix(pkg.Version) == newVersion && pkg.Status == "ready" {
+			newPkg = pkg
+			break
+		}
+	}
+	if newPkg == nil {
+		slog.Warn("[device_binding] No matching package found for version migration",
+			"device_code", deviceCode,
+			"new_version", newVersion,
+			"platform", platform,
+			"arch", arch,
+		)
+		return nil
+	}
+
+	if err := s.bindingRepo.UpdateBindingPackage(ctx, binding.ID, newPkg.ID); err != nil {
+		slog.Error("[device_binding] Failed to update binding package", "binding_id", binding.ID, "error", err)
+		return err
+	}
+	if err := s.bindingRepo.DecrementBoundCount(ctx, oldPkg.ID); err != nil {
+		slog.Error("[device_binding] Failed to decrement old package bound_count", "package_id", oldPkg.ID, "error", err)
+	}
+	if err := s.bindingRepo.IncrementBoundCount(ctx, newPkg.ID); err != nil {
+		slog.Error("[device_binding] Failed to increment new package bound_count", "package_id", newPkg.ID, "error", err)
+	}
+
+	s.logAudit(ctx, tenantID, newPkg.ID, deviceCode, "version_migrate", "system",
+		map[string]string{"from_package": oldPkg.ID, "from_version": oldPkg.Version, "to_version": newVersion})
+
+	slog.Info("[device_binding] Migrated binding to new package version",
+		"device_code", deviceCode,
+		"old_package", oldPkg.ID,
+		"old_version", oldPkg.Version,
+		"new_package", newPkg.ID,
+		"new_version", newVersion,
+	)
+	return nil
+}
+
 // --- internal helpers ---
 
 func (s *Service) bindDevice(ctx context.Context, pkg *domain.DownloadPackage, deviceCode string, components []dto.ComponentInfo, actor string) (*dto.ActivateDeviceResponse, error) {
@@ -439,4 +507,11 @@ func domainComponentsToDTO(comps []*domain.DeviceComponent) []dto.ComponentInfo 
 		res = append(res, dto.ComponentInfo{Type: c.ComponentType, Hash: c.ComponentHash})
 	}
 	return res
+}
+
+func stripVersionPrefix(v string) string {
+	if len(v) > 0 && (v[0] == 'v' || v[0] == 'V') {
+		return v[1:]
+	}
+	return v
 }

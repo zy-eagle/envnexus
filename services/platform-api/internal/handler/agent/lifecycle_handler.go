@@ -15,6 +15,7 @@ import (
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
+	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
 )
 
 // LifecycleHandler handles agent heartbeat and config pull.
@@ -22,6 +23,7 @@ import (
 // through their respective repositories (no dedicated profile service exists yet).
 type LifecycleHandler struct {
 	deviceService     *device.Service
+	bindingService    *device_binding.Service
 	agentProfileRepo  repository.AgentProfileRepository
 	modelProfileRepo  repository.ModelProfileRepository
 	policyProfileRepo repository.PolicyProfileRepository
@@ -31,6 +33,7 @@ type LifecycleHandler struct {
 
 func NewLifecycleHandler(
 	deviceService *device.Service,
+	bindingService *device_binding.Service,
 	agentProfileRepo repository.AgentProfileRepository,
 	modelProfileRepo repository.ModelProfileRepository,
 	policyProfileRepo repository.PolicyProfileRepository,
@@ -39,6 +42,7 @@ func NewLifecycleHandler(
 ) *LifecycleHandler {
 	return &LifecycleHandler{
 		deviceService:     deviceService,
+		bindingService:    bindingService,
 		agentProfileRepo:  agentProfileRepo,
 		modelProfileRepo:  modelProfileRepo,
 		policyProfileRepo: policyProfileRepo,
@@ -68,15 +72,33 @@ func (h *LifecycleHandler) Heartbeat(c *gin.Context) {
 		deviceID = ctxDeviceID.(string)
 	}
 
-	device, err := h.deviceService.Heartbeat(c.Request.Context(), deviceID, req.AgentVersion, req.DistributionPackageVersion, req.PolicyVersion, req.Environment)
+	dev, err := h.deviceService.Heartbeat(c.Request.Context(), deviceID, req.AgentVersion, req.DistributionPackageVersion, req.PolicyVersion, req.Environment)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
 
+	if h.bindingService != nil && req.DeviceCode != "" && req.DistributionPackageVersion != "" {
+		if err := h.bindingService.MigrateBindingForVersionChange(
+			c.Request.Context(),
+			req.DeviceCode,
+			dev.TenantID,
+			dev.Platform,
+			dev.Arch,
+			req.DistributionPackageVersion,
+		); err != nil {
+			slog.Warn("[lifecycle] binding migration failed (non-fatal)",
+				"device_id", deviceID,
+				"device_code", req.DeviceCode,
+				"version", req.DistributionPackageVersion,
+				"error", err,
+			)
+		}
+	}
+
 	mw.RespondSuccess(c, http.StatusOK, gin.H{
 		"status":         "ok",
-		"config_version": device.PolicyVersion,
+		"config_version": dev.PolicyVersion,
 	})
 }
 

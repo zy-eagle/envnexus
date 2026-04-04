@@ -90,7 +90,7 @@ function NavSection({
           <Icon name="chevronDown" className="w-4 h-4" />
         </span>
       </button>
-      {open ? <div className="space-y-0.5">{children}</div> : null}
+      {open ? <div className="ml-4 space-y-0.5">{children}</div> : null}
     </div>
   );
 }
@@ -125,6 +125,8 @@ export default function Sidebar() {
           { href: `/tenants/${tid}/devices`, icon: 'devices', label: t.devices },
           { href: `/tenants/${tid}/sessions`, icon: 'sessions', label: t.sessions },
           { href: `/tenants/${tid}/command-tasks`, icon: 'command', label: t.commandTasks },
+          { href: `/tenants/${tid}/pending-approvals`, icon: 'approval', label: t.pendingApprovals },
+          { href: `/tenants/${tid}/approval-policies`, icon: 'policy', label: t.approvalPolicies },
         ],
       },
       {
@@ -136,15 +138,6 @@ export default function Sidebar() {
           { href: `/tenants/${tid}/policy-profiles`, icon: 'policy', label: t.policyProfiles },
           { href: `/tenants/${tid}/agent-profiles`, icon: 'agent', label: t.agentProfiles },
           { href: `/tenants/${tid}/download-packages`, icon: 'download', label: t.downloadPackages },
-        ],
-      },
-      {
-        id: 'approval',
-        label: t.navGroupApprovals,
-        sectionIcon: 'approval',
-        links: [
-          { href: `/tenants/${tid}/pending-approvals`, icon: 'approval', label: t.pendingApprovals },
-          { href: `/tenants/${tid}/approval-policies`, icon: 'policy', label: t.approvalPolicies },
         ],
       },
       {

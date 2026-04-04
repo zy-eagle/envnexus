@@ -95,7 +95,7 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.deviceName}</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.hostname}</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.platform}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.agentVersion}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.version}</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{ct.status}</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.lastSeen}</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">{ct.actions}</th>
@@ -119,7 +119,7 @@ function DevicesContent({ tenantId }: { tenantId: string }) {
                           {d.platform}/{d.arch}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{d.agent_version || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{d.distribution_package_version || '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor(d.status)}`}>
                           {d.status}
