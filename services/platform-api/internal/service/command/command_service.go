@@ -18,6 +18,7 @@ import (
 type Service struct {
 	taskRepo      repository.CommandTaskRepository
 	execRepo      repository.CommandExecutionRepository
+	deviceRepo    repository.DeviceRepository
 	policyService *ApprovalPolicyService
 	auditRepo     repository.AuditRepository
 	rbacService   PermissionChecker
@@ -34,6 +35,7 @@ type PermissionChecker interface {
 func NewService(
 	taskRepo repository.CommandTaskRepository,
 	execRepo repository.CommandExecutionRepository,
+	deviceRepo repository.DeviceRepository,
 	policyService *ApprovalPolicyService,
 	auditRepo repository.AuditRepository,
 	rbacService PermissionChecker,
@@ -43,6 +45,7 @@ func NewService(
 	return &Service{
 		taskRepo:      taskRepo,
 		execRepo:      execRepo,
+		deviceRepo:    deviceRepo,
 		policyService: policyService,
 		auditRepo:     auditRepo,
 		rbacService:   rbacService,
@@ -113,9 +116,36 @@ func draftExpiresAt(policy *domain.ApprovalPolicy) time.Time {
 	return d
 }
 
+// validateCommandDeviceTargets ensures each target exists, belongs to the tenant, and is active (same rules as dispatch).
+func (s *Service) validateCommandDeviceTargets(ctx context.Context, tenantID string, deviceIDs []string) error {
+	if s.deviceRepo == nil || len(deviceIDs) == 0 {
+		return nil
+	}
+	for _, id := range deviceIDs {
+		dev, err := s.deviceRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if dev == nil {
+			return domain.NewAppError("command_target_device_invalid", fmt.Sprintf("device %s not found or deleted", id), 400)
+		}
+		if dev.TenantID != tenantID {
+			return domain.NewAppError("command_target_device_invalid", fmt.Sprintf("device %s does not belong to this tenant", id), 400)
+		}
+		if dev.Status != domain.DeviceStatusActive {
+			return domain.NewAppError("command_target_device_invalid", fmt.Sprintf("device %s is not active (status=%s)", id, dev.Status), 400)
+		}
+	}
+	return nil
+}
+
 func (s *Service) CreateTask(ctx context.Context, tenantID, userID string, req dto.CreateCommandTaskRequest) (*dto.CommandTaskResponse, error) {
 	systemRisk := EvaluateRisk(req.CommandType, req.CommandPayload)
 	effectiveRisk := EffectiveRisk(req.RiskLevel, systemRisk)
+
+	if err := s.validateCommandDeviceTargets(ctx, tenantID, req.DeviceIDs); err != nil {
+		return nil, err
+	}
 
 	deviceIDsJSON, _ := json.Marshal(req.DeviceIDs)
 	policy, _ := s.policyService.FindPolicy(ctx, tenantID, effectiveRisk)
@@ -184,6 +214,10 @@ func (s *Service) SubmitTask(ctx context.Context, tenantID, userID, taskID strin
 	}
 	if len(req.DeviceIDs) < 1 {
 		return nil, domain.ErrCommandTaskInvalidState
+	}
+
+	if err := s.validateCommandDeviceTargets(ctx, tenantID, req.DeviceIDs); err != nil {
+		return nil, err
 	}
 
 	systemRisk := EvaluateRisk(req.CommandType, req.CommandPayload)
@@ -271,6 +305,10 @@ func (s *Service) updateDraftTask(ctx context.Context, tenantID, userID string, 
 	systemRisk := EvaluateRisk(req.CommandType, req.CommandPayload)
 	effectiveRisk := EffectiveRisk(req.RiskLevel, systemRisk)
 	policy, _ := s.policyService.FindPolicy(ctx, tenantID, effectiveRisk)
+
+	if err := s.validateCommandDeviceTargets(ctx, tenantID, req.DeviceIDs); err != nil {
+		return nil, err
+	}
 
 	task.Title = req.Title
 	task.CommandType = req.CommandType
@@ -368,6 +406,10 @@ func (s *Service) UpdateTask(ctx context.Context, tenantID, userID, taskID strin
 
 	if policy != nil {
 		task.PolicySnapshotID = &policy.ID
+	}
+
+	if err := s.validateCommandDeviceTargets(ctx, tenantID, req.DeviceIDs); err != nil {
+		return nil, err
 	}
 
 	// Rebuild executions for new device list
@@ -575,6 +617,10 @@ func (s *Service) ApproveTask(ctx context.Context, pathTenantID, taskID, approve
 		if policy != nil && policy.SeparationOfDuty {
 			return domain.ErrSeparationOfDutyViolation
 		}
+	}
+
+	if err := s.validateCommandDeviceTargets(ctx, task.TenantID, task.ParseDeviceIDs()); err != nil {
+		return err
 	}
 
 	task.Status = domain.CommandTaskApproved
@@ -788,6 +834,12 @@ func (s *Service) updateTaskStatus(ctx context.Context, taskID string) {
 	s.taskRepo.Update(ctx, task)
 }
 
+func (s *Service) skipExecution(ctx context.Context, exec *domain.CommandExecution, reason string) {
+	exec.Status = domain.ExecutionSkipped
+	exec.ErrorMessage = &reason
+	_ = s.execRepo.Update(ctx, exec)
+}
+
 func (s *Service) dispatchToDevices(ctx context.Context, task *domain.CommandTask) {
 	deviceIDs := task.ParseDeviceIDs()
 	for _, deviceID := range deviceIDs {
@@ -795,6 +847,28 @@ func (s *Service) dispatchToDevices(ctx context.Context, task *domain.CommandTas
 		if exec == nil {
 			continue
 		}
+
+		if s.deviceRepo != nil {
+			dev, err := s.deviceRepo.GetByID(ctx, deviceID)
+			if err != nil {
+				slog.Error("[command] device lookup failed", "device_id", deviceID, "error", err)
+				s.skipExecution(ctx, exec, fmt.Sprintf("device lookup failed: %v", err))
+				continue
+			}
+			if dev == nil {
+				s.skipExecution(ctx, exec, "device not found or deleted")
+				continue
+			}
+			if dev.TenantID != task.TenantID {
+				s.skipExecution(ctx, exec, "device tenant mismatch")
+				continue
+			}
+			if dev.Status != domain.DeviceStatusActive {
+				s.skipExecution(ctx, exec, fmt.Sprintf("device not active: status=%s", dev.Status))
+				continue
+			}
+		}
+
 		exec.Status = domain.ExecutionSent
 		now := time.Now()
 		exec.SentAt = &now
@@ -824,6 +898,7 @@ func (s *Service) dispatchToDevices(ctx context.Context, task *domain.CommandTas
 			}
 		}
 	}
+	s.updateTaskStatus(ctx, task.ID)
 }
 
 func (s *Service) recordAudit(ctx context.Context, tenantID, taskID, actorID, eventType string, data map[string]interface{}) {

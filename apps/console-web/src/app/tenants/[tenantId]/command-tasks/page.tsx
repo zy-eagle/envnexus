@@ -121,6 +121,9 @@ const EXEC_STATUS_ICONS: Record<string, string> = {
 
 const POLL_INTERVAL_MS = 15_000;
 
+/** Device picker: only active targets (aligned with command dispatch rules). */
+const DEVICES_FOR_COMMAND_QUERY = "?active_only=true";
+
 function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const { lang } = useLanguage();
   const t = useDict("commandTasks", lang);
@@ -523,7 +526,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setShowNewModal(true);
     setDevicesLoading(true);
     try {
-      const data = await api.get<any>(`/tenants/${tenantId}/devices`);
+      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
       setDevices(Array.isArray(data) ? data : data?.items ?? []);
     } catch (error) {
       console.error("Failed to fetch devices:", error);
@@ -600,7 +603,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setShowNewModal(true);
     setDevicesLoading(true);
     try {
-      const data = await api.get<any>(`/tenants/${tenantId}/devices`);
+      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
       setDevices(Array.isArray(data) ? data : data?.items ?? []);
     } catch (error) {
       console.error("Failed to fetch devices:", error);
@@ -616,7 +619,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     loadTaskIntoForm(task, true);
     setDevicesLoading(true);
     try {
-      const data = await api.get<any>(`/tenants/${tenantId}/devices`);
+      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
       setDevices(Array.isArray(data) ? data : data?.items ?? []);
     } catch (error) {
       console.error("Failed to fetch devices:", error);
@@ -1416,6 +1419,45 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 />
               </div>
 
+              {/* Target Devices */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {(t as any).targetDevices} ({formDeviceIds.length}{" "}
+                  {(t as any).selected})
+                </label>
+                <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto p-2">
+                  {devicesLoading ? (
+                    <p className="text-sm text-gray-500 text-center py-2">
+                      {ct.loading}
+                    </p>
+                  ) : devices.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-2">
+                      {(t as any).noDevicesAvailable}
+                    </p>
+                  ) : (
+                    devices.map((d) => (
+                      <label
+                        key={d.id}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formDeviceIds.includes(d.id)}
+                          onChange={() => toggleDevice(d.id)}
+                          className="rounded text-blue-600"
+                        />
+                        <span className="font-medium text-gray-900">
+                          {d.device_name}
+                        </span>
+                        <span className="text-gray-400 text-xs">
+                          {d.hostname}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+
               {/* Command Type Tabs */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1588,45 +1630,6 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                   )}
                 </>
               )}
-
-              {/* Target Devices */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {(t as any).targetDevices} ({formDeviceIds.length}{" "}
-                  {(t as any).selected})
-                </label>
-                <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto p-2">
-                  {devicesLoading ? (
-                    <p className="text-sm text-gray-500 text-center py-2">
-                      {ct.loading}
-                    </p>
-                  ) : devices.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-2">
-                      {(t as any).noDevicesAvailable}
-                    </p>
-                  ) : (
-                    devices.map((d) => (
-                      <label
-                        key={d.id}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formDeviceIds.includes(d.id)}
-                          onChange={() => toggleDevice(d.id)}
-                          className="rounded text-blue-600"
-                        />
-                        <span className="font-medium text-gray-900">
-                          {d.device_name}
-                        </span>
-                        <span className="text-gray-400 text-xs">
-                          {d.hostname}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-              </div>
 
               {/* Risk Level */}
               <div>

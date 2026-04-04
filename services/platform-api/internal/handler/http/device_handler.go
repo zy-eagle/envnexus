@@ -75,8 +75,9 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 
 func (h *DeviceHandler) ListDevices(c *gin.Context) {
 	tenantID := c.Param("tenantId")
+	activeOnly := c.Query("active_only") == "true" || c.Query("active_only") == "1"
 
-	resp, err := h.deviceService.ListDevices(c.Request.Context(), tenantID)
+	resp, err := h.deviceService.ListDevices(c.Request.Context(), tenantID, activeOnly)
 	if err != nil {
 		mw.RespondError(c, err)
 		return

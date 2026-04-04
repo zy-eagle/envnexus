@@ -19,8 +19,8 @@ func NewService(deviceRepo repository.DeviceRepository, authService *auth.Servic
 	return &Service{deviceRepo: deviceRepo, authService: authService}
 }
 
-func (s *Service) ListDevices(ctx context.Context, tenantID string) ([]*dto.DeviceResponse, error) {
-	devices, err := s.deviceRepo.ListByTenantID(ctx, tenantID)
+func (s *Service) ListDevices(ctx context.Context, tenantID string, activeOnly bool) ([]*dto.DeviceResponse, error) {
+	devices, err := s.deviceRepo.ListByTenantID(ctx, tenantID, activeOnly)
 	if err != nil {
 		return nil, domain.ErrInternalError
 	}

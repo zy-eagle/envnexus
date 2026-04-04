@@ -210,7 +210,7 @@ func main() {
 		}
 	}
 	approvalPolicyService := command_svc.NewApprovalPolicyService(approvalPolRepo)
-	commandService := command_svc.NewService(cmdTaskRepo, cmdExecRepo, approvalPolicyService, auditRepo, rbacService, gatewayClient, userRepo)
+	commandService := command_svc.NewService(cmdTaskRepo, cmdExecRepo, deviceRepo, approvalPolicyService, auditRepo, rbacService, gatewayClient, userRepo)
 	notificationRouter := notification.NewRouter(notifChannelRepo, imProviderRepo)
 	_ = notificationRouter
 	var metricsService *metrics.Service
