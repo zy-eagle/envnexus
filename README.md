@@ -2,7 +2,7 @@
 
 [中文版本](README.zh-CN.md)
 
-**EnvNexus** is an AI-native platform for environment governance, secure local diagnosis, and guided repair. It replaces traditional unrestricted remote shell access with a structured approach: **AI diagnoses, humans approve, agents execute** — with full auditability at every step.
+**EnvNexus** is an AI-native **intelligent environment governance engine**. It replaces traditional unrestricted remote shell access with a structured approach: **AI diagnoses → generates a remediation plan → humans approve → agent executes with rollback** — with full auditability at every step. Users describe problems in natural language (or paste screenshots), and the agent automatically diagnoses, plans, and fixes. It also **proactively discovers** issues through user-defined watchlists and built-in health rules.
 
 ---
 
@@ -13,9 +13,12 @@ Traditional remote support tools grant unrestricted shell access to endpoints, c
 EnvNexus takes a fundamentally different approach:
 
 - **Default read-only** — the agent only runs diagnostic tools unless a write action is explicitly approved
-- **Approval-gated repairs** — every repair action passes through a multi-step approval state machine
+- **Plan-based repair** — diagnosis produces a structured remediation plan (ordered DAG with risk levels, rollback strategies, and verification steps); users approve the entire plan, not individual commands
+- **Layered approval** — L0 auto-pass, L1 plan-level, L2 plan + confirm, L3 per-step approval; configurable via policy profiles
+- **Smart watchlist** — users describe what to monitor in natural language ("watch MySQL and disk usage"); LLM decomposes into structured check items; user confirms; agent continuously patrols
+- **Proactive discovery** — built-in rule packs (network, security, performance, certificates) + platform-pushed enterprise policies + learned rules from past fixes
 - **Policy-driven** — each tenant defines allowed models, tools, and risk levels for their devices
-- **Full audit trail** — every session, tool invocation, and approval decision is recorded and queryable
+- **Full audit trail** — every session, diagnosis, plan, approval, execution, and verification is recorded and queryable
 - **Local-first execution** — the AI engine runs on the endpoint; the platform orchestrates but never executes directly
 
 ### What EnvNexus Is NOT
@@ -49,8 +52,10 @@ EnvNexus takes a fundamentally different approach:
 │                                                              │
 │   agent-desktop (Electron 30) ──IPC──> agent-core (Go)       │
 │   - System tray, Chat UI,              - LLM Router (7)      │
-│     Approvals, Settings                - 10 Structured Tools  │
-│                                        - Diagnosis Engine     │
+│     Plan Approval, Watchlist,          - 33+ Structured Tools │
+│     Health Dashboard                   - Diagnosis Engine     │
+│                                        - Remediation Planner  │
+│                                        - Watchlist Engine     │
 │                                        - Governance Engine    │
 │                                        - SQLite local store   │
 │                                        - OTA Self-Updater     │
@@ -59,7 +64,7 @@ EnvNexus takes a fundamentally different approach:
 
 **Platform side**: multi-tenant control plane with admin console, REST API, WebSocket gateway, and background job workers. Backed by MySQL, Redis, and MinIO.
 
-**Endpoint side**: a Go execution core (`agent-core`) running locally on managed devices, paired with an Electron desktop shell. The core handles AI diagnosis (7 LLM providers), structured tool execution, policy enforcement, governance (baseline + drift detection), and offline degraded mode.
+**Endpoint side**: a Go execution core (`agent-core`) running locally on managed devices, paired with an Electron desktop shell. The core handles AI diagnosis (7 LLM providers), remediation plan generation, 33+ structured tools, policy enforcement, watchlist-based proactive monitoring, governance (baseline + drift detection), and offline degraded mode.
 
 **Integrations**: Feishu (Lark) conversational bot — bind a group chat to a device, then diagnose via natural language with real-time progress and in-chat approval cards.
 
@@ -142,7 +147,7 @@ All core modules are feature-complete (Phase 0–6 implemented):
 | Platform API | Complete | Auth, RBAC, Webhooks, Metrics, License, Feishu Integration |
 | Session Gateway | Complete | WS relay, event dedup, Redis pub/sub scaling |
 | Job Runner | Complete | 7 workers, atomic job claiming, audit archival |
-| Agent Core | Complete | 7 LLM providers, 10 tools, governance, offline mode, OTA update |
+| Agent Core | Complete | 7 LLM providers, 33+ tools, diagnosis engine, governance, offline mode, OTA update |
 | Console Web | Complete | 12+ pages, i18n (zh/en), unified API client |
 | Agent Desktop | Complete | Tray, chat UI, approvals, auto-update |
 | Feishu Integration | Complete | Conversational diagnosis, real-time push, approval cards |
