@@ -2,32 +2,34 @@
 
 [中文版本](README.zh-CN.md)
 
-**EnvNexus** is a **self-healing local environment platform** for enterprise endpoints. It covers common local environment issues for both knowledge workers and developers, including VPN, proxy, DNS, certificate, disk, database, Docker, port, and runtime dependency failures, and replaces unrestricted remote shell access with a structured flow: **AI diagnoses → generates a remediation plan → humans approve → the local agent executes with rollback**. Users describe problems in natural language or paste error screenshots, and the agent handles diagnosis, planning, remediation, and verification. It also supports **controlled remote file system access**, allowing approved browsing of endpoint files, text log previews, and downloads of original files in any format, while **proactively detecting** local environment risks through watchlists and built-in health rules.
+**EnvNexus** is an AI-driven **Enterprise Intelligent Endpoint Execution & Remediation Platform**. It aims to transform dangerous Root/Admin privileges into safe **natural language to controlled tool execution**, solving the traditional IT operations problems of error-prone command typing, excessive permissions, and lack of auditability.
+
+Users simply describe their intent in natural language, or administrators issue exact commands, and the EnvNexus Agent automatically translates them into structured execution plans. The system follows a **tool-first execution funnel**, strictly limiting the use of raw Shell commands, and combines **layered approvals** with **automatic rollbacks** to ensure every endpoint change is safe, controlled, and auditable. Additionally, it provides **intelligent diagnosis and proactive remediation** for environmental anomalies, as well as **controlled remote file system access** for logs and evidence collection.
 
 ---
 
-## The Problem
+## The Problem It Solves
 
-Local environment issues on enterprise endpoints are frequent, repetitive, and directly disruptive to work, yet the usual response is still either remote takeover by IT or a ticket queue followed by manual troubleshooting. One is risky, the other is slow.
+In modern enterprise IT management, endpoint execution faces a huge contradiction between safety and efficiency: ordinary business users cannot type commands and must wait for IT remote control when issues arise; meanwhile, IT operations typing commands for troubleshooting or batch management are prone to errors, hold excessive permissions, and lack structured auditing.
 
-EnvNexus takes a different approach built specifically for local endpoint environment issues:
+EnvNexus provides a safer, more intelligent closed-loop for endpoint execution:
 
-- **Focused on enterprise endpoint users** — covers local environment issues across both office users and developers, especially network access, proxies, certificates, disk, services, databases, containers, and runtime dependencies
-- **Default read-only** — the agent only runs diagnostic tools unless a write action is explicitly approved
-- **Plan-based repair** — diagnosis produces a structured remediation plan (ordered DAG with risk levels, rollback strategies, and verification steps); users approve the entire plan, not individual commands
-- **Layered approval** — L0 auto-pass, L1 plan-level, L2 plan + confirm, L3 per-step approval; configurable via policy profiles
-- **Controlled file access and download** — after approval, support teams can browse the remote endpoint file system, preview text logs, and download original files of any format for troubleshooting and evidence collection
-- **Smart watchlist** — users describe what to monitor in natural language ("watch VPN, proxy, disk usage, MySQL, and Docker"); the LLM decomposes this into structured checks and the agent continuously patrols
-- **Proactive discovery** — built-in rule packs + platform-pushed policies + rules learned from past fixes help surface issues before they block work
-- **Full audit trail** — every session, diagnosis, plan, approval, execution, and verification is recorded and queryable
-- **Local-first execution** — the AI engine runs on the endpoint; the platform orchestrates but never executes directly
+- **Natural Language to Controlled Execution (Core)** — Users describe their intent in natural language, and the Agent automatically translates it into a structured execution plan, allowing non-technical personnel to safely perform daily maintenance.
+- **Controlled Dispatch of Exact Commands (Core)** — Administrators can dispatch exact commands. The system wraps them into execution plans and triggers high-level approvals, replacing traditional high-risk script broadcasting.
+- **Tool-First Execution Funnel** — Strictly limits raw Shell. Prioritizes safe built-in structured tools, only degrading to Shell commands when no tool is available, which triggers the highest level of approval.
+- **Layered Approvals & Auto-Rollback** — L0 auto-pass, L1 plan-level approval, L2 plan + confirmation, L3 step-by-step approval; snapshots are taken before each step, with automatic rollback on failure.
+- **Intelligent Diagnosis & Planned Remediation (Secondary)** — For complex local environment faults (e.g., network, proxy, database, containers), AI automatically collects evidence, analyzes root causes, and generates remediation plans (DAGs).
+- **Controlled File Viewing & Downloading** — Supports browsing remote endpoint file systems, previewing text logs, and downloading raw files of any format after approval, typically used for log troubleshooting and evidence collection.
+- **Proactive Discovery & Watchlist (Secondary)** — Users can define focus items in natural language. The Agent automatically breaks them down and continuously inspects them, alerting before faults erupt.
+- **Full-Link Auditing** — Every session, diagnosis, plan, approval, execution, file access, and verification is recorded and queryable.
+- **Failsafe OTA Self-Update** — Off by default. When enabled, it uses a "cloud-side grayscale policy + staggered endpoint pulling + auto-rollback on failure" mechanism to avoid "network explosions."
 
-### What EnvNexus Is NOT
+### What EnvNexus is NOT
 
-- Not a remote desktop or arbitrary shell tool
-- Not an RMM agent that can run any command
-- Not a broad all-in-one endpoint management suite
-- Does not bypass local policy — the local agent always has the final say
+- NOT an unrestricted Shell tool capable of executing arbitrary dangerous commands
+- NOT a traditional remote desktop takeover software
+- NOT a bloated, all-in-one unified endpoint management platform
+- Will NOT bypass local policies—the local Agent always has the final say
 
 ---
 
@@ -35,8 +37,8 @@ EnvNexus takes a different approach built specifically for local endpoint enviro
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│                     PLATFORM SIDE                            │
-│                  (Docker Compose / K8s)                       │
+│                       Platform Side (Server)                   │
+│                   (Docker Compose / K8s)                      │
 │                                                              │
 │   console-web ──> platform-api ──> session-gateway           │
 │   (Next.js 14)    (Go / Gin)       (Go / WebSocket)         │
@@ -44,44 +46,44 @@ EnvNexus takes a different approach built specifically for local endpoint enviro
 │                       │                                      │
 │              ┌────────┼────────┐                             │
 │           MySQL    Redis    MinIO        job-runner           │
-│                                          (7 workers)         │
+│                                          (7 Workers)         │
 │                                                              │
-│                    Feishu / Lark Bot (conversational)         │
+│                    Feishu / Lark Bot (Conversational)         │
 └──────────────────────────┬───────────────────────────────────┘
                            │ HTTPS / WSS
 ┌──────────────────────────┼───────────────────────────────────┐
-│                    ENDPOINT SIDE                              │
+│                      Endpoint Side (Client)                    │
 │                                                              │
 │   agent-desktop (Electron 30) ──IPC──> agent-core (Go)       │
-│   - System tray, Chat UI,              - LLM Router (7)      │
-│     Plan Approval, Watchlist,          - 33+ Structured Tools │
-│     Health Dashboard                   - Diagnosis Engine     │
-│                                        - Remediation Planner  │
+│   - System Tray, Chat UI,               - LLM Router (7 Providers)│
+│     Plan Approval, Watchlist,           - 33+ Structured Tools  │
+│     Health Dashboard                    - Execution Plan Gen   │
+│                                        - Diagnosis Engine     │
 │                                        - Watchlist Engine     │
 │                                        - Governance Engine    │
-│                                        - SQLite local store   │
-│                                        - OTA Self-Updater     │
+│                                        - SQLite Local Storage │
+│                                        - OTA Updater          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Platform side**: multi-tenant control plane with admin console, REST API, WebSocket gateway, and background job workers. Backed by MySQL, Redis, and MinIO.
+**Platform Side**: Multi-tenant control plane containing the management console, REST API, WebSocket gateway, and background job scheduling. Infrastructure relies on MySQL, Redis, and MinIO.
 
-**Endpoint side**: a Go execution core (`agent-core`) running locally on managed devices, paired with an Electron desktop shell. The core handles AI diagnosis (7 LLM providers), remediation plan generation, 33+ structured tools, policy enforcement, watchlist-based proactive monitoring, governance (baseline + drift detection), and offline degraded mode.
+**Endpoint Side**: A local execution kernel (`agent-core`) written in Go running on managed devices, paired with an Electron desktop UI. The kernel handles AI intent parsing (supporting 7 LLM providers), execution plan generation, 33+ structured tool executions, policy interception, diagnosis, watchlist inspection, governance (baseline collection + drift detection), and an offline degradation mode.
 
-**Integrations**: Feishu (Lark) conversational bot — bind a group chat to a device, then diagnose via natural language with real-time progress and in-chat approval cards.
+**Integrations**: Feishu/Lark conversational bot—after binding a group chat to a device, users can trigger execution or diagnosis via natural language, with real-time progress pushes and in-group approval cards.
 
 ---
 
-## Key Design Decisions
+## Core Design Decisions
 
-| Area | Approach |
-|------|----------|
-| **Security** | No arbitrary shell; structured tools only; all writes require approval; 4-layer JWT token system; AES-256-GCM local config encryption |
-| **Multi-tenancy** | Database, cache, storage, and audit are all tenant-scoped |
-| **AI Integration** | LLM Router with 7 providers (OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Ollama, local); structured output; tool-calling pattern |
-| **Resilience** | Agent degrades gracefully offline (read-only tools + local SQLite); MinIO falls back to local filesystem |
-| **Access Control** | RBAC with 5 preset roles and 17 permissions; rate limiting per IP |
-| **Deployment** | Docker Compose, Helm chart, or bare-metal; private deployment ready (no cloud dependency) |
+| Domain | Approach |
+|--------|----------|
+| **Security** | Tool-first execution funnel; strict limits on raw Shell; all write ops require approval; 4-tier JWT token system; AES-256-GCM local config encryption |
+| **Multi-tenancy** | DB, cache, storage, and audits are all tenant-isolated |
+| **AI Integration** | LLM Router supports 7 providers (OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Ollama, Local); structured output; tool-calling mode |
+| **Resilience** | Graceful degradation when Agent is offline (read-only tools + local SQLite); fallback to local FS if MinIO is unavailable |
+| **Access Control** | RBAC with 5 preset roles + 17 permissions; IP-based rate limiting |
+| **Deployment** | Docker Compose, Helm Chart, or bare metal; on-premise ready (no cloud dependencies) |
 
 ---
 
@@ -95,46 +97,46 @@ cd envnexus
 ./deploy.sh start
 ```
 
-The script auto-detects host IP, generates secrets, computes source-code hashes to rebuild only changed services, and starts everything.
+The script automatically detects the host IP, generates keys, calculates source hashes to rebuild only changed services, and starts all components with one click.
 
-**Default access**: `http://localhost:3000` — Login: `admin@envnexus.io` / `admin123`
+**Default Access**: `http://localhost:3000` — Login: `admin@envnexus.io` / `admin123`
 
-See [Deployment](#deployment-options) for manual Docker Compose, Kubernetes Helm, and local development setups.
+For more deployment methods, see [Deployment Options](#deployment-options).
 
 ---
 
 ## Deployment Options
 
-| Method | Command | Best For |
+| Method | Command | Use Case |
 |--------|---------|----------|
-| **Smart Deploy** (recommended) | `./deploy.sh start` | One-command setup with change detection |
+| **Smart Deploy** (Rec) | `./deploy.sh start` | One-click deploy with auto change detection |
 | **Full Rebuild** | `./deploy.sh full` | Force rebuild all services |
 | **Docker Compose** | `cd deploy/docker && docker compose up -d` | Manual control |
-| **Kubernetes** | `helm install envnexus deploy/k8s/helm/envnexus ...` | Production K8s clusters |
-| **Local Dev** | `make build` + run binaries | Development without Docker for Go services |
+| **Kubernetes** | `helm install envnexus deploy/k8s/helm/envnexus ...` | Production K8s cluster |
+| **Local Dev** | `make build` + run binaries | Go dev mode without Docker |
 
 Default ports: console-web `:3000`, platform-api `:8080`, session-gateway `:8081`, job-runner `:8082`, agent-core `:17700` (localhost only).
 
 ---
 
-## Repository Layout
+## Repository Structure
 
 ```text
 envnexus/
 ├── apps/
-│   ├── console-web/        # Next.js 14 admin console
-│   ├── agent-desktop/      # Electron 30 desktop shell
-│   └── agent-core/         # Go local execution core
+│   ├── console-web/        # Next.js 14 Management Console
+│   ├── agent-desktop/      # Electron 30 Desktop UI
+│   └── agent-core/         # Go Local Execution Kernel
 ├── services/
-│   ├── platform-api/       # Go central API (Gin + GORM, DDD)
-│   ├── session-gateway/    # Go WebSocket gateway
-│   └── job-runner/         # Go background workers
-├── libs/shared/            # Shared Go library
+│   ├── platform-api/       # Go Core API (Gin + GORM, DDD)
+│   ├── session-gateway/    # Go WebSocket Gateway
+│   └── job-runner/         # Go Background Jobs
+├── libs/shared/            # Go Shared Libraries
 ├── deploy/
-│   ├── docker/             # Docker Compose deployment
-│   └── k8s/helm/envnexus/ # Kubernetes Helm chart
-├── scripts/                # Smoke test, seed data
-├── docs/                   # User manual, product whitepaper
+│   ├── docker/             # Docker Compose configs
+│   └── k8s/helm/envnexus/ # Kubernetes Helm Chart
+├── scripts/                # Smoke tests, init data
+├── docs/                   # User manuals, whitepapers
 └── Makefile
 ```
 
@@ -142,32 +144,32 @@ envnexus/
 
 ## Project Status
 
-All core modules are feature-complete (Phase 0–6 implemented):
+All core modules are fully functional (Phases 0–6 implemented):
 
 | Module | Status | Highlights |
 |--------|--------|------------|
-| Platform API | Complete | Auth, RBAC, Webhooks, Metrics, License, Feishu Integration |
-| Session Gateway | Complete | WS relay, event dedup, Redis pub/sub scaling |
-| Job Runner | Complete | 7 workers, atomic job claiming, audit archival |
-| Agent Core | Complete | 7 LLM providers, 33+ tools, diagnosis engine, governance, offline mode, OTA update |
-| Console Web | Complete | 12+ pages, i18n (zh/en), unified API client |
-| Agent Desktop | Complete | Tray, chat UI, approvals, auto-update |
-| Feishu Integration | Complete | Conversational diagnosis, real-time push, approval cards |
-| Infrastructure | Complete | 25 DB tables, Helm chart, Docker Compose |
+| Platform API | Done | Auth, RBAC, Webhooks, Usage Metrics, License, Lark Integration |
+| Session Gateway | Done | WS Relay, Event Deduplication, Redis pub/sub horizontal scaling |
+| Job Runner | Done | 7 Workers, Atomic Job Preemption, Audit Archiving |
+| Agent Core | Done | 7 LLMs, 33+ Tools, Exec Plan Gen, Diagnosis Engine, Governance, OTA |
+| Console Web | Done | 12+ Pages, i18n (EN/ZH), Unified API Client |
+| Agent Desktop | Done | Tray, Chat UI, Approval Management, Auto-update |
+| Lark Integration | Done | Conversational execution/diagnosis, real-time push, approval cards |
+| Infrastructure | Done | 25 Tables, Helm Chart, Docker Compose |
 
-### Known Gaps
+### Known Limitations
 
-- **Testing**: Low integration/E2E test coverage; no OpenAPI spec; no performance benchmarks
-- **Enterprise**: No SSO (LDAP/SAML/OIDC); no billing/metering; English-only LLM prompts
-- **Observability**: No distributed tracing (OpenTelemetry); no Prometheus/Grafana; DB-polling job queue
-- **Ecosystem**: Only Feishu integration (no Slack/DingTalk/WeCom/Teams); no runtime plugin loading
+- **Testing**: Insufficient Integration/E2E test coverage; no OpenAPI spec; no performance benchmarks.
+- **Enterprise Features**: No SSO (LDAP/SAML/OIDC); no billing/metering; LLM prompts are English-only.
+- **Observability**: No distributed tracing (OpenTelemetry); no Prometheus/Grafana; DB polling for job queues.
+- **Ecosystem**: Only Feishu/Lark integration (no Slack/Teams); no runtime plugin loading.
 
 ---
 
 ## Documentation
 
-- **User Manual**: [`docs/user-manual.md`](docs/user-manual.md) — end-user and admin operations guide
-- **Product Whitepaper**: [`docs/product-manual.md`](docs/product-manual.md) — commercial positioning and solutions
+- **User Manual**: [`docs/user-manual.md`](docs/user-manual.md) — Guide for end-users and administrators
+- **Product Whitepaper**: [`docs/product-manual.md`](docs/product-manual.md) — Product positioning and commercial solutions
 
 ## License
 
