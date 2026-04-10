@@ -18,6 +18,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/enrollment"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/governance"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/governance/watchlist"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/lifecycle"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/providers"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/router"
@@ -281,6 +282,19 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	governanceEngine := governance.NewEngine()
 	if localStore != nil {
 		governanceEngine.SetStore(localStore)
+	}
+
+	// Step 6b: Initialize watchlist manager
+	if localStore != nil {
+		wlStore := watchlist.NewStore(localStore.DB())
+		if err := wlStore.Migrate(); err != nil {
+			slog.Warn("[boot] Watchlist migration failed", "error", err)
+		} else {
+			wlManager := watchlist.NewManager(wlStore, registry, llmRouter)
+			wlManager.RegisterBuiltinRules(ctx, registry)
+			governanceEngine.SetWatchlistManager(wlManager)
+			slog.Info("[boot] Watchlist manager initialized")
+		}
 	}
 
 	// Step 7: Start local API

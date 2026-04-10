@@ -43,6 +43,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 func (s *Store) migrate() error {
 	migrations := []string{
 		`CREATE TABLE IF NOT EXISTS sessions (

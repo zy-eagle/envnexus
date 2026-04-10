@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/llm/router"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/remediation"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 	"github.com/zy-eagle/envnexus/libs/shared/pkg/agentprompt"
 )
@@ -53,11 +55,12 @@ type EventHandler func(event Event)
 type ApprovalHandler func(req ApprovalRequest) ApprovalResponse
 
 type Loop struct {
-	llmRouter       *router.Router
-	registry        *tools.Registry
-	maxIterations   int
-	onEvent         EventHandler
-	onApproval      ApprovalHandler
+	llmRouter           *router.Router
+	registry            *tools.Registry
+	maxIterations       int
+	onEvent             EventHandler
+	onApproval          ApprovalHandler
+	remediationPlanner  *remediation.Planner
 }
 
 type LoopOption func(*Loop)
@@ -72,6 +75,10 @@ func WithEventHandler(h EventHandler) LoopOption {
 
 func WithApprovalHandler(h ApprovalHandler) LoopOption {
 	return func(l *Loop) { l.onApproval = h }
+}
+
+func WithRemediationPlanner(p *remediation.Planner) LoopOption {
+	return func(l *Loop) { l.remediationPlanner = p }
 }
 
 func NewLoop(llmRouter *router.Router, registry *tools.Registry, opts ...LoopOption) *Loop {
@@ -126,6 +133,12 @@ func (l *Loop) Run(ctx context.Context, messages []router.Message) (string, erro
 		}
 
 		if len(resp.ToolCalls) == 0 {
+			if plan := l.tryGenerateRemediationPlan(ctx, resp.Content); plan != nil {
+				l.emit(Event{Type: EventMessage, Content: map[string]interface{}{
+					"content": resp.Content,
+				}})
+				return resp.Content, nil
+			}
 			l.emit(Event{Type: EventMessage, Content: map[string]interface{}{
 				"content": resp.Content,
 			}})
@@ -407,4 +420,65 @@ func collectEnvironmentSnapshot() agentprompt.Snapshot {
 	}
 
 	return agentprompt.NormalizeSnapshot(s)
+}
+
+// tryGenerateRemediationPlan checks if the LLM response suggests a remediation action
+// and generates a plan if the planner is configured. Returns nil if no plan is generated.
+func (l *Loop) tryGenerateRemediationPlan(ctx context.Context, content string) *remediation.RemediationPlan {
+	if l.remediationPlanner == nil {
+		return nil
+	}
+
+	lower := strings.ToLower(content)
+	markers := []string{
+		"remediation plan",
+		"fix plan",
+		"repair plan",
+		"修复计划",
+		"修复方案",
+		"建议修复",
+		"recommended fix",
+		"suggested remediation",
+	}
+
+	hasMarker := false
+	for _, m := range markers {
+		if strings.Contains(lower, m) {
+			hasMarker = true
+			break
+		}
+	}
+	if !hasMarker {
+		return nil
+	}
+
+	diagResult := &diagnosis.DiagnosisResult{
+		ProblemType: "general",
+		Confidence:  0.7,
+		Findings: []diagnosis.Finding{
+			{Source: "chat_loop", Summary: content, Level: "info"},
+		},
+		RecommendedActions: []diagnosis.ActionDraft{},
+	}
+
+	plan, err := l.remediationPlanner.GeneratePlan(ctx, diagResult)
+	if err != nil {
+		slog.Warn("[agent] Failed to generate remediation plan from chat", "error", err)
+		return nil
+	}
+
+	l.emit(Event{Type: "plan_generated", Content: map[string]interface{}{
+		"plan_id":    plan.PlanID,
+		"summary":    plan.Summary,
+		"risk_level": plan.RiskLevel,
+		"steps":      len(plan.Steps),
+		"plan":       plan,
+	}})
+
+	slog.Info("[agent] Remediation plan generated from chat",
+		"plan_id", plan.PlanID,
+		"steps", len(plan.Steps),
+	)
+
+	return plan
 }

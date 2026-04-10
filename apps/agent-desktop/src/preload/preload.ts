@@ -42,6 +42,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onChannel('chat-event', callback);
   },
 
+  // Remediation Plan
+  planApprove: (planId: string) =>
+    ipcRenderer.invoke('plan-approve', planId),
+  planReject: (planId: string) =>
+    ipcRenderer.invoke('plan-reject', planId),
+  planStepConfirm: (planId: string, stepId: number, approved: boolean) =>
+    ipcRenderer.invoke('plan-step-confirm', planId, stepId, approved),
+  planStepApprove: (planId: string, stepId: number, approved: boolean) =>
+    ipcRenderer.invoke('plan-step-approve', planId, stepId, approved),
+
+  // Watchlist
+  watchlistCreate: (input: string) =>
+    ipcRenderer.invoke('watchlist-create', input),
+  watchlistConfirm: (items: unknown[]) =>
+    ipcRenderer.invoke('watchlist-confirm', items),
+  watchlistList: (source?: string) =>
+    ipcRenderer.invoke('watchlist-list', source),
+  watchlistGet: (id: string) =>
+    ipcRenderer.invoke('watchlist-get', id),
+  watchlistUpdate: (id: string, data: unknown) =>
+    ipcRenderer.invoke('watchlist-update', id, data),
+  watchlistDelete: (id: string) =>
+    ipcRenderer.invoke('watchlist-delete', id),
+  watchlistAlerts: (resolved?: string, limit?: number) =>
+    ipcRenderer.invoke('watchlist-alerts', resolved, limit),
+  healthScore: () =>
+    ipcRenderer.invoke('health-score'),
+
   // Settings
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('save-settings', settings),

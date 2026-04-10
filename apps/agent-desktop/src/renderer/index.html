@@ -681,6 +681,12 @@
       </span>
       <span class="nav-label">运行日志</span>
     </div>
+    <div class="nav-item" data-page="watchlist" onclick="navigate('watchlist')">
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l1.76 3.57 3.94.57-2.85 2.78.67 3.93L8 10.67l-3.52 1.68.67-3.93-2.85-2.78 3.94-.57L8 1.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="nav-label" id="nav-watchlist">我的关注</span>
+    </div>
     <div class="nav-item" data-page="settings" onclick="navigate('settings')">
       <span class="icon">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -702,7 +708,7 @@
       ⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。
     </div>
 
-    <div class="grid-3">
+    <div class="grid-4">
       <div class="card">
         <div class="card-title" id="card-title-conn">连接状态</div>
         <div class="card-value" id="dash-status" style="font-size:16px">—</div>
@@ -717,6 +723,11 @@
         <div class="card-title" id="card-title-governance">治理基线</div>
         <div class="card-value" id="dash-baseline" style="font-size:14px">—</div>
         <div class="card-sub" id="dash-drift">—</div>
+      </div>
+      <div class="card" style="cursor:pointer;" onclick="navigate('watchlist')">
+        <div class="card-title">健康评分</div>
+        <div class="card-value" id="dash-health-score" style="font-size:24px; font-weight:700;">—</div>
+        <div class="card-sub" id="dash-health-detail">—</div>
       </div>
     </div>
 
@@ -794,6 +805,70 @@
     </div>
     <div style="margin-top:8px; font-size:11px; color:var(--text-muted);" id="logs-hint">
       实时显示 agent-core 进程的 stdout/stderr 输出。最多保留 2000 行。
+    </div>
+  </div>
+
+  <!-- Watchlist -->
+  <div id="page-watchlist" class="page">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <div class="page-title" style="margin:0" id="watchlist-title">我的关注</div>
+      <button class="btn btn-primary" id="btn-add-watchpoint" onclick="showAddWatchpoint()">+ 添加关注点</button>
+    </div>
+
+    <!-- Health Score Card -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="card-title">健康评分</div>
+          <div style="font-size:32px; font-weight:700;" id="wl-health-score">—</div>
+        </div>
+        <div style="display:flex; gap:16px; text-align:center;">
+          <div><div style="font-size:18px; font-weight:600; color:var(--emerald-500);" id="wl-healthy-count">0</div><div style="font-size:11px; color:var(--text-muted);">正常</div></div>
+          <div><div style="font-size:18px; font-weight:600; color:var(--amber-500);" id="wl-warning-count">0</div><div style="font-size:11px; color:var(--text-muted);">告警</div></div>
+          <div><div style="font-size:18px; font-weight:600; color:var(--red-500);" id="wl-critical-count">0</div><div style="font-size:11px; color:var(--text-muted);">严重</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Watchpoint Input (hidden by default) -->
+    <div id="wl-add-section" class="card" style="display:none; margin-bottom:16px;">
+      <div class="card-title">自然语言添加关注点</div>
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <input type="text" id="wl-add-input" placeholder="例如：监控磁盘使用率超过90%时告警" style="flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:13px; outline:none;">
+        <button class="btn btn-primary" id="btn-wl-decompose" onclick="decomposeWatchpoint()">分析</button>
+        <button class="btn btn-ghost" onclick="hideAddWatchpoint()">取消</button>
+      </div>
+      <div id="wl-decompose-result" style="display:none;">
+        <div style="font-size:12px; font-weight:600; margin-bottom:8px;">AI 建议的关注项：</div>
+        <div id="wl-decompose-items"></div>
+        <div id="wl-decompose-suggested" style="margin-top:8px;"></div>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button class="btn btn-primary" onclick="confirmWatchItems()">确认添加</button>
+          <button class="btn btn-ghost" onclick="hideAddWatchpoint()">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerts Section -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="card-title" style="margin:0;">最近告警</div>
+        <button class="btn btn-ghost" style="font-size:11px;" onclick="loadWatchlistAlerts()">↻ 刷新</button>
+      </div>
+      <div id="wl-alerts-list">
+        <div class="empty"><div class="empty-text">暂无告警</div></div>
+      </div>
+    </div>
+
+    <!-- Watch Items List -->
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="card-title" style="margin:0;">关注项列表</div>
+        <button class="btn btn-ghost" style="font-size:11px;" onclick="loadWatchlistItems()">↻ 刷新</button>
+      </div>
+      <div id="wl-items-list">
+        <div class="empty"><div class="empty-text">暂无关注项</div></div>
+      </div>
     </div>
   </div>
 
@@ -886,7 +961,7 @@
 const i18n = {
   zh: {
     nav_dashboard: '仪表盘', nav_diagnosis: '智能对话',
-    nav_history: '历史会话', nav_logs: '运行日志', nav_settings: '设置',
+    nav_history: '历史会话', nav_logs: '运行日志', nav_watchlist: '我的关注', nav_settings: '设置',
     status_online: '在线', status_offline: '离线', status_connecting: '连接中...',
     dash_title: '仪表盘',
     dash_offline_alert: '⚠ agent-core 不可达，当前处于离线模式。仅只读能力可用。',
@@ -978,7 +1053,7 @@ const i18n = {
   },
   en: {
     nav_dashboard: 'Dashboard', nav_diagnosis: 'AI Chat',
-    nav_history: 'History', nav_logs: 'Logs', nav_settings: 'Settings',
+    nav_history: 'History', nav_logs: 'Logs', nav_watchlist: 'Watchlist', nav_settings: 'Settings',
     status_online: 'Online', status_offline: 'Offline', status_connecting: 'Connecting...',
     dash_title: 'Dashboard',
     dash_offline_alert: '⚠ agent-core is unreachable. Running in offline (read-only) mode.',
@@ -1088,6 +1163,7 @@ function applyLanguage(lang) {
   document.querySelector('[data-page="diagnosis"] .nav-label').textContent = t('nav_diagnosis');
   document.querySelector('[data-page="history"] .nav-label').textContent = t('nav_history');
   document.querySelector('[data-page="logs"] .nav-label').textContent = t('nav_logs');
+  document.querySelector('[data-page="watchlist"] .nav-label').textContent = t('nav_watchlist');
   document.querySelector('[data-page="settings"] .nav-label').textContent = t('nav_settings');
 
   document.getElementById('dash-title').textContent = t('dash_title');
@@ -1169,6 +1245,7 @@ function navigate(page) {
   if (page === 'logs') loadLogs();
   if (page === 'settings') loadSettings_();
   if (page === 'dashboard') loadDashboard();
+  if (page === 'watchlist') loadWatchlistPage();
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────────
@@ -1238,6 +1315,17 @@ async function loadDashboard() {
     if (typeof renderDashboardFindings === 'function' && latestFindings.length > 0) {
       renderDashboardFindings(latestFindings);
     }
+
+    // Load health score for dashboard card
+    try {
+      const hs = await api.healthScore();
+      if (hs && !hs.error) {
+        const scoreEl = document.getElementById('dash-health-score');
+        scoreEl.textContent = hs.score ?? '—';
+        scoreEl.style.color = (hs.score ?? 100) >= 80 ? 'var(--emerald-500)' : (hs.score ?? 100) >= 50 ? 'var(--amber-500)' : 'var(--red-500)';
+        document.getElementById('dash-health-detail').textContent = `正常 ${hs.healthy || 0} / 告警 ${hs.warning || 0} / 严重 ${hs.critical || 0}`;
+      }
+    } catch {}
 
   } catch (e) {
     setStatus('offline');
@@ -1445,9 +1533,155 @@ if (api.onChatEvent) {
         }
         break;
       }
+      case 'plan_generated': {
+        if (activeThinkingEl) { activeThinkingEl.remove(); activeThinkingEl = null; }
+        const plan = evt.content || {};
+        addRemediationPlanCard(plan);
+        break;
+      }
+      case 'step_start': {
+        const sd = evt.content || {};
+        updatePlanStepStatus(sd.plan_id, sd.step_id, 'running', sd.description);
+        break;
+      }
+      case 'step_result': {
+        const sr = evt.content || {};
+        updatePlanStepStatus(sr.plan_id, sr.step_id, sr.status, sr.error || '');
+        break;
+      }
+      case 'step_confirm_required':
+      case 'step_approval_required': {
+        const sa = evt.content || {};
+        showStepApprovalUI(sa.plan_id, sa.step_id, sa.description, sa.risk_level, evt.type === 'step_approval_required');
+        break;
+      }
+      case 'rollback_start': {
+        const rb = evt.content || {};
+        addMsg(`<div class="alert alert-warning" style="margin:4px 0;">⏪ 正在回滚修复计划 (${rb.steps_to_revert || '?'} 步)...</div>`, 'system');
+        break;
+      }
+      case 'plan_complete': {
+        const pc = evt.content || {};
+        const isOk = pc.status === 'completed';
+        const icon = isOk ? '✅' : '❌';
+        addMsg(`<div class="alert ${isOk ? 'alert-info' : 'alert-error'}" style="margin:4px 0;">${icon} 修复计划${isOk ? '执行完成' : '执行失败'}${pc.error ? ': ' + escapeHtml(pc.error) : ''}</div>`, 'system');
+        break;
+      }
     }
     chatBox.scrollTop = 99999;
   });
+}
+
+// ── Remediation Plan UI helpers ──────────────────────────────────────
+function addRemediationPlanCard(plan) {
+  const chatBox = document.getElementById('chat-messages');
+  const riskColors = { L0: 'badge-green', L1: 'badge-blue', L2: 'badge-yellow', L3: 'badge-red' };
+  const riskClass = riskColors[plan.risk_level] || 'badge-gray';
+  const steps = plan.plan?.steps || plan.steps || [];
+
+  let stepsHtml = '';
+  for (const step of steps) {
+    const stepRiskClass = riskColors[step.risk_level] || 'badge-gray';
+    stepsHtml += `<div class="plan-step" data-plan-id="${escapeHtml(plan.plan_id)}" data-step-id="${step.step_id}" style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+      <span class="plan-step-icon" style="flex-shrink:0;width:20px;text-align:center;">⏳</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;font-weight:500;color:var(--slate-700);">${escapeHtml(step.description)}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">🔧 ${escapeHtml(step.tool_name)} <span class="badge ${stepRiskClass}" style="font-size:10px;padding:0 6px;">${step.risk_level}</span></div>
+      </div>
+    </div>`;
+  }
+
+  const card = document.createElement('div');
+  card.className = 'msg-tool';
+  card.id = `plan-card-${plan.plan_id}`;
+  card.style.maxWidth = '90%';
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span style="font-size:16px;">📋</span>
+      <span style="font-weight:600;font-size:13px;color:var(--slate-900);">修复计划</span>
+      <span class="badge ${riskClass}">${plan.risk_level}</span>
+    </div>
+    <div style="font-size:12px;color:var(--slate-600);margin-bottom:10px;">${escapeHtml(plan.summary || '')}</div>
+    <div class="plan-steps-list" style="margin-bottom:10px;">${stepsHtml}</div>
+    <div class="plan-actions" style="display:flex;gap:8px;">
+      <button class="btn btn-success" style="font-size:12px;padding:6px 14px;" onclick="approvePlan('${escapeHtml(plan.plan_id)}')">✅ 批准执行</button>
+      <button class="btn btn-danger" style="font-size:12px;padding:6px 14px;" onclick="rejectPlan('${escapeHtml(plan.plan_id)}')">❌ 拒绝</button>
+    </div>`;
+  chatBox.appendChild(card);
+  chatBox.scrollTop = 99999;
+}
+
+function updatePlanStepStatus(planId, stepId, status, detail) {
+  const card = document.getElementById(`plan-card-${planId}`);
+  if (!card) return;
+  const stepEl = card.querySelector(`[data-step-id="${stepId}"]`);
+  if (!stepEl) return;
+  const iconEl = stepEl.querySelector('.plan-step-icon');
+  if (!iconEl) return;
+
+  const icons = { running: '🔄', succeeded: '✅', failed: '❌', skipped: '⏭', rolled_back: '↩️', awaiting_confirm: '⏸', awaiting_approval: '🔒' };
+  iconEl.textContent = icons[status] || '❓';
+
+  if (detail && (status === 'failed')) {
+    const existing = stepEl.querySelector('.step-error');
+    if (!existing) {
+      const errDiv = document.createElement('div');
+      errDiv.className = 'step-error';
+      errDiv.style.cssText = 'font-size:11px;color:var(--red-700);margin-top:4px;';
+      errDiv.textContent = detail;
+      stepEl.querySelector('div').appendChild(errDiv);
+    }
+  }
+}
+
+function showStepApprovalUI(planId, stepId, description, riskLevel, isApproval) {
+  const chatBox = document.getElementById('chat-messages');
+  const label = isApproval ? '步骤审批' : '步骤确认';
+  const card = document.createElement('div');
+  card.className = 'msg-approval';
+  card.innerHTML = `
+    <div class="approval-title">🔒 ${label}: 步骤 #${stepId}</div>
+    <div class="approval-detail">${escapeHtml(description)} (${riskLevel})</div>
+    <div class="approval-btns">
+      <button class="btn btn-success" style="font-size:12px;padding:5px 12px;" onclick="resolveStepApproval('${escapeHtml(planId)}', ${stepId}, true, ${isApproval}, this)">✅ ${isApproval ? '批准' : '确认'}</button>
+      <button class="btn btn-danger" style="font-size:12px;padding:5px 12px;" onclick="resolveStepApproval('${escapeHtml(planId)}', ${stepId}, false, ${isApproval}, this)">❌ 拒绝</button>
+    </div>`;
+  chatBox.appendChild(card);
+  chatBox.scrollTop = 99999;
+}
+
+function approvePlan(planId) {
+  const api = window.electronAPI;
+  if (api?.planApprove) api.planApprove(planId).catch(() => {});
+  const card = document.getElementById(`plan-card-${planId}`);
+  if (card) {
+    const actions = card.querySelector('.plan-actions');
+    if (actions) actions.innerHTML = '<span class="badge badge-green">已批准 — 执行中...</span>';
+  }
+}
+
+function rejectPlan(planId) {
+  const api = window.electronAPI;
+  if (api?.planReject) api.planReject(planId).catch(() => {});
+  const card = document.getElementById(`plan-card-${planId}`);
+  if (card) {
+    const actions = card.querySelector('.plan-actions');
+    if (actions) actions.innerHTML = '<span class="badge badge-red">已拒绝</span>';
+  }
+}
+
+function resolveStepApproval(planId, stepId, approved, isApproval, btnEl) {
+  const api = window.electronAPI;
+  if (isApproval) {
+    if (api?.planStepApprove) api.planStepApprove(planId, stepId, approved).catch(() => {});
+  } else {
+    if (api?.planStepConfirm) api.planStepConfirm(planId, stepId, approved).catch(() => {});
+  }
+  const parent = btnEl.closest('.msg-approval');
+  if (parent) {
+    const btns = parent.querySelector('.approval-btns');
+    if (btns) btns.innerHTML = `<span class="badge ${approved ? 'badge-green' : 'badge-red'}">${approved ? '已批准' : '已拒绝'}</span>`;
+  }
 }
 
 function handleChatKey(e) {
@@ -1927,6 +2161,196 @@ async function triggerCheckUpdate() {
   }
   btn.disabled = false;
   btn.textContent = t('update_check');
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────────────
+
+let pendingWatchItems = [];
+
+async function loadWatchlistPage() {
+  await Promise.all([loadHealthScore(), loadWatchlistItems(), loadWatchlistAlerts()]);
+}
+
+async function loadHealthScore() {
+  try {
+    const data = await api.healthScore();
+    if (data && !data.error) {
+      document.getElementById('wl-health-score').textContent = data.score ?? '—';
+      document.getElementById('wl-healthy-count').textContent = data.healthy ?? 0;
+      document.getElementById('wl-warning-count').textContent = data.warning ?? 0;
+      document.getElementById('wl-critical-count').textContent = data.critical ?? 0;
+
+      const scoreEl = document.getElementById('wl-health-score');
+      const score = data.score ?? 100;
+      scoreEl.style.color = score >= 80 ? 'var(--emerald-500)' : score >= 50 ? 'var(--amber-500)' : 'var(--red-500)';
+    }
+  } catch {}
+}
+
+async function loadWatchlistItems() {
+  const container = document.getElementById('wl-items-list');
+  try {
+    const data = await api.watchlistList();
+    if (!data || data.error || !data.items || data.items.length === 0) {
+      container.innerHTML = '<div class="empty"><div class="empty-text">暂无关注项</div></div>';
+      return;
+    }
+    container.innerHTML = data.items.map(item => {
+      const statusColor = item.last_status === 'healthy' ? 'var(--emerald-500)' :
+                          item.last_status === 'triggered' ? 'var(--red-500)' :
+                          item.last_status === 'error' ? 'var(--amber-500)' : 'var(--slate-400)';
+      const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px;"></span>`;
+      const sourceTag = `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:var(--slate-100);color:var(--slate-500);">${item.source}</span>`;
+      const enabledToggle = item.enabled
+        ? `<button class="btn btn-ghost" style="font-size:11px;color:var(--amber-500);" onclick="toggleWatchItem('${item.id}',false)">禁用</button>`
+        : `<button class="btn btn-ghost" style="font-size:11px;color:var(--emerald-500);" onclick="toggleWatchItem('${item.id}',true)">启用</button>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="flex:1;">
+          <div style="font-weight:500;font-size:13px;">${statusDot}${item.name} ${sourceTag}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${item.description || ''} · ${item.tool_name} · 每${Math.round((item.interval || 300000000000) / 60000000000)}分钟</div>
+        </div>
+        <div style="display:flex;gap:4px;">
+          ${enabledToggle}
+          <button class="btn btn-ghost" style="font-size:11px;color:var(--red-500);" onclick="deleteWatchItem('${item.id}')">删除</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch {
+    container.innerHTML = '<div class="empty"><div class="empty-text">加载失败</div></div>';
+  }
+}
+
+async function loadWatchlistAlerts() {
+  const container = document.getElementById('wl-alerts-list');
+  try {
+    const data = await api.watchlistAlerts('false', 20);
+    if (!data || data.error || !data.alerts || data.alerts.length === 0) {
+      container.innerHTML = '<div class="empty"><div class="empty-text">暂无告警</div></div>';
+      return;
+    }
+    container.innerHTML = data.alerts.map(alert => {
+      const sevColor = alert.severity === 'critical' ? 'var(--red-500)' :
+                       alert.severity === 'warning' ? 'var(--amber-500)' : 'var(--slate-400)';
+      const sevBg = alert.severity === 'critical' ? 'var(--red-50)' :
+                    alert.severity === 'warning' ? 'var(--amber-50)' : 'var(--slate-50)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;margin-bottom:4px;border-radius:var(--radius-sm);background:${sevBg};">
+        <div>
+          <div style="font-weight:500;font-size:12px;color:${sevColor};">[${alert.severity}] ${alert.item_name}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${alert.message}</div>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);">${alert.created_at ? new Date(alert.created_at).toLocaleString() : ''}</div>
+      </div>`;
+    }).join('');
+  } catch {
+    container.innerHTML = '<div class="empty"><div class="empty-text">加载失败</div></div>';
+  }
+}
+
+function showAddWatchpoint() {
+  document.getElementById('wl-add-section').style.display = 'block';
+  document.getElementById('wl-add-input').focus();
+}
+
+function hideAddWatchpoint() {
+  document.getElementById('wl-add-section').style.display = 'none';
+  document.getElementById('wl-decompose-result').style.display = 'none';
+  document.getElementById('wl-add-input').value = '';
+  pendingWatchItems = [];
+}
+
+async function decomposeWatchpoint() {
+  const input = document.getElementById('wl-add-input').value.trim();
+  if (!input) return;
+
+  const btn = document.getElementById('btn-wl-decompose');
+  btn.disabled = true;
+  btn.textContent = '分析中...';
+
+  try {
+    const data = await api.watchlistCreate(input);
+    if (data && !data.error) {
+      pendingWatchItems = [...(data.items || []), ...(data.suggested || [])];
+      renderDecomposeResult(data.items || [], data.suggested || []);
+      document.getElementById('wl-decompose-result').style.display = 'block';
+    } else {
+      alert('分析失败: ' + (data?.error || '未知错误'));
+    }
+  } catch (e) {
+    alert('分析失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '分析';
+  }
+}
+
+function renderDecomposeResult(items, suggested) {
+  const itemsEl = document.getElementById('wl-decompose-items');
+  const sugEl = document.getElementById('wl-decompose-suggested');
+
+  itemsEl.innerHTML = items.map((item, i) =>
+    `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;">
+      <input type="checkbox" checked data-wl-idx="${i}">
+      <span style="font-weight:500;">${item.name}</span>
+      <span style="color:var(--text-muted);">— ${item.description || item.tool_name}</span>
+    </label>`
+  ).join('');
+
+  if (suggested.length > 0) {
+    sugEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">AI 额外建议：</div>' +
+      suggested.map((item, i) =>
+        `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;">
+          <input type="checkbox" data-wl-idx="${items.length + i}">
+          <span>${item.name}</span>
+          <span style="color:var(--text-muted);">— ${item.description || item.tool_name}</span>
+        </label>`
+      ).join('');
+  } else {
+    sugEl.innerHTML = '';
+  }
+}
+
+async function confirmWatchItems() {
+  const checkboxes = document.querySelectorAll('[data-wl-idx]');
+  const selected = [];
+  checkboxes.forEach(cb => {
+    if (cb.checked) {
+      const idx = parseInt(cb.getAttribute('data-wl-idx'));
+      if (pendingWatchItems[idx]) selected.push(pendingWatchItems[idx]);
+    }
+  });
+
+  if (selected.length === 0) {
+    alert('请至少选择一项');
+    return;
+  }
+
+  try {
+    const data = await api.watchlistConfirm(selected);
+    if (data && !data.error) {
+      hideAddWatchpoint();
+      await loadWatchlistPage();
+    } else {
+      alert('添加失败: ' + (data?.error || '未知错误'));
+    }
+  } catch (e) {
+    alert('添加失败: ' + e.message);
+  }
+}
+
+async function toggleWatchItem(id, enabled) {
+  try {
+    await api.watchlistUpdate(id, { enabled });
+    await loadWatchlistItems();
+    await loadHealthScore();
+  } catch {}
+}
+
+async function deleteWatchItem(id) {
+  try {
+    await api.watchlistDelete(id);
+    await loadWatchlistItems();
+    await loadHealthScore();
+  } catch {}
 }
 
 // ── Init & polling ────────────────────────────────────────────────────────────

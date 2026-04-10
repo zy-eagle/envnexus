@@ -1482,6 +1482,61 @@ function registerIPC(): void {
     });
   });
 
+  // Remediation Plan IPC handlers
+  ipcMain.handle('plan-approve', (_e, planId: string) =>
+    safeLocalAPI('POST', '/local/v1/plan/approve', { plan_id: planId })
+  );
+
+  ipcMain.handle('plan-reject', (_e, planId: string) =>
+    safeLocalAPI('POST', '/local/v1/plan/reject', { plan_id: planId })
+  );
+
+  ipcMain.handle('plan-step-confirm', (_e, planId: string, stepId: number, approved: boolean) =>
+    safeLocalAPI('POST', '/local/v1/plan/step/confirm', { plan_id: planId, step_id: stepId, approved })
+  );
+
+  ipcMain.handle('plan-step-approve', (_e, planId: string, stepId: number, approved: boolean) =>
+    safeLocalAPI('POST', '/local/v1/plan/step/approve', { plan_id: planId, step_id: stepId, approved })
+  );
+
+  // Watchlist IPC handlers
+  ipcMain.handle('watchlist-create', (_e, input: string) =>
+    safeLocalAPI('POST', '/local/v1/watchlist/create', { input }, 30000)
+  );
+
+  ipcMain.handle('watchlist-confirm', (_e, items: unknown[]) =>
+    safeLocalAPI('POST', '/local/v1/watchlist/confirm', { items }, 10000)
+  );
+
+  ipcMain.handle('watchlist-list', (_e, source?: string) =>
+    safeLocalAPI('GET', `/local/v1/watchlist${source ? `?source=${source}` : ''}`)
+  );
+
+  ipcMain.handle('watchlist-get', (_e, id: string) =>
+    safeLocalAPI('GET', `/local/v1/watchlist/${id}`)
+  );
+
+  ipcMain.handle('watchlist-update', (_e, id: string, data: unknown) =>
+    safeLocalAPI('PUT', `/local/v1/watchlist/${id}`, data as object)
+  );
+
+  ipcMain.handle('watchlist-delete', (_e, id: string) =>
+    safeLocalAPI('DELETE', `/local/v1/watchlist/${id}`)
+  );
+
+  ipcMain.handle('watchlist-alerts', (_e, resolved?: string, limit?: number) => {
+    let qs = '';
+    const params: string[] = [];
+    if (resolved !== undefined) params.push(`resolved=${resolved}`);
+    if (limit !== undefined) params.push(`limit=${limit}`);
+    if (params.length) qs = '?' + params.join('&');
+    return safeLocalAPI('GET', `/local/v1/watchlist/alerts${qs}`);
+  });
+
+  ipcMain.handle('health-score', () =>
+    safeLocalAPI('GET', '/local/v1/health/score')
+  );
+
   ipcMain.handle('get-settings', () => loadSettings());
 
   ipcMain.handle('save-settings', (_e, settings: Settings) => {

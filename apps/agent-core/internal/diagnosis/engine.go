@@ -20,6 +20,7 @@ type DiagnosisPlan struct {
 	RiskBias    string                            `json:"risk_bias"`
 	ToolNames   []string                          `json:"tool_names"`
 	ToolParams  map[string]map[string]interface{} `json:"tool_params,omitempty"`
+	Complexity  ComplexityLevel                   `json:"complexity,omitempty"`
 }
 
 type DiagnosisResult struct {
@@ -28,6 +29,7 @@ type DiagnosisResult struct {
 	Findings           []Finding        `json:"findings"`
 	RecommendedActions []ActionDraft    `json:"recommended_actions"`
 	ApprovalRequired   bool             `json:"approval_required"`
+	NeedsRemediation   bool             `json:"needs_remediation"`
 	NextStep           string           `json:"next_step"`
 	Evidence           map[string]interface{} `json:"evidence"`
 	DurationMs         int64            `json:"duration_ms"`
@@ -75,9 +77,13 @@ func (e *Engine) PlanWithProgress(ctx context.Context, sessionID, input string, 
 		plan = e.heuristicPlan(input)
 	}
 
+	notify(onProgress, "complexity_assess", "Assessing problem complexity...")
+	plan.Complexity = e.assessComplexity(ctx, input, plan)
+	notify(onProgress, "complexity_done", fmt.Sprintf("Complexity: %s", plan.Complexity))
+
 	plan.ToolNames = e.stepEvidencePlan(plan)
-	notify(onProgress, "plan_ready", fmt.Sprintf("Problem type: %s, tools: %d", plan.ProblemType, len(plan.ToolNames)))
-	slog.Info("[diagnosis] Plan", "problem_type", plan.ProblemType, "tools", plan.ToolNames)
+	notify(onProgress, "plan_ready", fmt.Sprintf("Problem type: %s, complexity: %s, tools: %d", plan.ProblemType, plan.Complexity, len(plan.ToolNames)))
+	slog.Info("[diagnosis] Plan", "problem_type", plan.ProblemType, "complexity", plan.Complexity, "tools", plan.ToolNames)
 	return plan, nil
 }
 
@@ -87,18 +93,43 @@ func (e *Engine) Execute(ctx context.Context, sessionID string, plan *DiagnosisP
 
 func (e *Engine) ExecuteWithProgress(ctx context.Context, sessionID string, plan *DiagnosisPlan, onProgress ProgressFn) (*DiagnosisResult, error) {
 	start := time.Now()
-	slog.Info("[diagnosis] Executing plan", "session_id", sessionID, "problem_type", plan.ProblemType)
+	slog.Info("[diagnosis] Executing plan", "session_id", sessionID, "problem_type", plan.ProblemType, "complexity", plan.Complexity)
 
-	notify(onProgress, "evidence_collect", fmt.Sprintf("Collecting evidence from %d tools...", len(plan.ToolNames)))
-	evidence := e.stepEvidenceCollect(ctx, plan)
-	notify(onProgress, "evidence_done", fmt.Sprintf("Collected %d evidence items", len(evidence)))
+	var evidence map[string]interface{}
 
-	notify(onProgress, "reasoning", "Generating diagnosis...")
-	reasoning, err := e.stepReasoning(ctx, plan, evidence)
-	if err != nil {
-		slog.Warn("[diagnosis] Reasoning via LLM failed, using local analysis", "error", err)
-		notify(onProgress, "reasoning_fallback", "Using local analysis engine")
-		reasoning = e.localReasoning(plan, evidence)
+	if plan.Complexity == ComplexitySimple || plan.Complexity == "" {
+		notify(onProgress, "evidence_collect", fmt.Sprintf("Collecting evidence from %d tools...", len(plan.ToolNames)))
+		evidence = e.stepEvidenceCollect(ctx, plan)
+		notify(onProgress, "evidence_done", fmt.Sprintf("Collected %d evidence items", len(evidence)))
+	} else {
+		notify(onProgress, "evidence_collect_layered", "Starting layered evidence collection...")
+		evidence = e.stepLayeredEvidenceCollect(ctx, plan, onProgress)
+		notify(onProgress, "evidence_done", fmt.Sprintf("Collected %d evidence items (layered)", len(evidence)))
+	}
+
+	var reasoning *DiagnosisResult
+	var err error
+
+	if plan.Complexity == ComplexitySimple || plan.Complexity == "" {
+		notify(onProgress, "reasoning", "Generating diagnosis...")
+		reasoning, err = e.stepReasoning(ctx, plan, evidence)
+		if err != nil {
+			slog.Warn("[diagnosis] Reasoning via LLM failed, using local analysis", "error", err)
+			notify(onProgress, "reasoning_fallback", "Using local analysis engine")
+			reasoning = e.localReasoning(plan, evidence)
+		}
+	} else {
+		notify(onProgress, "reasoning_iterative", "Starting iterative reasoning...")
+		reasoning, err = e.stepIterativeReasoning(ctx, plan, evidence, onProgress)
+		if err != nil {
+			slog.Warn("[diagnosis] Iterative reasoning failed, falling back to single-shot", "error", err)
+			notify(onProgress, "reasoning_fallback", "Falling back to single-shot reasoning")
+			reasoning, err = e.stepReasoning(ctx, plan, evidence)
+			if err != nil {
+				notify(onProgress, "reasoning_fallback", "Using local analysis engine")
+				reasoning = e.localReasoning(plan, evidence)
+			}
+		}
 	}
 
 	reasoning.Evidence = evidence
@@ -106,6 +137,7 @@ func (e *Engine) ExecuteWithProgress(ctx context.Context, sessionID string, plan
 
 	if len(reasoning.RecommendedActions) > 0 {
 		e.stepActionDraft(reasoning)
+		e.evaluateNeedsRemediation(reasoning)
 	}
 
 	notify(onProgress, "complete", fmt.Sprintf("Done in %dms", reasoning.DurationMs))
@@ -114,6 +146,7 @@ func (e *Engine) ExecuteWithProgress(ctx context.Context, sessionID string, plan
 		"confidence", reasoning.Confidence,
 		"findings", len(reasoning.Findings),
 		"actions", len(reasoning.RecommendedActions),
+		"needs_remediation", reasoning.NeedsRemediation,
 		"duration_ms", reasoning.DurationMs,
 	)
 
@@ -274,6 +307,143 @@ func (e *Engine) stepEvidenceCollect(ctx context.Context, plan *DiagnosisPlan) m
 	return evidence
 }
 
+// stepLayeredEvidenceCollect performs multi-layer evidence collection for moderate+ complexity.
+// Layer 1: Run the planned tools (same as simple path).
+// Layer 2: Ask the LLM what additional tools to run based on Layer 1 results.
+func (e *Engine) stepLayeredEvidenceCollect(ctx context.Context, plan *DiagnosisPlan, onProgress ProgressFn) map[string]interface{} {
+	budget := ToolBudgetByComplexity(plan.Complexity)
+
+	notify(onProgress, "evidence_layer1", fmt.Sprintf("Layer 1: collecting from %d tools...", len(plan.ToolNames)))
+	evidence := e.stepEvidenceCollect(ctx, plan)
+	used := len(plan.ToolNames)
+
+	if e.llmRouter == nil || used >= budget {
+		return evidence
+	}
+
+	notify(onProgress, "evidence_layer2", "Layer 2: LLM deciding additional tools...")
+	additionalTools := e.askLLMForAdditionalTools(ctx, plan, evidence, budget-used)
+
+	if len(additionalTools) == 0 {
+		slog.Info("[diagnosis] Layer 2: LLM suggested no additional tools")
+		return evidence
+	}
+
+	notify(onProgress, "evidence_layer2_collect", fmt.Sprintf("Layer 2: collecting from %d additional tools...", len(additionalTools)))
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, name := range additionalTools {
+		t, ok := e.registry.Get(name)
+		if !ok || !t.IsReadOnly() {
+			continue
+		}
+		alreadyHave := false
+		for _, existing := range plan.ToolNames {
+			if existing == name {
+				alreadyHave = true
+				break
+			}
+		}
+		if alreadyHave {
+			continue
+		}
+
+		wg.Add(1)
+		go func(tool tools.Tool, toolName string) {
+			defer wg.Done()
+			result, err := tool.Execute(ctx, nil)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				evidence[toolName] = map[string]interface{}{"error": err.Error()}
+			} else {
+				evidence[toolName] = result.Output
+				slog.Info("[diagnosis] Layer 2 tool collected", "tool", toolName)
+			}
+		}(t, name)
+	}
+	wg.Wait()
+
+	return evidence
+}
+
+// askLLMForAdditionalTools asks the LLM to suggest more tools based on Layer 1 evidence.
+func (e *Engine) askLLMForAdditionalTools(ctx context.Context, plan *DiagnosisPlan, evidence map[string]interface{}, remaining int) []string {
+	evidenceSummary := make(map[string]string)
+	for k, v := range evidence {
+		b, _ := json.Marshal(v)
+		s := string(b)
+		if len(s) > 300 {
+			s = s[:300] + "..."
+		}
+		evidenceSummary[k] = s
+	}
+	summaryJSON, _ := json.MarshalIndent(evidenceSummary, "", "  ")
+
+	var toolList strings.Builder
+	for _, t := range e.registry.List() {
+		if !t.IsReadOnly() {
+			continue
+		}
+		alreadyUsed := false
+		for _, used := range plan.ToolNames {
+			if used == t.Name() {
+				alreadyUsed = true
+				break
+			}
+		}
+		if !alreadyUsed {
+			toolList.WriteString(fmt.Sprintf("- %s: %s\n", t.Name(), t.Description()))
+		}
+	}
+
+	if toolList.Len() == 0 {
+		return nil
+	}
+
+	prompt := fmt.Sprintf(`Based on the initial evidence collected for a "%s" problem, suggest additional read-only diagnostic tools to run for deeper investigation.
+
+Initial evidence summary:
+%s
+
+Available additional tools (NOT yet used):
+%s
+
+Budget: suggest at most %d additional tools.
+
+Return ONLY a JSON array of tool names, e.g. ["tool_a", "tool_b"]. If no additional tools are needed, return [].`, plan.ProblemType, string(summaryJSON), toolList.String(), remaining)
+
+	resp, err := e.llmRouter.Complete(ctx, &router.CompletionRequest{
+		Messages: []router.Message{
+			{Role: "system", Content: "You are a diagnostic tool selector. Output ONLY a valid JSON array of tool name strings."},
+			{Role: "user", Content: prompt},
+		},
+		MaxTokens:   256,
+		Temperature: 0.1,
+	})
+	if err != nil {
+		slog.Warn("[diagnosis] Layer 2 LLM request failed", "error", err)
+		return nil
+	}
+
+	content := strings.TrimSpace(resp.Content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	var toolNames []string
+	if err := json.Unmarshal([]byte(content), &toolNames); err != nil {
+		slog.Warn("[diagnosis] Failed to parse Layer 2 tool suggestions", "error", err, "content", content)
+		return nil
+	}
+
+	slog.Info("[diagnosis] Layer 2 suggested tools", "tools", toolNames)
+	return toolNames
+}
+
 // Step 4: Reasoning — use LLM to analyze evidence and generate diagnosis
 func (e *Engine) stepReasoning(ctx context.Context, plan *DiagnosisPlan, evidence map[string]interface{}) (*DiagnosisResult, error) {
 	if e.llmRouter == nil {
@@ -328,6 +498,152 @@ You MUST respond with ONLY a JSON object. No explanation, no markdown, no thinki
 		return nil, fmt.Errorf("parse reasoning response: %w (content: %s)", err, content[:min(len(content), 300)])
 	}
 	return &result, nil
+}
+
+// stepIterativeReasoning performs multi-round reasoning for moderate+ complexity.
+// If the initial reasoning confidence is below a threshold, it requests additional evidence
+// and re-reasons up to N iterations (determined by complexity level).
+func (e *Engine) stepIterativeReasoning(ctx context.Context, plan *DiagnosisPlan, evidence map[string]interface{}, onProgress ProgressFn) (*DiagnosisResult, error) {
+	maxIter := MaxIterationsByComplexity(plan.Complexity)
+	confidenceThreshold := 0.75
+
+	result, err := e.stepReasoning(ctx, plan, evidence)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := 1; i < maxIter; i++ {
+		if result.Confidence >= confidenceThreshold {
+			slog.Info("[diagnosis] Iterative reasoning converged", "iteration", i, "confidence", result.Confidence)
+			break
+		}
+
+		notify(onProgress, "reasoning_iterate", fmt.Sprintf("Iteration %d/%d — confidence %.0f%%, requesting supplementary evidence...", i+1, maxIter, result.Confidence*100))
+
+		supplementary := e.requestSupplementaryEvidence(ctx, plan, result, evidence)
+		if len(supplementary) == 0 {
+			slog.Info("[diagnosis] No supplementary evidence available, stopping iteration", "iteration", i)
+			break
+		}
+
+		for k, v := range supplementary {
+			evidence[k] = v
+		}
+
+		notify(onProgress, "reasoning_iterate", fmt.Sprintf("Iteration %d/%d — re-reasoning with %d total evidence items...", i+1, maxIter, len(evidence)))
+
+		newResult, err := e.stepReasoning(ctx, plan, evidence)
+		if err != nil {
+			slog.Warn("[diagnosis] Iterative reasoning round failed, keeping previous result", "iteration", i, "error", err)
+			break
+		}
+
+		if newResult.Confidence > result.Confidence {
+			result = newResult
+		} else {
+			slog.Info("[diagnosis] Iterative reasoning did not improve confidence, stopping", "iteration", i)
+			break
+		}
+	}
+
+	return result, nil
+}
+
+// requestSupplementaryEvidence asks the LLM what additional data would help improve confidence.
+func (e *Engine) requestSupplementaryEvidence(ctx context.Context, plan *DiagnosisPlan, result *DiagnosisResult, currentEvidence map[string]interface{}) map[string]interface{} {
+	if e.llmRouter == nil {
+		return nil
+	}
+
+	findingsJSON, _ := json.Marshal(result.Findings)
+
+	var availableTools strings.Builder
+	for _, t := range e.registry.List() {
+		if !t.IsReadOnly() {
+			continue
+		}
+		_, alreadyHave := currentEvidence[t.Name()]
+		if !alreadyHave {
+			availableTools.WriteString(fmt.Sprintf("- %s: %s\n", t.Name(), t.Description()))
+		}
+	}
+
+	if availableTools.Len() == 0 {
+		return nil
+	}
+
+	prompt := fmt.Sprintf(`Current diagnosis confidence is %.0f%%. The findings so far:
+%s
+
+Available unused diagnostic tools:
+%s
+
+Which tools should we run to improve diagnostic confidence? Return ONLY a JSON array of tool names. If none would help, return [].`, result.Confidence*100, string(findingsJSON), availableTools.String())
+
+	resp, err := e.llmRouter.Complete(ctx, &router.CompletionRequest{
+		Messages: []router.Message{
+			{Role: "system", Content: "You are a diagnostic tool selector. Output ONLY a valid JSON array of tool name strings."},
+			{Role: "user", Content: prompt},
+		},
+		MaxTokens:   256,
+		Temperature: 0.1,
+	})
+	if err != nil {
+		return nil
+	}
+
+	content := strings.TrimSpace(resp.Content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	var toolNames []string
+	if err := json.Unmarshal([]byte(content), &toolNames); err != nil {
+		return nil
+	}
+
+	supplementary := make(map[string]interface{})
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, name := range toolNames {
+		t, ok := e.registry.Get(name)
+		if !ok || !t.IsReadOnly() {
+			continue
+		}
+		wg.Add(1)
+		go func(tool tools.Tool, toolName string) {
+			defer wg.Done()
+			result, err := tool.Execute(ctx, nil)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				supplementary[toolName] = map[string]interface{}{"error": err.Error()}
+			} else {
+				supplementary[toolName] = result.Output
+			}
+		}(t, name)
+	}
+	wg.Wait()
+
+	return supplementary
+}
+
+// evaluateNeedsRemediation sets NeedsRemediation=true if any recommended action
+// involves a write operation (non-L0 risk level).
+func (e *Engine) evaluateNeedsRemediation(result *DiagnosisResult) {
+	for _, action := range result.RecommendedActions {
+		if action.RiskLevel != "L0" {
+			result.NeedsRemediation = true
+			return
+		}
+		t, ok := e.registry.Get(action.ToolName)
+		if ok && !t.IsReadOnly() {
+			result.NeedsRemediation = true
+			return
+		}
+	}
 }
 
 // Step 5: ActionDraft — validate and enrich recommended actions

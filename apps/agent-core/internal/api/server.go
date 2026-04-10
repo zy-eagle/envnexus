@@ -21,6 +21,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/remediation"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/updater"
 )
 
@@ -41,6 +42,10 @@ type LocalServer struct {
 	chatApprovals     sync.Map
 	chatCancelFuncs   sync.Map
 	chatAutoApprove   sync.Map
+	planStore         *PlanStore
+	planApprovals     sync.Map
+	stepApprovals     sync.Map
+	remediationPlanner *remediation.Planner
 }
 
 func NewLocalServer(port int, identityManager *device.IdentityManager, policyEngine *policy.Engine, diagEngine *diagnosis.Engine, llmRouter *router.Router, toolRegistry *tools.Registry) *LocalServer {
@@ -75,6 +80,13 @@ func (s *LocalServer) SetUpdater(u *updater.Updater) {
 	s.agentUpdater = u
 }
 
+func (s *LocalServer) SetRemediationPlanner(p *remediation.Planner) {
+	s.remediationPlanner = p
+	if s.planStore == nil {
+		s.planStore = NewPlanStore()
+	}
+}
+
 func (s *LocalServer) Start() error {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -97,6 +109,9 @@ func (s *LocalServer) Start() error {
 		api.POST("/update/check", s.handleUpdateCheck)
 		api.POST("/update/download", s.handleUpdateDownload)
 		api.POST("/update/apply", s.handleUpdateApply)
+
+		s.RegisterPlanRoutes(api)
+		s.RegisterWatchlistRoutes(api)
 	}
 
 	s.server = &http.Server{

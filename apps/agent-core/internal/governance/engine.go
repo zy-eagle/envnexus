@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/governance/watchlist"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 )
 
@@ -33,7 +34,8 @@ type DriftResult struct {
 }
 
 type Engine struct {
-	store *store.Store
+	store            *store.Store
+	watchlistManager *watchlist.Manager
 }
 
 func NewEngine() *Engine {
@@ -42,6 +44,28 @@ func NewEngine() *Engine {
 
 func (e *Engine) SetStore(s *store.Store) {
 	e.store = s
+}
+
+func (e *Engine) SetWatchlistManager(wm *watchlist.Manager) {
+	e.watchlistManager = wm
+}
+
+func (e *Engine) GetWatchlistManager() *watchlist.Manager {
+	return e.watchlistManager
+}
+
+func (e *Engine) GetHealthScore() (*watchlist.HealthScore, error) {
+	if e.watchlistManager == nil {
+		return &watchlist.HealthScore{Score: 100, LastUpdated: time.Now().UTC().Format(time.RFC3339)}, nil
+	}
+	return e.watchlistManager.GetHealthScore()
+}
+
+func (e *Engine) GetAlerts(resolved *bool, limit int) ([]*watchlist.WatchAlert, error) {
+	if e.watchlistManager == nil {
+		return nil, nil
+	}
+	return e.watchlistManager.ListAlerts(resolved, limit)
 }
 
 type Status struct {
@@ -88,6 +112,12 @@ func (e *Engine) Start(ctx context.Context) {
 			}
 		}
 	}()
+
+	if e.watchlistManager != nil {
+		if err := e.watchlistManager.Start(ctx); err != nil {
+			slog.Warn("[GovernanceEngine] Failed to start watchlist manager", "error", err)
+		}
+	}
 }
 
 func (e *Engine) CaptureBaseline() (*BaselineData, error) {
