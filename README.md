@@ -2,22 +2,23 @@
 
 [中文版本](README.zh-CN.md)
 
-**EnvNexus** is an AI-native **intelligent environment governance engine**. It replaces traditional unrestricted remote shell access with a structured approach: **AI diagnoses → generates a remediation plan → humans approve → agent executes with rollback** — with full auditability at every step. Users describe problems in natural language (or paste screenshots), and the agent automatically diagnoses, plans, and fixes. It also **proactively discovers** issues through user-defined watchlists and built-in health rules.
+**EnvNexus** is a **self-healing local environment platform** for enterprise endpoints. It covers common local environment issues for both knowledge workers and developers, including VPN, proxy, DNS, certificate, disk, database, Docker, port, and runtime dependency failures, and replaces unrestricted remote shell access with a structured flow: **AI diagnoses → generates a remediation plan → humans approve → the local agent executes with rollback**. Users describe problems in natural language or paste error screenshots, and the agent handles diagnosis, planning, remediation, and verification. It also supports **controlled remote file system access**, allowing approved browsing of endpoint files, text log previews, and downloads of original files in any format, while **proactively detecting** local environment risks through watchlists and built-in health rules.
 
 ---
 
 ## The Problem
 
-Traditional remote support tools grant unrestricted shell access to endpoints, creating security, compliance, and audit risks — especially when hundreds of devices are managed by distributed teams.
+Local environment issues on enterprise endpoints are frequent, repetitive, and directly disruptive to work, yet the usual response is still either remote takeover by IT or a ticket queue followed by manual troubleshooting. One is risky, the other is slow.
 
-EnvNexus takes a fundamentally different approach:
+EnvNexus takes a different approach built specifically for local endpoint environment issues:
 
+- **Focused on enterprise endpoint users** — covers local environment issues across both office users and developers, especially network access, proxies, certificates, disk, services, databases, containers, and runtime dependencies
 - **Default read-only** — the agent only runs diagnostic tools unless a write action is explicitly approved
 - **Plan-based repair** — diagnosis produces a structured remediation plan (ordered DAG with risk levels, rollback strategies, and verification steps); users approve the entire plan, not individual commands
 - **Layered approval** — L0 auto-pass, L1 plan-level, L2 plan + confirm, L3 per-step approval; configurable via policy profiles
-- **Smart watchlist** — users describe what to monitor in natural language ("watch MySQL and disk usage"); LLM decomposes into structured check items; user confirms; agent continuously patrols
-- **Proactive discovery** — built-in rule packs (network, security, performance, certificates) + platform-pushed enterprise policies + learned rules from past fixes
-- **Policy-driven** — each tenant defines allowed models, tools, and risk levels for their devices
+- **Controlled file access and download** — after approval, support teams can browse the remote endpoint file system, preview text logs, and download original files of any format for troubleshooting and evidence collection
+- **Smart watchlist** — users describe what to monitor in natural language ("watch VPN, proxy, disk usage, MySQL, and Docker"); the LLM decomposes this into structured checks and the agent continuously patrols
+- **Proactive discovery** — built-in rule packs + platform-pushed policies + rules learned from past fixes help surface issues before they block work
 - **Full audit trail** — every session, diagnosis, plan, approval, execution, and verification is recorded and queryable
 - **Local-first execution** — the AI engine runs on the endpoint; the platform orchestrates but never executes directly
 
@@ -25,6 +26,7 @@ EnvNexus takes a fundamentally different approach:
 
 - Not a remote desktop or arbitrary shell tool
 - Not an RMM agent that can run any command
+- Not a broad all-in-one endpoint management suite
 - Does not bypass local policy — the local agent always has the final say
 
 ---
