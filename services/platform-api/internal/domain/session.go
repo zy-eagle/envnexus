@@ -16,16 +16,16 @@ const (
 )
 
 type Session struct {
-	ID            string
-	TenantID      string
-	DeviceID      string
-	Transport     string
-	Status        SessionStatus
-	InitiatorType string
-	StartedAt     time.Time
-	EndedAt       *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID            string        `json:"id"`
+	TenantID      string        `json:"tenant_id"`
+	DeviceID      string        `json:"device_id"`
+	Transport     string        `json:"transport"`
+	Status        SessionStatus `json:"status"`
+	InitiatorType string        `json:"initiator_type"`
+	StartedAt     time.Time     `json:"started_at"`
+	EndedAt       *time.Time    `json:"ended_at"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 func (s *Session) TableName() string { return "sessions" }

@@ -17,6 +17,12 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
   const fetchSessions = async () => {
     try {
       const data = await api.get<{ items: any[] }>(`/tenants/${tenantId}/sessions`);
+      console.log('Fetched sessions data:', data);
+      if (Array.isArray(data.items)) {
+        data.items.forEach((session, index) => {
+          console.log(`Session ${index} started_at:`, session.started_at, typeof session.started_at);
+        });
+      }
       setSessions(Array.isArray(data.items) ? data.items : []);
     } catch (error) {
       console.error('Failed to fetch sessions:', error);
@@ -83,7 +89,10 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{session.initiator_type}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(session.started_at).toLocaleString()}
+                    {session.started_at ? (() => {
+                      const date = new Date(session.started_at);
+                      return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleString();
+                    })() : 'No Date'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                     <Link
