@@ -112,6 +112,7 @@ func (s *LocalServer) Start() error {
 
 		s.RegisterPlanRoutes(api)
 		s.RegisterWatchlistRoutes(api)
+		s.RegisterFileRoutes(api)
 	}
 
 	s.server = &http.Server{

@@ -11,17 +11,23 @@ import (
 )
 
 type GovernanceHandler struct {
-	svc *governance.Service
+	svc     *governance.Service
+	ruleSvc *governance.RuleService
 }
 
 func NewGovernanceHandler(svc *governance.Service) *GovernanceHandler {
 	return &GovernanceHandler{svc: svc}
 }
 
+func (h *GovernanceHandler) SetRuleService(rs *governance.RuleService) {
+	h.ruleSvc = rs
+}
+
 func (h *GovernanceHandler) RegisterRoutes(router *gin.RouterGroup) {
 	g := router.Group("/agent/v1/governance")
 	g.POST("/baselines", h.ReportBaseline)
 	g.POST("/drifts", h.ReportDrifts)
+	g.GET("/sync", h.SyncRules)
 }
 
 func (h *GovernanceHandler) ReportBaseline(c *gin.Context) {
@@ -89,4 +95,35 @@ func (h *GovernanceHandler) ReportDrifts(c *gin.Context) {
 	mw.RespondSuccess(c, http.StatusCreated, gin.H{
 		"accepted": count,
 	})
+}
+
+func (h *GovernanceHandler) SyncRules(c *gin.Context) {
+	tenantID, _ := c.Get("tenant_id")
+	tid, _ := tenantID.(string)
+	if tid == "" {
+		tid = c.GetHeader("X-Tenant-ID")
+	}
+
+	result := gin.H{}
+
+	if h.ruleSvc != nil {
+		rules, err := h.ruleSvc.ListRules(c.Request.Context(), tid)
+		if err != nil {
+			mw.RespondError(c, err)
+			return
+		}
+		result["rules"] = rules
+
+		perms, err := h.ruleSvc.ListToolPermissions(c.Request.Context(), tid)
+		if err != nil {
+			mw.RespondError(c, err)
+			return
+		}
+		result["tool_permissions"] = perms
+	} else {
+		result["rules"] = []interface{}{}
+		result["tool_permissions"] = []interface{}{}
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, result)
 }

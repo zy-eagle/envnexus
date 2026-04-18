@@ -255,6 +255,8 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	registry.Register(database.NewPostgresCheckTool())
 	registry.Register(database.NewRedisCheckTool())
 	registry.Register(database.NewMongoCheckTool())
+	registry.Register(system.NewFileDownloadTool())
+	registry.Register(system.NewScreenshotTool())
 
 	if !platformReachable {
 		slog.Info("[boot] Offline mode: only read-only tools available", "count", countReadOnly(registry))

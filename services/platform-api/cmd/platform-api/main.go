@@ -28,6 +28,9 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
 	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
+	device_group_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_group"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/health"
+	file_access_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/file_access"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/governance"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/license"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/metrics"
@@ -107,6 +110,10 @@ func main() {
 		approvalPolRepo   repository.ApprovalPolicyRepository
 		imProviderRepo    repository.IMProviderRepository
 		notifChannelRepo  repository.UserNotificationChannelRepository
+		fileAccessRepo    repository.FileAccessRepository
+		deviceGroupRepo   repository.DeviceGroupRepository
+		govRuleRepo       repository.GovernanceRuleRepository
+		toolPermRepo      repository.ToolPermissionRepository
 	)
 
 	var gormDB *gorm.DB
@@ -141,6 +148,10 @@ func main() {
 		approvalPolRepo = repository.NewMySQLApprovalPolicyRepository(db)
 		imProviderRepo = repository.NewMySQLIMProviderRepository(db)
 		notifChannelRepo = repository.NewMySQLUserNotificationChannelRepository(db)
+		fileAccessRepo = repository.NewMySQLFileAccessRepository(db)
+		deviceGroupRepo = repository.NewMySQLDeviceGroupRepository(db)
+		govRuleRepo = repository.NewMySQLGovernanceRuleRepository(db)
+		toolPermRepo = repository.NewMySQLToolPermissionRepository(db)
 		slog.Info("connected to MySQL database")
 
 		if err := migrations.Run(db); err != nil {
@@ -213,6 +224,10 @@ func main() {
 	commandService := command_svc.NewService(cmdTaskRepo, cmdExecRepo, deviceRepo, approvalPolicyService, auditRepo, rbacService, gatewayClient, userRepo)
 	notificationRouter := notification.NewRouter(notifChannelRepo, imProviderRepo)
 	_ = notificationRouter
+	fileAccessService := file_access_svc.NewService(fileAccessRepo, auditRepo)
+	deviceGroupService := device_group_svc.NewService(deviceGroupRepo)
+	ruleService := governance.NewRuleService(govRuleRepo, toolPermRepo)
+	healthService := health.NewService(deviceRepo, govRepo)
 	var metricsService *metrics.Service
 	var licenseService *license.Service
 	if gormDB != nil {
@@ -260,6 +275,10 @@ func main() {
 	commandTaskHandler := httphandler.NewCommandTaskHandler(commandService, nlGenerator, deviceRepo, userRepo)
 	approvalPolicyHandler := httphandler.NewApprovalPolicyHandler(approvalPolicyService)
 	imProviderHandler := httphandler.NewIMProviderHandler(imProviderRepo, notifChannelRepo, cryptoService)
+	fileAccessHandler := httphandler.NewFileAccessHandler(fileAccessService)
+	deviceGroupHandler := httphandler.NewDeviceGroupHandler(deviceGroupService)
+	healthHandler := httphandler.NewHealthHandler(healthService)
+	govRuleHandler := httphandler.NewGovernanceRuleHandler(ruleService)
 	var metricsHandler *httphandler.MetricsHandler
 	var licenseHandler *httphandler.LicenseHandler
 	if metricsService != nil {
@@ -275,6 +294,7 @@ func main() {
 	agentApprovalHandler := agent.NewApprovalHandler(sessionService)
 	agentActivateHandler := agent.NewActivateHandler(bindingService)
 	agentGovernanceHandler := agent.NewGovernanceHandler(governanceService)
+	agentGovernanceHandler.SetRuleService(ruleService)
 
 	// --- Router ---
 	router := gin.Default()
@@ -368,6 +388,10 @@ func main() {
 		commandTaskHandler.RegisterRoutes(protectedV1)
 		approvalPolicyHandler.RegisterRoutes(protectedV1)
 		imProviderHandler.RegisterRoutes(protectedV1)
+		fileAccessHandler.RegisterRoutes(protectedV1)
+		deviceGroupHandler.RegisterRoutes(protectedV1)
+		healthHandler.RegisterRoutes(protectedV1)
+		govRuleHandler.RegisterRoutes(protectedV1)
 		if metricsHandler != nil {
 			metricsHandler.RegisterRoutes(protectedV1)
 		}

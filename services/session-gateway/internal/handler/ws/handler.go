@@ -412,6 +412,10 @@ func (m *SessionManager) handleAgentEvent(dc *DeviceConnection, evt EventEnvelop
 		slog.Info("Approval requested from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		m.publishToRedis(evt)
 
+	case "file.browse_result", "file.preview_result", "file.download_result":
+		slog.Info("File access result from device", "event_type", evt.EventType, "device_id", dc.DeviceID, "session_id", evt.SessionID)
+		m.publishToRedis(evt)
+
 	case "command.result":
 		slog.Info("Command result from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
 		go m.forwardCommandResult(dc, evt)
