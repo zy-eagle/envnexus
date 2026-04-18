@@ -158,6 +158,7 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
         ) : perms.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noPermissions}</div>
         ) : (
+          <>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -228,6 +229,7 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
                 </div>
               </div>
             )}
+          </>
         )}
       </div>
 
@@ -260,7 +262,7 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">是否允许</label>
                 <select 
-                  value={newPerm.allowed}
+                  value={newPerm.allowed ? 'true' : 'false'}
                   onChange={(e) => setNewPerm({ ...newPerm, allowed: e.target.value === 'true' })}
                   className="w-full border rounded-md px-3 py-2"
                 >

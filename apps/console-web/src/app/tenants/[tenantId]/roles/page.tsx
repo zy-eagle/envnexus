@@ -272,6 +272,7 @@ export default function TenantRolesPage() {
         ) : items.length === 0 ? (
           <div className="p-6 text-sm text-slate-500">{ct.noData}</div>
         ) : (
+          <>
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead className="bg-slate-50">
@@ -343,6 +344,7 @@ export default function TenantRolesPage() {
               </div>
             </div>
           )}
+          </>
         )}
       </div>
 

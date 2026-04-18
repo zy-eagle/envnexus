@@ -329,6 +329,7 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
         ) : policies.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noPolicies}</div>
         ) : (
+          <>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -423,6 +424,7 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
               </div>
             </div>
           )}
+          </>
         )}
       </div>
 

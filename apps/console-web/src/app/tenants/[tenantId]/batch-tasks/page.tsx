@@ -79,6 +79,7 @@ export default function BatchTasksPage({ params }: { params: { tenantId: string 
         ) : tasks.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noTasks}</div>
         ) : (
+          <>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -155,6 +156,7 @@ export default function BatchTasksPage({ params }: { params: { tenantId: string 
               </div>
             </div>
           )}
+          </>
         )}
       </div>
     </div>

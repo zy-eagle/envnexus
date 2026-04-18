@@ -351,6 +351,7 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
         ) : profiles.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noProfiles}</div>
         ) : (
+          <>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -427,6 +428,7 @@ export default function AgentProfilesPage({ params }: { params: { tenantId: stri
               </div>
             </div>
           )}
+          </>
         )}
       </div>
     </div>

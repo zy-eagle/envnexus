@@ -176,7 +176,7 @@ export default function TenantUsersPage() {
         {usersLoading ? (
           <div className="p-8 text-center text-gray-500">{ct.loading}</div>
         ) : users.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">{t.noUsers}</div>
+          <div className="p-8 text-center text-gray-500">{ct.noData}</div>
         ) : (
           <>
             <div className="overflow-x-auto">

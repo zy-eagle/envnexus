@@ -661,6 +661,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
         ) : packages.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noPackages}</div>
         ) : (
+          <>
           <table className="w-full divide-y divide-gray-200 table-fixed" style={{ minWidth: '780px' }}>
             <thead className="bg-gray-50">
               <tr>
@@ -799,6 +800,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
               </div>
             </div>
           )}
+          </>
         )}
       </div>
     </div>

@@ -293,6 +293,7 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
               <h3 className="mt-3 text-sm font-medium text-gray-900">{t.noApprovals}</h3>
             </div>
           ) : (
+            <>
             <div className="divide-y divide-gray-200">
               {fileApprovals.map((fa) => (
                 <div key={fa.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -378,12 +379,14 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
                 </div>
               </div>
             )}
+            </>
           )}
         </div>
       )}
 
       {/* Command task list */}
-      {activeTab === 'commands' && <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      {activeTab === 'commands' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600 mb-4"></div>
@@ -398,6 +401,7 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
             <p className="mt-1 text-sm text-gray-500">{t.noApprovalsDesc}</p>
           </div>
         ) : (
+          <>
           <div className="divide-y divide-gray-200">
             {tasks.map((task) => (
               <div key={task.id} className="p-5 hover:bg-gray-50 transition-colors">
@@ -513,8 +517,10 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
                 </div>
               </div>
             )}
+          </>
           )}
-        </div>}
+        </div>
+      )}
 
       {/* Approve Modal */}
       {approveModal && (

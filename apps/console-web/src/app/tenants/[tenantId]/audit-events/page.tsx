@@ -161,6 +161,7 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
         ) : events.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{t.noEvents}</div>
         ) : (
+          <>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -256,6 +257,7 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
                 </div>
               </div>
             )}
+          </>
         )}
       </div>
     </div>

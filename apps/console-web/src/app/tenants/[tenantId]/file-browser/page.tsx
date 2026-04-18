@@ -737,6 +737,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
           {requests.length === 0 ? (
             <div className="p-6 text-center text-gray-400 text-sm">{t.noRequests}</div>
           ) : (
+            <>
             <div className="divide-y divide-gray-200 max-h-80 overflow-y-auto">
               {requests.slice(0, 50).map(req => (
                 <div key={req.id} className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50">
@@ -789,6 +790,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
                 </div>
               </div>
             )}
+            </>
           )}
         </div>
       )}

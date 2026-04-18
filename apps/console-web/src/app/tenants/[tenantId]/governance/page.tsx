@@ -319,6 +319,7 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
               <p className="text-gray-500">{t.noDrifts}</p>
             </div>
           ) : (
+            <>
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -368,23 +369,18 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 ))}
               </tbody>
             </table>
-            {(tab === 'drifts' ? drifts.length > 0 : baselines.length > 0) && (
+            {drifts.length > 0 && (
               <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
                 <div className="flex items-center space-x-4">
                   <div className="text-sm text-gray-500">
-                    共 {(tab === 'drifts' ? driftPagination.total : baselinePagination.total)} 条记录
+                    共 {driftPagination.total} 条记录
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="text-sm text-gray-500">每页显示：</span>
                     <select 
-                      value={tab === 'drifts' ? driftPagination.pageSize : baselinePagination.pageSize} 
+                      value={driftPagination.pageSize} 
                       onChange={(e) => {
-                        const newSize = parseInt(e.target.value);
-                        if (tab === 'drifts') {
-                          handleDriftPageSizeChange(newSize);
-                        } else {
-                          handleBaselinePageSizeChange(newSize);
-                        }
+                        handleDriftPageSizeChange(parseInt(e.target.value));
                       }}
                       className="border rounded-md px-2 py-1 text-sm"
                     >
@@ -398,27 +394,19 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 <div className="flex items-center space-x-2">
                   <button 
                     onClick={() => {
-                      if (tab === 'drifts') {
-                        handleDriftPageChange(driftPagination.page - 1);
-                      } else {
-                        handleBaselinePageChange(baselinePagination.page - 1);
-                      }
+                      handleDriftPageChange(driftPagination.page - 1);
                     }}
-                    disabled={tab === 'drifts' ? driftPagination.page === 1 : baselinePagination.page === 1}
+                    disabled={driftPagination.page === 1}
                     className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                   >
                     上一页
                   </button>
-                  <span className="text-sm">{tab === 'drifts' ? driftPagination.page : baselinePagination.page}</span>
+                  <span className="text-sm">{driftPagination.page}</span>
                   <button 
                     onClick={() => {
-                      if (tab === 'drifts') {
-                        handleDriftPageChange(driftPagination.page + 1);
-                      } else {
-                        handleBaselinePageChange(baselinePagination.page + 1);
-                      }
+                      handleDriftPageChange(driftPagination.page + 1);
                     }}
-                    disabled={tab === 'drifts' ? driftPagination.page * driftPagination.pageSize >= driftPagination.total : baselinePagination.page * baselinePagination.pageSize >= baselinePagination.total}
+                    disabled={driftPagination.page * driftPagination.pageSize >= driftPagination.total}
                     className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                   >
                     下一页
@@ -426,6 +414,7 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 </div>
               </div>
             )}
+            </>
           )
         ) : (
           baselines.length === 0 ? (
@@ -436,6 +425,7 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
               <p className="text-gray-500">{t.noBaselines}</p>
             </div>
           ) : (
+            <>
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -475,23 +465,18 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 ))}
               </tbody>
             </table>
-            {(tab === 'drifts' ? drifts.length > 0 : baselines.length > 0) && (
+            {baselines.length > 0 && (
               <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
                 <div className="flex items-center space-x-4">
                   <div className="text-sm text-gray-500">
-                    共 {(tab === 'drifts' ? driftPagination.total : baselinePagination.total)} 条记录
+                    共 {baselinePagination.total} 条记录
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="text-sm text-gray-500">每页显示：</span>
                     <select 
-                      value={tab === 'drifts' ? driftPagination.pageSize : baselinePagination.pageSize} 
+                      value={baselinePagination.pageSize} 
                       onChange={(e) => {
-                        const newSize = parseInt(e.target.value);
-                        if (tab === 'drifts') {
-                          handleDriftPageSizeChange(newSize);
-                        } else {
-                          handleBaselinePageSizeChange(newSize);
-                        }
+                        handleBaselinePageSizeChange(parseInt(e.target.value));
                       }}
                       className="border rounded-md px-2 py-1 text-sm"
                     >
@@ -505,27 +490,19 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 <div className="flex items-center space-x-2">
                   <button 
                     onClick={() => {
-                      if (tab === 'drifts') {
-                        handleDriftPageChange(driftPagination.page - 1);
-                      } else {
-                        handleBaselinePageChange(baselinePagination.page - 1);
-                      }
+                      handleBaselinePageChange(baselinePagination.page - 1);
                     }}
-                    disabled={tab === 'drifts' ? driftPagination.page === 1 : baselinePagination.page === 1}
+                    disabled={baselinePagination.page === 1}
                     className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                   >
                     上一页
                   </button>
-                  <span className="text-sm">{tab === 'drifts' ? driftPagination.page : baselinePagination.page}</span>
+                  <span className="text-sm">{baselinePagination.page}</span>
                   <button 
                     onClick={() => {
-                      if (tab === 'drifts') {
-                        handleDriftPageChange(driftPagination.page + 1);
-                      } else {
-                        handleBaselinePageChange(baselinePagination.page + 1);
-                      }
+                      handleBaselinePageChange(baselinePagination.page + 1);
                     }}
-                    disabled={tab === 'drifts' ? driftPagination.page * driftPagination.pageSize >= driftPagination.total : baselinePagination.page * baselinePagination.pageSize >= baselinePagination.total}
+                    disabled={baselinePagination.page * baselinePagination.pageSize >= baselinePagination.total}
                     className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                   >
                     下一页
@@ -533,6 +510,7 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 </div>
               </div>
             )}
+            </>
           )
         )}
       </div>
