@@ -119,22 +119,40 @@ export default function OverviewPage() {
         {/* 分页控制 */}
         {recentActivities.length > 0 && totalPages > 1 && (
           <div className="px-5 py-4 border-t border-slate-100">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-slate-500">
-                显示 {Math.min((currentPage - 1) * pageSize + 1, recentActivities.length)} - {Math.min(currentPage * pageSize, recentActivities.length)} 条，共 {totalPages} 页
+            <div className="flex justify-between items-center">
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-slate-500">
+                  共 {totalPages * pageSize} 条记录
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-slate-500">每页显示：</span>
+                  <select 
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(parseInt(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="border rounded-md px-2 py-1 text-sm"
+                  >
+                    <option value="6">6条</option>
+                    <option value="10">10条</option>
+                    <option value="20">20条</option>
+                    <option value="50">50条</option>
+                  </select>
+                </div>
               </div>
               <div className="flex items-center space-x-2">
-                <button
+                <button 
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                 >
                   上一页
                 </button>
-                <button
+                <button 
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                 >
                   下一页
                 </button>
