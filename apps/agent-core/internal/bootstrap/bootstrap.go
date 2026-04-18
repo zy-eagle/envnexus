@@ -435,7 +435,7 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 	// Step 10: Connect to session gateway (only when platform reachable)
 	if deviceToken != "" && platformReachable {
 		tokenProvider := lifecycle.NewClient(cfg.PlatformURL, deviceID, deviceToken)
-		wsClient := session.NewWSClient(cfg.WSURL, deviceID, tenantID, tokenProvider, registry, auditClient, policyEngine, diagnosisEngine)
+		wsClient := session.NewWSClient(cfg.WSURL, deviceID, tenantID, tokenProvider, registry, auditClient, policyEngine, diagnosisEngine, localStore)
 		wsClient.Start(ctx)
 	}
 

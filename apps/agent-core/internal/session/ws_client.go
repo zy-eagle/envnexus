@@ -19,6 +19,7 @@ import (
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/audit"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/diagnosis"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/policy"
+	"github.com/zy-eagle/envnexus/apps/agent-core/internal/store"
 	"github.com/zy-eagle/envnexus/apps/agent-core/internal/tools"
 )
 
@@ -55,9 +56,10 @@ type WSClient struct {
 	auditClient   *audit.Client
 	policyEngine  *policy.Engine
 	diagEngine    *diagnosis.Engine
+	localStore    *store.Store
 }
 
-func NewWSClient(serverURL, deviceID, tenantID string, tokenProvider SessionTokenProvider, registry *tools.Registry, auditClient *audit.Client, policyEngine *policy.Engine, diagEngine *diagnosis.Engine) *WSClient {
+func NewWSClient(serverURL, deviceID, tenantID string, tokenProvider SessionTokenProvider, registry *tools.Registry, auditClient *audit.Client, policyEngine *policy.Engine, diagEngine *diagnosis.Engine, localStore *store.Store) *WSClient {
 	return &WSClient{
 		serverURL:     serverURL,
 		deviceID:      deviceID,
@@ -69,6 +71,7 @@ func NewWSClient(serverURL, deviceID, tenantID string, tokenProvider SessionToke
 		auditClient:   auditClient,
 		policyEngine:  policyEngine,
 		diagEngine:    diagEngine,
+		localStore:    localStore,
 	}
 }
 
@@ -293,6 +296,16 @@ func (c *WSClient) handleSessionCreated(evt EventEnvelope) {
 		return
 	}
 
+	// 保存会话到本地存储
+	if c.localStore != nil {
+		err := c.localStore.SaveSession(evt.SessionID, c.tenantID, c.deviceID, "created", initialMessage)
+		if err != nil {
+			slog.Warn("[ws] Failed to save session to local store", "error", err)
+		} else {
+			slog.Info("[ws] Session saved to local store", "session_id", evt.SessionID)
+		}
+	}
+
 	c.SendEvent(EventEnvelope{
 		EventID:   generateEventID(),
 		EventType: "diagnosis.started",
@@ -314,6 +327,13 @@ func (c *WSClient) handleSessionCreated(evt EventEnvelope) {
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Payload:   map[string]interface{}{"error": err.Error()},
 			})
+			// 更新会话状态为失败
+			if c.localStore != nil {
+				err := c.localStore.SaveSession(evt.SessionID, c.tenantID, c.deviceID, "failed", initialMessage)
+				if err != nil {
+					slog.Warn("[ws] Failed to update session status", "error", err)
+				}
+			}
 			return
 		}
 
@@ -325,6 +345,14 @@ func (c *WSClient) handleSessionCreated(evt EventEnvelope) {
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Payload:   result,
 		})
+
+		// 更新会话状态为完成
+		if c.localStore != nil {
+			err := c.localStore.SaveSession(evt.SessionID, c.tenantID, c.deviceID, "completed", initialMessage)
+			if err != nil {
+				slog.Warn("[ws] Failed to update session status", "error", err)
+			}
+		}
 
 		if result.ApprovalRequired && len(result.RecommendedActions) > 0 {
 			for _, action := range result.RecommendedActions {
