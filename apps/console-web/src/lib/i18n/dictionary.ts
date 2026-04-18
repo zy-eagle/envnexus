@@ -1345,6 +1345,9 @@ const dictionary = {
       manualPathPlaceholder: "Enter path or click folders below",
       noDeviceSelected: "Please select a device first",
       historyTitle: "Request History",
+      clearHistory: "Clear History",
+      confirmClear: "Clear all completed request history? Pending requests will be kept.",
+      cleared: "History cleared",
     },
     zh: {
       title: "文件浏览",
@@ -1391,6 +1394,9 @@ const dictionary = {
       manualPathPlaceholder: "输入路径或点击下方文件夹",
       noDeviceSelected: "请先选择设备",
       historyTitle: "请求历史",
+      clearHistory: "清空历史",
+      confirmClear: "确定清空所有已完成的请求记录？待审批的请求不会被删除。",
+      cleared: "历史已清空",
     },
   },
 } as const;

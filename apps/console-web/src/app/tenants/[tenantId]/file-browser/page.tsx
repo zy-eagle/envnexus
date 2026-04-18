@@ -69,13 +69,42 @@ function parseResult(resultStr: string): FileResult | null {
   try { return JSON.parse(resultStr); } catch { return null; }
 }
 
+// Detect Windows drive root like "C:" or "D:"
+function isDriveRoot(p: string): boolean {
+  return /^[A-Za-z]:$/.test(p);
+}
+
 function joinPath(base: string, child: string): string {
+  // Clicking a drive entry (e.g. "C:") from the root "/" view
+  if ((base === '/' || base === '') && isDriveRoot(child)) return child + '/';
   if (base === '/' || base === '') return '/' + child;
+  // Inside a Windows drive like "C:/" or "C:/Users"
   return base.replace(/\/+$/, '') + '/' + child;
 }
 
 function splitPath(path: string): string[] {
+  // "C:/Users/foo" → ["C:", "Users", "foo"]
+  const match = path.match(/^([A-Za-z]:)([\\/].*)?$/);
+  if (match) {
+    const rest = (match[2] || '').split(/[\\/]/).filter(Boolean);
+    return [match[1], ...rest];
+  }
   return path.split('/').filter(Boolean);
+}
+
+function parentPath(segs: string[]): string {
+  if (segs.length <= 1) return '/';
+  const parent = segs.slice(0, -1);
+  if (parent.length === 1 && isDriveRoot(parent[0])) return parent[0] + '/';
+  if (isDriveRoot(parent[0])) return parent[0] + '/' + parent.slice(1).join('/');
+  return '/' + parent.join('/');
+}
+
+function segmentsToPath(segs: string[], upTo: number): string {
+  const sub = segs.slice(0, upTo + 1);
+  if (sub.length === 1 && isDriveRoot(sub[0])) return sub[0] + '/';
+  if (isDriveRoot(sub[0])) return sub[0] + '/' + sub.slice(1).join('/');
+  return '/' + sub.join('/');
 }
 
 export default function FileBrowserPage({ params }: { params: { tenantId: string } }) {
@@ -381,9 +410,9 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
             </button>
             {pathSegments.map((seg, i) => (
               <span key={i} className="flex items-center gap-1 flex-shrink-0">
-                <span className="text-gray-400">/</span>
+                <span className="text-gray-400">{i === 0 && isDriveRoot(seg) ? '' : '/'}</span>
                 <button
-                  onClick={() => browsePath('/' + pathSegments.slice(0, i + 1).join('/'))}
+                  onClick={() => browsePath(segmentsToPath(pathSegments, i))}
                   className={`px-1.5 py-0.5 rounded font-medium ${
                     i === pathSegments.length - 1
                       ? 'text-gray-900 bg-gray-100'
@@ -526,10 +555,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
           {/* Parent dir link */}
           {currentPath !== '/' && (
             <button
-              onClick={() => {
-                const parent = '/' + pathSegments.slice(0, -1).join('/');
-                browsePath(parent || '/');
-              }}
+              onClick={() => browsePath(parentPath(pathSegments))}
               className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-indigo-600 hover:bg-indigo-50 border-b border-gray-100 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -617,8 +643,24 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
       {/* Request history (collapsible) */}
       {showHistory && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
             <h3 className="text-sm font-medium text-gray-700">{(t as any).historyTitle}</h3>
+            {requests.length > 0 && (
+              <button
+                onClick={async () => {
+                  if (!confirm((t as any).confirmClear)) return;
+                  try {
+                    await api.delete(`/tenants/${params.tenantId}/file-access-requests`);
+                    fetchRequests();
+                  } catch (error) {
+                    console.error('Failed to clear history:', error);
+                  }
+                }}
+                className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
+              >
+                {(t as any).clearHistory}
+              </button>
+            )}
           </div>
           {requests.length === 0 ? (
             <div className="p-6 text-center text-gray-400 text-sm">{t.noRequests}</div>

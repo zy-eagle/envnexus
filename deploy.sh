@@ -35,18 +35,25 @@ gen_secret() {
 
 detect_host_ip() {
     local ip=""
-    if command -v hostname &>/dev/null && hostname -I &>/dev/null 2>&1; then
+    # Method 1: ip route (Linux — most reliable, gives the outbound source IP)
+    if [ -z "$ip" ] && command -v ip &>/dev/null; then
+        ip=$(ip -4 route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[\d.]+' | head -1 || true)
+    fi
+    # Method 2: hostname -I (Linux fallback)
+    if [ -z "$ip" ] && command -v hostname &>/dev/null && hostname -I &>/dev/null 2>&1; then
         ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     fi
+    # Method 3: WSL/Windows
     if [ -z "$ip" ] && command -v ipconfig.exe &>/dev/null; then
-        # WSL/Windows fallback
         ip=$(ipconfig.exe | grep -i "IPv4" | grep -v "127.0.0.1" | awk -F': ' '{print $2}' | tr -d '\r' | head -n 1 || true)
     fi
+    # Method 4: macOS
     if [ -z "$ip" ] && command -v ipconfig &>/dev/null; then
-        # macOS fallback
         ip=$(ipconfig getifaddr en0 2>/dev/null || true)
     fi
-    if [ -z "$ip" ]; then
+    if [ -z "$ip" ] || [ "$ip" = "127.0.0.1" ]; then
+        log_warn "Could not auto-detect a non-loopback host IP — using 127.0.0.1"
+        log_warn "Remote agents will NOT connect. Edit HOST_IP in deploy/docker/.env manually."
         ip="127.0.0.1"
     fi
     echo "$ip"
@@ -168,9 +175,11 @@ patch_env() {
             log_info "Patched ENX_SESSION_GATEWAY_PUBLIC_WS_URL: localhost -> ${HOST_IP}"
         fi
         if grep -q "^ENX_CORS_ALLOWED_ORIGINS=http://localhost:" "$env_file" 2>/dev/null; then
-            local cors_val
+            local cors_val console_p
             cors_val=$(grep "^ENX_CORS_ALLOWED_ORIGINS=" "$env_file" | sed 's/^ENX_CORS_ALLOWED_ORIGINS=//' | tr -d '\r')
-            local new_cors="http://${HOST_IP}:3000,${cors_val}"
+            console_p=$(grep "^ENX_CONSOLE_PORT=" "$env_file" 2>/dev/null | cut -d= -f2- || echo "3000")
+            [ -z "$console_p" ] && console_p="3000"
+            local new_cors="http://${HOST_IP}:${console_p},${cors_val}"
             if ! echo "$cors_val" | grep -q "${HOST_IP}"; then
                 sed -i "s|^ENX_CORS_ALLOWED_ORIGINS=.*|ENX_CORS_ALLOWED_ORIGINS=${new_cors}|" "$env_file"
                 log_info "Patched ENX_CORS_ALLOWED_ORIGINS: added ${HOST_IP}"
@@ -207,7 +216,7 @@ generate_env() {
 # ============================================================
 
 # ===== Database =====
-ENX_DATABASE_DSN="root:${MYSQL_PASS}@tcp(mysql:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local"
+ENX_DATABASE_DSN=root:${MYSQL_PASS}@tcp(mysql:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local
 MYSQL_ROOT_PASSWORD=${MYSQL_PASS}
 MYSQL_DATABASE=envnexus
 
@@ -450,8 +459,121 @@ build_agent_with_fallback() {
     fi
 }
 
-# ── Smart deploy: detect changes and only rebuild what's needed ──────────────
+# ── Regenerate .env (preserve secrets, re-detect IP) ─────────────────────────
 
+cmd_regenerate_env() {
+    local env_file="${DEPLOY_DIR}/.env"
+
+    local HOST_IP
+    HOST_IP=$(detect_host_ip)
+    log_info "Detected host IP: ${HOST_IP}"
+
+    if [ ! -f "$env_file" ]; then
+        log_info "No existing .env found — generating fresh one..."
+        generate_env
+        return
+    fi
+
+    # Helper: read a key from .env, return default if missing
+    _env_val() {
+        local key="$1" default="${2:-}"
+        local val
+        val=$(grep "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+        if [ -z "$val" ]; then echo "$default"; else echo "$val"; fi
+    }
+
+    # Read existing secrets to preserve them
+    local mysql_pw jwt_secret device_secret session_secret
+    mysql_pw=$(_env_val MYSQL_ROOT_PASSWORD "")
+    jwt_secret=$(_env_val ENX_JWT_SECRET "")
+    device_secret=$(_env_val ENX_DEVICE_TOKEN_SECRET "")
+    session_secret=$(_env_val ENX_SESSION_TOKEN_SECRET "")
+
+    # Generate any missing secrets (e.g. upgrading from an older .env)
+    [ -z "$mysql_pw" ] && mysql_pw=$(gen_secret) && log_warn "MYSQL_ROOT_PASSWORD was missing — generated new one"
+    [ -z "$jwt_secret" ] && jwt_secret=$(gen_secret) && log_warn "ENX_JWT_SECRET was missing — generated new one"
+    [ -z "$device_secret" ] && device_secret=$(gen_secret) && log_warn "ENX_DEVICE_TOKEN_SECRET was missing — generated new one"
+    [ -z "$session_secret" ] && session_secret=$(gen_secret) && log_warn "ENX_SESSION_TOKEN_SECRET was missing — generated new one"
+
+    local minio_user minio_pw minio_bucket
+    minio_user=$(_env_val MINIO_ROOT_USER "minioadmin")
+    minio_pw=$(_env_val MINIO_ROOT_PASSWORD "minioadmin")
+    minio_bucket=$(_env_val ENX_OBJECT_STORAGE_BUCKET "envnexus")
+
+    # Read custom ports (keep user overrides)
+    local pa_port gw_port console_port health_port
+    pa_port=$(_env_val ENX_PLATFORM_API_PORT "8080")
+    gw_port=$(_env_val ENX_SESSION_GATEWAY_PORT "8081")
+    console_port=$(_env_val ENX_CONSOLE_PORT "3000")
+    health_port=$(_env_val ENX_HEALTH_PORT "8082")
+
+    # Back up existing .env
+    cp "$env_file" "${env_file}.bak"
+    log_info "Backed up existing .env to .env.bak"
+
+    # Rewrite .env with new IP but preserved secrets/ports
+    cat > "$env_file" <<EOF
+# ============================================================
+#  EnvNexus — Auto-generated configuration
+#  Generated at: $(date '+%Y-%m-%d %H:%M:%S')
+#  Host IP: ${HOST_IP}  (re-generated by: ./deploy.sh env)
+# ============================================================
+
+# ===== Database =====
+ENX_DATABASE_DSN=root:${mysql_pw}@tcp(mysql:3306)/envnexus?charset=utf8mb4&parseTime=True&loc=Local
+MYSQL_ROOT_PASSWORD=${mysql_pw}
+MYSQL_DATABASE=envnexus
+
+# ===== Redis =====
+ENX_REDIS_ADDR=redis:6379
+ENX_REDIS_PASSWORD=
+
+# ===== Object Storage (MinIO) =====
+ENX_OBJECT_STORAGE_ENDPOINT=minio:9000
+ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=${HOST_IP}:9000
+ENX_OBJECT_STORAGE_BUCKET=${minio_bucket}
+MINIO_ROOT_USER=${minio_user}
+MINIO_ROOT_PASSWORD=${minio_pw}
+
+# ===== Security & Secrets =====
+ENX_JWT_SECRET=${jwt_secret}
+ENX_DEVICE_TOKEN_SECRET=${device_secret}
+ENX_SESSION_TOKEN_SECRET=${session_secret}
+
+# ===== Platform API =====
+ENX_PLATFORM_API_HOST=0.0.0.0
+ENX_PLATFORM_API_PORT=${pa_port}
+ENX_HTTP_PORT=${pa_port}
+ENX_PLATFORM_API_PUBLIC_BASE_URL=http://${HOST_IP}:${pa_port}
+ENX_CORS_ALLOWED_ORIGINS=http://${HOST_IP}:${console_port},http://localhost:${console_port}
+ENX_GATEWAY_URL=http://session-gateway:${gw_port}
+
+# ===== Session Gateway =====
+ENX_SESSION_GATEWAY_HOST=0.0.0.0
+ENX_SESSION_GATEWAY_PORT=${gw_port}
+ENX_SESSION_GATEWAY_PUBLIC_WS_URL=ws://${HOST_IP}:${gw_port}
+
+# ===== Job Runner =====
+ENX_HEALTH_PORT=${health_port}
+ENX_PLATFORM_URL=http://platform-api:${pa_port}
+ENX_WS_URL=ws://session-gateway:${gw_port}/ws/v1/sessions
+
+# ===== Console Web =====
+ENX_CONSOLE_PORT=${console_port}
+ENX_CONSOLE_WEB_API_URL=http://platform-api:${pa_port}
+EOF
+
+    log_info ".env regenerated with host IP: ${HOST_IP}"
+    log_info "  Secrets:     preserved from previous .env"
+    log_info "  Ports:       preserved (API=${pa_port}, WS=${gw_port}, Console=${console_port})"
+    log_info "  MinIO public: ${HOST_IP}:9000"
+    log_info "  Platform API: http://${HOST_IP}:${pa_port}"
+    log_info "  WS Gateway:   ws://${HOST_IP}:${gw_port}"
+    echo ""
+    log_info "Restart services to apply: ./deploy.sh restart"
+}
+
+# ── Smart deploy: detect changes and only rebuild what's needed ──────────────
 
 cmd_pull_latest() {
     if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree &>/dev/null; then
@@ -803,7 +925,8 @@ cmd_restart() {
     source "${DEPLOY_DIR}/.env"
     set +a
 
-    docker compose restart
+    # Use 'up -d' instead of 'restart' so updated .env values take effect
+    docker compose up -d --force-recreate
     if [ $? -eq 0 ]; then
         print_urls
     else
@@ -890,9 +1013,8 @@ case "${1:-}" in
         cd "$DEPLOY_DIR"
         set -a; source "${DEPLOY_DIR}/.env"; set +a
         if FORCE_AGENT_UPLOAD=true build_agent_with_fallback; then
-            local go_ws_hash
-            go_ws_hash=$(compute_go_workspace_hash)
-            save_hash "agent-core" "$(echo "$(compute_hash apps/agent-core)${go_ws_hash}" | sha256sum | awk '{print $1}')"
+            _go_ws_hash=$(compute_go_workspace_hash)
+            save_hash "agent-core" "$(echo "$(compute_hash apps/agent-core)${_go_ws_hash}" | sha256sum | awk '{print $1}')"
             save_hash "agent-desktop" "$(compute_hash apps/agent-desktop)"
             log_info "Agent packages rebuilt and uploaded to MinIO."
         else
@@ -901,6 +1023,11 @@ case "${1:-}" in
         ;;
     agents-shell)
         cmd_build_electron_shell
+        ;;
+    env)
+        echo -e "${GREEN}${BOLD}  EnvNexus — Regenerate .env             ${NC}"
+        echo ""
+        cmd_regenerate_env
         ;;
     *)
         echo -e "${BOLD}EnvNexus — Smart Deployment Manager${NC}"
@@ -914,6 +1041,7 @@ case "${1:-}" in
         echo "  api          Rebuild and redeploy backend services only"
         echo "  agents       Force rebuild and re-upload agent packages (Go + Electron)"
         echo "  agents-shell Build/rebuild the Electron shell image (one-time setup)"
+        echo "  env          Re-detect host IP and regenerate .env (preserves secrets)"
         echo "  stop         Stop all services (data preserved)"
         echo "  restart      Restart all services without rebuild"
         echo "  status       Show running services and build hash status"

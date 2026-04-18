@@ -184,6 +184,9 @@ func main() {
 		if minioClient != nil && minioPublicEndpoint != "" {
 			minioClient.SetPublicEndpoint(minioPublicEndpoint, minioAccessKey, minioSecretKey, false)
 		}
+		if minioClient != nil && minioPublicEndpoint == "" {
+			slog.Warn("ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT is not set — presigned URLs will use the internal MinIO endpoint which may be unreachable by remote agents. Set it to an IP/hostname that agents can access, e.g. 192.168.1.100:9000")
+		}
 	}
 
 	// --- Services ---

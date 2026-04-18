@@ -81,9 +81,14 @@ func (m *MinIOClient) PresignedGetURL(ctx context.Context, objectName string, ex
 }
 
 // PresignedPutURL generates a presigned PUT URL for uploading an object.
-// The internal client is always used (agents talk to internal endpoints).
+// Uses the public client when available so agents running outside Docker
+// can reach MinIO via a routable address (e.g. localhost:9000).
 func (m *MinIOClient) PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (*url.URL, error) {
-	return m.client.PresignedPutObject(ctx, m.bucketName, objectName, expiry)
+	c := m.client
+	if m.publicClient != nil {
+		c = m.publicClient
+	}
+	return c.PresignedPutObject(ctx, m.bucketName, objectName, expiry)
 }
 
 // ObjectExists returns true if the object exists in the bucket.

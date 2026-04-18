@@ -26,6 +26,7 @@ func (h *FileAccessHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/tenants/:tenantId/file-access-requests/:requestId", h.Get)
 	router.POST("/tenants/:tenantId/file-access-requests/:requestId/approve", h.Approve)
 	router.POST("/tenants/:tenantId/file-access-requests/:requestId/deny", h.Deny)
+	router.DELETE("/tenants/:tenantId/file-access-requests", h.ClearHistory)
 	router.GET("/tenants/:tenantId/pending-file-approvals", h.ListPendingApprovals)
 }
 
@@ -118,6 +119,16 @@ func (h *FileAccessHandler) ListPendingApprovals(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": items})
+}
+
+func (h *FileAccessHandler) ClearHistory(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	deleted, err := h.svc.ClearHistory(c.Request.Context(), tenantID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"deleted": deleted})
 }
 
 // HandleFileAccessResult receives file operation results forwarded by session-gateway.

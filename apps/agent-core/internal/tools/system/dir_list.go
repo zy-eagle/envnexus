@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"time"
 
@@ -42,6 +43,11 @@ func (t *ReadDirListTool) Execute(ctx context.Context, params map[string]interfa
 	}
 
 	start := time.Now()
+
+	// On Windows, "/" means "list all drives" since there's no single root.
+	if runtime.GOOS == "windows" && (path == "/" || path == "\\") {
+		return t.listWindowsDrives(start), nil
+	}
 
 	safePath, err := ResolveSafePath(path)
 	if err != nil {
@@ -147,4 +153,43 @@ func (t *ReadDirListTool) Execute(ctx context.Context, params map[string]interfa
 		},
 		DurationMs: elapsed.Milliseconds(),
 	}, nil
+}
+
+// listWindowsDrives enumerates available drive letters (A:-Z:) and returns
+// them as virtual directory entries so the file browser can navigate into any drive.
+func (t *ReadDirListTool) listWindowsDrives(start time.Time) *tools.ToolResult {
+	type entryInfo struct {
+		Name       string `json:"name"`
+		IsDir      bool   `json:"is_dir"`
+		SizeBytes  int64  `json:"size_bytes"`
+		ModifiedAt string `json:"modified_at"`
+		Mode       string `json:"mode"`
+	}
+
+	var drives []entryInfo
+	for letter := 'A'; letter <= 'Z'; letter++ {
+		root := string(letter) + `:\`
+		if _, err := os.Stat(root); err == nil {
+			drives = append(drives, entryInfo{
+				Name:  string(letter) + ":",
+				IsDir: true,
+			})
+		}
+	}
+
+	return &tools.ToolResult{
+		ToolName: t.Name(),
+		Status:   "succeeded",
+		Summary:  fmt.Sprintf("Listed %d drives on Windows", len(drives)),
+		Output: map[string]interface{}{
+			"path":       "/",
+			"entries":    drives,
+			"dir_count":  len(drives),
+			"file_count": 0,
+			"total_size": 0,
+			"truncated":  false,
+			"is_drives":  true,
+		},
+		DurationMs: time.Since(start).Milliseconds(),
+	}
 }

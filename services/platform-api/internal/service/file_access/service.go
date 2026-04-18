@@ -221,6 +221,10 @@ func (s *Service) ListPending(ctx context.Context, tenantID string) ([]*domain.F
 	return s.repo.ListByTenant(ctx, tenantID, string(domain.FileAccessPending))
 }
 
+func (s *Service) ClearHistory(ctx context.Context, tenantID string) (int64, error) {
+	return s.repo.DeleteCompletedByTenant(ctx, tenantID)
+}
+
 func (s *Service) SetResult(ctx context.Context, id, resultJSON string) error {
 	req, err := s.repo.GetByID(ctx, id)
 	if err != nil {

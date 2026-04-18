@@ -12,6 +12,7 @@ type FileAccessRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.FileAccessRequest, error)
 	ListByTenant(ctx context.Context, tenantID string, status string) ([]*domain.FileAccessRequest, error)
 	Update(ctx context.Context, req *domain.FileAccessRequest) error
+	DeleteCompletedByTenant(ctx context.Context, tenantID string) (int64, error)
 }
 
 type MySQLFileAccessRepository struct {
@@ -48,4 +49,14 @@ func (r *MySQLFileAccessRepository) ListByTenant(ctx context.Context, tenantID s
 
 func (r *MySQLFileAccessRepository) Update(ctx context.Context, req *domain.FileAccessRequest) error {
 	return r.db.WithContext(ctx).Save(req).Error
+}
+
+// DeleteCompletedByTenant removes all non-pending requests for a tenant and
+// returns the number of rows deleted. Pending requests are kept to avoid
+// breaking in-flight approval flows.
+func (r *MySQLFileAccessRepository) DeleteCompletedByTenant(ctx context.Context, tenantID string) (int64, error) {
+	tx := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND status != ?", tenantID, domain.FileAccessPending).
+		Delete(&domain.FileAccessRequest{})
+	return tx.RowsAffected, tx.Error
 }
