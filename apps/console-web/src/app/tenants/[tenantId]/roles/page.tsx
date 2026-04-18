@@ -20,7 +20,7 @@ function permLabelKey(perm: string): string {
   return "perm_" + perm.replace(/:/g, "_").replace(/-/g, "_");
 }
 
-const PERM_CATEGORY_ORDER = ["tenants", "users", "roles", "profiles", "devices", "sessions", "approvals", "audit", "packages", "webhooks", "metrics", "licenses", "command", "other"];
+const PERM_CATEGORY_ORDER = ["tenants", "users", "roles", "profiles", "devices", "sessions", "approvals", "audit", "packages", "webhooks", "metrics", "licenses", "command", "file", "other"];
 
 function groupPermissions(perms: string[]): Record<string, string[]> {
   const m: Record<string, string[]> = {};

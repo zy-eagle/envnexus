@@ -36,6 +36,7 @@ const (
 	PermManageLicenses       = "licenses:manage"
 	PermCommandEmergency     = "command:emergency"
 	PermCommandBypassApproval = "command:bypass_approval"
+	PermFileDownload          = "file:download"
 )
 
 // assignablePermissions is the canonical list for role UIs (tenant-scoped roles).
@@ -51,6 +52,7 @@ var assignablePermissions = []string{
 	PermViewMetrics, PermManageLicenses,
 	PermCommandEmergency,
 	PermCommandBypassApproval,
+	PermFileDownload,
 }
 
 // AssignablePermissions returns every permission that may be granted on a tenant role,
@@ -73,6 +75,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermApproveActions, PermViewAudit,
 		PermManagePackages, PermManageWebhooks,
 		PermViewMetrics, PermManageLicenses,
+		PermFileDownload,
 	},
 	RoleTenantAdmin: {
 		PermViewTenants,
@@ -83,6 +86,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermApproveActions, PermViewAudit,
 		PermManagePackages, PermManageWebhooks,
 		PermViewMetrics,
+		PermFileDownload,
 	},
 	RoleSecurityAuditor: {
 		PermViewTenants, PermViewProfiles,
@@ -95,6 +99,7 @@ var DefaultRolePermissions = map[string][]string{
 		PermManageSessions, PermViewSessions,
 		PermApproveActions, PermViewAudit,
 		PermManagePackages,
+		PermFileDownload,
 	},
 	RoleReadOnlyObserver: {
 		PermViewTenants, PermViewProfiles,

@@ -26,6 +26,7 @@ func (h *FileAccessHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/tenants/:tenantId/file-access-requests/:requestId", h.Get)
 	router.POST("/tenants/:tenantId/file-access-requests/:requestId/approve", h.Approve)
 	router.POST("/tenants/:tenantId/file-access-requests/:requestId/deny", h.Deny)
+	router.GET("/tenants/:tenantId/pending-file-approvals", h.ListPendingApprovals)
 }
 
 func (h *FileAccessHandler) RegisterInternalRoutes(router *gin.RouterGroup) {
@@ -87,7 +88,9 @@ func (h *FileAccessHandler) Approve(c *gin.Context) {
 	requestID := c.Param("requestId")
 	userID, _ := c.Get("user_id")
 	uid, _ := userID.(string)
-	far, err := h.svc.Approve(c.Request.Context(), requestID, uid)
+	isPSA, _ := c.Get("is_platform_super_admin")
+	isPlatformSuperAdmin, _ := isPSA.(bool)
+	far, err := h.svc.Approve(c.Request.Context(), requestID, uid, isPlatformSuperAdmin)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
@@ -105,6 +108,16 @@ func (h *FileAccessHandler) Deny(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, far)
+}
+
+func (h *FileAccessHandler) ListPendingApprovals(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	items, err := h.svc.ListPending(c.Request.Context(), tenantID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": items})
 }
 
 // HandleFileAccessResult receives file operation results forwarded by session-gateway.

@@ -43,6 +43,18 @@ interface PendingApprovalsResponse {
   total: number;
 }
 
+interface FileApproval {
+  id: string;
+  tenant_id: string;
+  device_id: string;
+  requested_by: string;
+  path: string;
+  action: string;
+  status: string;
+  expires_at: string;
+  created_at: string;
+}
+
 const POLL_INTERVAL_MS = 15_000;
 
 function relativeTime(dateStr: string, lang: string): string {
@@ -82,7 +94,9 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
   const t = useDict('pendingApprovals', lang);
   const ct = useDict('common', lang);
 
+  const [activeTab, setActiveTab] = useState<'commands' | 'files'>('commands');
   const [tasks, setTasks] = useState<CommandTask[]>([]);
+  const [fileApprovals, setFileApprovals] = useState<FileApproval[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [approveModal, setApproveModal] = useState<CommandTask | null>(null);
@@ -115,11 +129,39 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
     }
   }, [tenantId]);
 
+  const fetchFileApprovals = useCallback(async () => {
+    try {
+      const data = await api.get<{ items: FileApproval[] }>(`/tenants/${tenantId}/pending-file-approvals`);
+      setFileApprovals(Array.isArray(data) ? data : (data as any)?.items || []);
+    } catch {
+      setFileApprovals([]);
+    }
+  }, [tenantId]);
+
   useEffect(() => {
     fetchTasks();
-    const interval = setInterval(fetchTasks, POLL_INTERVAL_MS);
+    fetchFileApprovals();
+    const interval = setInterval(() => { fetchTasks(); fetchFileApprovals(); }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [fetchTasks]);
+  }, [fetchTasks, fetchFileApprovals]);
+
+  const handleFileApprove = async (id: string) => {
+    try {
+      await api.post(`/tenants/${tenantId}/file-access-requests/${id}/approve`);
+      fetchFileApprovals();
+    } catch (error) {
+      console.error('Failed to approve file request:', error);
+    }
+  };
+
+  const handleFileDeny = async (id: string) => {
+    try {
+      await api.post(`/tenants/${tenantId}/file-access-requests/${id}/deny`);
+      fetchFileApprovals();
+    } catch (error) {
+      console.error('Failed to deny file request:', error);
+    }
+  };
 
   const handleApprove = async () => {
     if (!approveModal) return;
@@ -163,14 +205,101 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
           <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
           {!loading && (
             <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {tasks.length}
+              {tasks.length + fileApprovals.length}
             </span>
           )}
         </div>
       </div>
 
-      {/* Task list */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('commands')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'commands'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {(t as any).tabCommands}
+          {tasks.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">{tasks.length}</span>}
+        </button>
+        <button
+          onClick={() => setActiveTab('files')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'files'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {(t as any).tabFileDownloads}
+          {fileApprovals.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700">{fileApprovals.length}</span>}
+        </button>
+      </div>
+
+      {/* File download approvals */}
+      {activeTab === 'files' && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          {fileApprovals.length === 0 ? (
+            <div className="p-12 text-center">
+              <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3 className="mt-3 text-sm font-medium text-gray-900">{t.noApprovals}</h3>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-200">
+              {fileApprovals.map((fa) => (
+                <div key={fa.id} className="p-5 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                          {(t as any).fileDownload}
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">L1</span>
+                      </div>
+                      <code className="block text-sm bg-gray-900 text-green-400 rounded px-3 py-2 font-mono mb-3 overflow-x-auto max-w-2xl">
+                        {fa.path}
+                      </code>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                        <span>
+                          <span className="font-medium text-gray-600">{t.requester}:</span>{' '}
+                          {fa.requested_by}
+                        </span>
+                        <span>
+                          <span className="font-medium text-gray-600">{(t as any).targetDevice}:</span>{' '}
+                          {fa.device_id.slice(0, 12)}...
+                        </span>
+                        <span title={new Date(fa.created_at).toLocaleString()}>
+                          {relativeTime(fa.created_at, lang)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ml-4 flex-shrink-0 flex items-center space-x-2">
+                      <button
+                        onClick={() => handleFileApprove(fa.id)}
+                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+                      >
+                        {t.approve}
+                      </button>
+                      <button
+                        onClick={() => handleFileDeny(fa.id)}
+                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                      >
+                        {t.deny}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Command task list */}
+      {activeTab === 'commands' && <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-blue-600 mb-4"></div>
@@ -262,7 +391,7 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Approve Modal */}
       {approveModal && (

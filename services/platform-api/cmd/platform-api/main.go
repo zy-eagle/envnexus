@@ -224,7 +224,7 @@ func main() {
 	commandService := command_svc.NewService(cmdTaskRepo, cmdExecRepo, deviceRepo, approvalPolicyService, auditRepo, rbacService, gatewayClient, userRepo)
 	notificationRouter := notification.NewRouter(notifChannelRepo, imProviderRepo)
 	_ = notificationRouter
-	fileAccessService := file_access_svc.NewService(fileAccessRepo, auditRepo, gatewayClient, minioClient)
+	fileAccessService := file_access_svc.NewService(fileAccessRepo, auditRepo, gatewayClient, minioClient, approvalPolRepo, rbacService)
 	deviceGroupService := device_group_svc.NewService(deviceGroupRepo)
 	ruleService := governance.NewRuleService(govRuleRepo, toolPermRepo)
 	healthService := health.NewService(deviceRepo, govRepo)

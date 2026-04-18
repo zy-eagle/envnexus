@@ -102,6 +102,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
   const [previewContent, setPreviewContent] = useState<{ content: string; lines: number; size: number } | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [previewAction, setPreviewAction] = useState<string | null>(null);
+  const [pendingDownloadId, setPendingDownloadId] = useState<string | null>(null);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -200,6 +201,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
   // Poll for active request result
   useEffect(() => {
     if (!activeBrowseId) return;
+    let pendingDetected = false;
     const poll = setInterval(async () => {
       try {
         const updated = await api.get<FileAccessRequest>(`/tenants/${params.tenantId}/file-access-requests/${activeBrowseId}`);
@@ -228,17 +230,25 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
               setDownloadUrl(result.download_url);
             }
           }
+          setPendingDownloadId(null);
           setActiveBrowseId(null);
           setLoading(false);
           fetchRequests();
           clearInterval(poll);
+        } else if (req.status === 'pending' && req.action === 'download' && !pendingDetected) {
+          pendingDetected = true;
+          setPendingDownloadId(req.id);
+          setLoading(false);
+          fetchRequests();
         } else if (req.status === 'denied') {
           setBrowseError('Request denied');
+          setPendingDownloadId(null);
           setActiveBrowseId(null);
           setLoading(false);
           clearInterval(poll);
         } else if (req.status === 'expired') {
           setBrowseError('Request expired');
+          setPendingDownloadId(null);
           setActiveBrowseId(null);
           setLoading(false);
           clearInterval(poll);
@@ -403,8 +413,48 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-200 border-t-indigo-600 mb-3" />
           <p className="text-sm text-gray-500">
-            {activeBrowseId ? (t as any).awaitingApproval : ct.loading}
+            {activeBrowseId ? (t as any).awaitingResult : ct.loading}
           </p>
+        </div>
+      )}
+
+      {/* Pending download approval */}
+      {pendingDownloadId && !loading && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="animate-pulse inline-block w-2.5 h-2.5 bg-amber-400 rounded-full" />
+            <p className="text-sm text-amber-800 font-medium">{(t as any).awaitingApproval}</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  await api.post(`/tenants/${params.tenantId}/file-access-requests/${pendingDownloadId}/approve`);
+                  fetchRequests();
+                } catch (error) {
+                  console.error('Failed to approve:', error);
+                }
+              }}
+              className="text-green-700 bg-green-100 hover:bg-green-200 text-xs font-medium px-3 py-1.5 rounded-md transition-colors"
+            >
+              {t.approve}
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.post(`/tenants/${params.tenantId}/file-access-requests/${pendingDownloadId}/deny`);
+                  setPendingDownloadId(null);
+                  setActiveBrowseId(null);
+                  fetchRequests();
+                } catch (error) {
+                  console.error('Failed to deny:', error);
+                }
+              }}
+              className="text-red-700 bg-red-100 hover:bg-red-200 text-xs font-medium px-3 py-1.5 rounded-md transition-colors"
+            >
+              {t.deny}
+            </button>
+          </div>
         </div>
       )}
 

@@ -13,15 +13,25 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
 )
 
+type ApprovalPolicyFinder interface {
+	FindByTenantAndRisk(ctx context.Context, tenantID, riskLevel string) (*domain.ApprovalPolicy, error)
+}
+
+type RBACChecker interface {
+	UserHasRoleInTenant(ctx context.Context, tenantID, userID, roleID string) (bool, error)
+}
+
 type Service struct {
 	repo          repository.FileAccessRepository
 	auditRepo     repository.AuditRepository
 	gatewayClient *infrastructure.GatewayClient
 	minioClient   *infrastructure.MinIOClient
+	policyRepo    ApprovalPolicyFinder
+	rbacChecker   RBACChecker
 }
 
-func NewService(repo repository.FileAccessRepository, auditRepo repository.AuditRepository, gatewayClient *infrastructure.GatewayClient, minioClient *infrastructure.MinIOClient) *Service {
-	return &Service{repo: repo, auditRepo: auditRepo, gatewayClient: gatewayClient, minioClient: minioClient}
+func NewService(repo repository.FileAccessRepository, auditRepo repository.AuditRepository, gatewayClient *infrastructure.GatewayClient, minioClient *infrastructure.MinIOClient, policyRepo ApprovalPolicyFinder, rbacChecker RBACChecker) *Service {
+	return &Service{repo: repo, auditRepo: auditRepo, gatewayClient: gatewayClient, minioClient: minioClient, policyRepo: policyRepo, rbacChecker: rbacChecker}
 }
 
 func (s *Service) CreateRequest(ctx context.Context, tenantID, deviceID, requestedBy, path string, action domain.FileAccessAction, note string) (*domain.FileAccessRequest, error) {
@@ -36,13 +46,49 @@ func (s *Service) CreateRequest(ctx context.Context, tenantID, deviceID, request
 		Note:        note,
 		ExpiresAt:   time.Now().Add(24 * time.Hour),
 	}
+
+	// Auto-approve browse and preview: low-risk read-only operations
+	if action == domain.FileAccessBrowse || action == domain.FileAccessPreview {
+		now := time.Now()
+		req.Status = domain.FileAccessApproved
+		req.ApprovedBy = &requestedBy
+		req.ResolvedAt = &now
+	}
+
+	// Download requires approval — look up L1 policy
+	if action == domain.FileAccessDownload && s.policyRepo != nil {
+		policy, _ := s.policyRepo.FindByTenantAndRisk(ctx, tenantID, "L1")
+		expiresMinutes := 30
+		if policy != nil {
+			req.PolicySnapshotID = &policy.ID
+			if policy.ExpiresMinutes > 0 {
+				expiresMinutes = policy.ExpiresMinutes
+			}
+			if policy.AutoApprove {
+				now := time.Now()
+				req.Status = domain.FileAccessApproved
+				req.ApprovedBy = &requestedBy
+				req.ResolvedAt = &now
+			} else {
+				req.ApproverUserID = policy.ApproverUserID
+				req.ApproverRoleID = policy.ApproverRoleID
+			}
+		}
+		req.ExpiresAt = time.Now().Add(time.Duration(expiresMinutes) * time.Minute)
+	}
+
 	if err := s.repo.Create(ctx, req); err != nil {
 		return nil, err
 	}
+
+	if req.Status == domain.FileAccessApproved {
+		go s.dispatchToDevice(context.Background(), req)
+	}
+
 	return req, nil
 }
 
-func (s *Service) Approve(ctx context.Context, id, approverID string) (*domain.FileAccessRequest, error) {
+func (s *Service) Approve(ctx context.Context, id, approverID string, isPlatformSuperAdmin bool) (*domain.FileAccessRequest, error) {
 	req, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -55,6 +101,13 @@ func (s *Service) Approve(ctx context.Context, id, approverID string) (*domain.F
 		_ = s.repo.Update(ctx, req)
 		return nil, domain.NewAppError("expired", "file access request has expired", 409)
 	}
+
+	if !isPlatformSuperAdmin {
+		if err := s.canApprove(ctx, req, approverID); err != nil {
+			return nil, err
+		}
+	}
+
 	now := time.Now()
 	req.Status = domain.FileAccessApproved
 	req.ApprovedBy = &approverID
@@ -66,6 +119,23 @@ func (s *Service) Approve(ctx context.Context, id, approverID string) (*domain.F
 	go s.dispatchToDevice(context.Background(), req)
 
 	return req, nil
+}
+
+func (s *Service) canApprove(ctx context.Context, req *domain.FileAccessRequest, approverID string) error {
+	if req.ApproverUserID != nil && *req.ApproverUserID == approverID {
+		return nil
+	}
+	if req.ApproverRoleID != nil && *req.ApproverRoleID != "" && s.rbacChecker != nil {
+		ok, err := s.rbacChecker.UserHasRoleInTenant(ctx, req.TenantID, approverID, *req.ApproverRoleID)
+		if err == nil && ok {
+			return nil
+		}
+	}
+	// If no specific approver is assigned, anyone with approve permission can approve
+	if req.ApproverUserID == nil && req.ApproverRoleID == nil {
+		return nil
+	}
+	return domain.ErrInsufficientPermission
 }
 
 func (s *Service) dispatchToDevice(ctx context.Context, req *domain.FileAccessRequest) {
@@ -145,6 +215,10 @@ func (s *Service) GetByID(ctx context.Context, id string) (*domain.FileAccessReq
 
 func (s *Service) ListByTenant(ctx context.Context, tenantID, status string) ([]*domain.FileAccessRequest, error) {
 	return s.repo.ListByTenant(ctx, tenantID, status)
+}
+
+func (s *Service) ListPending(ctx context.Context, tenantID string) ([]*domain.FileAccessRequest, error) {
+	return s.repo.ListByTenant(ctx, tenantID, string(domain.FileAccessPending))
 }
 
 func (s *Service) SetResult(ctx context.Context, id, resultJSON string) error {
