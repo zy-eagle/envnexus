@@ -11,6 +11,11 @@ type memoryFileAccessRepo struct {
 	items map[string]*domain.FileAccessRequest
 }
 
+// DeleteCompletedByTenant implements [repository.FileAccessRepository].
+func (r *memoryFileAccessRepo) DeleteCompletedByTenant(ctx context.Context, tenantID string) (int64, error) {
+	panic("unimplemented")
+}
+
 func newMemoryFileAccessRepo() *memoryFileAccessRepo {
 	return &memoryFileAccessRepo{items: make(map[string]*domain.FileAccessRequest)}
 }
@@ -44,14 +49,14 @@ func (r *memoryFileAccessRepo) Update(_ context.Context, req *domain.FileAccessR
 type noopAuditRepo struct{}
 
 func (r *noopAuditRepo) Create(_ context.Context, _ *domain.AuditEvent) error        { return nil }
-func (r *noopAuditRepo) CreateBatch(_ context.Context, _ []*domain.AuditEvent) error  { return nil }
+func (r *noopAuditRepo) CreateBatch(_ context.Context, _ []*domain.AuditEvent) error { return nil }
 func (r *noopAuditRepo) ListByTenant(_ context.Context, _ string, _ interface{}) ([]*domain.AuditEvent, error) {
 	return nil, nil
 }
 
 func TestCreateAndApprove(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil, nil, nil)
+	svc := NewService(repo, nil, nil, nil, nil, nil)
 	ctx := context.Background()
 
 	req, err := svc.CreateRequest(ctx, "t1", "d1", "u1", "/var/log/app.log", domain.FileAccessBrowse, "need to check logs")
@@ -62,7 +67,7 @@ func TestCreateAndApprove(t *testing.T) {
 		t.Errorf("expected pending, got %s", req.Status)
 	}
 
-	approved, err := svc.Approve(ctx, req.ID, "u2")
+	approved, err := svc.Approve(ctx, req.ID, "u2", true)
 	if err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
@@ -73,7 +78,7 @@ func TestCreateAndApprove(t *testing.T) {
 
 func TestCreateAndDeny(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil, nil, nil)
+	svc := NewService(repo, nil, nil, nil, nil, nil)
 	ctx := context.Background()
 
 	req, err := svc.CreateRequest(ctx, "t1", "d1", "u1", "/etc/config", domain.FileAccessDownload, "")
@@ -92,13 +97,13 @@ func TestCreateAndDeny(t *testing.T) {
 
 func TestDoubleApprove(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil, nil, nil)
+	svc := NewService(repo, nil, nil, nil, nil, nil)
 	ctx := context.Background()
 
 	req, _ := svc.CreateRequest(ctx, "t1", "d1", "u1", "/tmp/file", domain.FileAccessPreview, "")
-	_, _ = svc.Approve(ctx, req.ID, "u2")
+	_, _ = svc.Approve(ctx, req.ID, "u2", true)
 
-	_, err := svc.Approve(ctx, req.ID, "u3")
+	_, err := svc.Approve(ctx, req.ID, "u3", true)
 	if err == nil {
 		t.Error("expected error on double approve")
 	}
@@ -106,7 +111,7 @@ func TestDoubleApprove(t *testing.T) {
 
 func TestListByTenant(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil, nil, nil)
+	svc := NewService(repo, nil, nil, nil, nil, nil)
 	ctx := context.Background()
 
 	svc.CreateRequest(ctx, "t1", "d1", "u1", "/a", domain.FileAccessBrowse, "")

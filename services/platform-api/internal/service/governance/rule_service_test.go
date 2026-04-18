@@ -47,6 +47,16 @@ type memPermRepo struct {
 	perms map[string]*domain.ToolPermission
 }
 
+// GetByID implements [repository.ToolPermissionRepository].
+func (r *memPermRepo) GetByID(ctx context.Context, id string) (*domain.ToolPermission, error) {
+	panic("unimplemented")
+}
+
+// Update implements [repository.ToolPermissionRepository].
+func (r *memPermRepo) Update(ctx context.Context, tp *domain.ToolPermission) error {
+	panic("unimplemented")
+}
+
 func newMemPermRepo() *memPermRepo {
 	return &memPermRepo{perms: make(map[string]*domain.ToolPermission)}
 }
