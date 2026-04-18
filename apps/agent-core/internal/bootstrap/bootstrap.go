@@ -44,6 +44,7 @@ type Bootstrapper struct {
 	localStore      *store.Store
 	runtime         *agentruntime.Runtime
 	updater         *updater.Updater
+	platformSync    *watchlist.PlatformSync
 	version         string
 }
 
@@ -296,6 +297,13 @@ func (b *Bootstrapper) Run(ctx context.Context) error {
 			wlManager.RegisterBuiltinRules(ctx, registry)
 			governanceEngine.SetWatchlistManager(wlManager)
 			slog.Info("[boot] Watchlist manager initialized")
+
+			if deviceToken != "" && platformReachable {
+				platformSync := watchlist.NewPlatformSync(wlManager, cfg.PlatformURL, deviceToken, 5*time.Minute)
+				platformSync.Start(ctx)
+				b.platformSync = platformSync
+				slog.Info("[boot] Watchlist platform sync started")
+			}
 		}
 	}
 

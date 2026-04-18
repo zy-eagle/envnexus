@@ -6,16 +6,28 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/repository"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/command"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_group"
 )
 
 type DeviceGroupHandler struct {
-	svc *device_group.Service
+	svc          *device_group.Service
+	batchSvc     *command.BatchService
+	taskRepo     repository.CommandTaskRepository
 }
 
 func NewDeviceGroupHandler(svc *device_group.Service) *DeviceGroupHandler {
 	return &DeviceGroupHandler{svc: svc}
+}
+
+// SetBatchExecutor wires the optional batch-dispatch executor and the command
+// task repository used to load the per-batch command template.
+func (h *DeviceGroupHandler) SetBatchExecutor(batchSvc *command.BatchService, taskRepo repository.CommandTaskRepository) {
+	h.batchSvc = batchSvc
+	h.taskRepo = taskRepo
 }
 
 func (h *DeviceGroupHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -31,6 +43,7 @@ func (h *DeviceGroupHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.POST("/tenants/:tenantId/batch-tasks", h.CreateBatchTask)
 	router.GET("/tenants/:tenantId/batch-tasks", h.ListBatchTasks)
 	router.GET("/tenants/:tenantId/batch-tasks/:taskId", h.GetBatchTask)
+	router.POST("/tenants/:tenantId/batch-tasks/:taskId/cancel", h.CancelBatchTask)
 }
 
 type createGroupReq struct {
@@ -169,7 +182,42 @@ func (h *DeviceGroupHandler) CreateBatchTask(c *gin.Context) {
 		mw.RespondError(c, err)
 		return
 	}
+
+	if h.batchSvc != nil && h.taskRepo != nil {
+		tmpl, terr := h.taskRepo.GetByID(c.Request.Context(), req.CommandTaskID)
+		if terr == nil && tmpl != nil && tmpl.TenantID == tenantID {
+			cmdReq := dto.CreateCommandTaskRequest{
+				Title:          tmpl.Title,
+				CommandType:    tmpl.CommandType,
+				CommandPayload: tmpl.CommandPayload,
+				RiskLevel:      tmpl.RiskLevel,
+				Emergency:      tmpl.Emergency,
+				BypassReason:   tmpl.BypassReason,
+				TargetEnv:      tmpl.TargetEnv,
+				ChangeTicket:   tmpl.ChangeTicket,
+				BusinessApp:    tmpl.BusinessApp,
+				Note:           tmpl.Note,
+			}
+			_ = h.batchSvc.Dispatch(c.Request.Context(), command.BatchDispatchOptions{
+				TenantID:        tenantID,
+				UserID:          uid,
+				BatchTaskID:     bt.ID,
+				GroupID:         req.DeviceGroupID,
+				BatchSize:       req.BatchSize,
+				CommandTemplate: cmdReq,
+			})
+		}
+	}
+
 	mw.RespondSuccess(c, http.StatusCreated, bt)
+}
+
+func (h *DeviceGroupHandler) CancelBatchTask(c *gin.Context) {
+	taskID := c.Param("taskId")
+	if h.batchSvc != nil {
+		h.batchSvc.Cancel(taskID)
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"cancelled": true})
 }
 
 func (h *DeviceGroupHandler) ListBatchTasks(c *gin.Context) {

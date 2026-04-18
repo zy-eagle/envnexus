@@ -189,6 +189,49 @@ func (r *Router) buildProviderOrder(primary string, fallbacks []string, provider
 	return order
 }
 
+// CompleteMultimodal picks a vision-capable provider (primary first, then fallbacks)
+// and dispatches the multimodal request. Returns an error if no vision provider is
+// available.
+func (r *Router) CompleteMultimodal(ctx context.Context, req *MultimodalRequest) (*CompletionResponse, error) {
+	r.mu.RLock()
+	primary := r.primary
+	fallbacks := r.fallbacks
+	providers := r.providers
+	r.mu.RUnlock()
+
+	order := r.buildProviderOrder(primary, fallbacks, providers)
+	if len(order) == 0 {
+		return nil, fmt.Errorf("no providers configured")
+	}
+
+	var lastErr error
+	for _, p := range order {
+		vp, ok := p.(VisionProvider)
+		if !ok || !vp.SupportsVision() {
+			continue
+		}
+		if !p.IsAvailable() {
+			continue
+		}
+		timeoutCtx, cancel := context.WithTimeout(ctx, r.timeout)
+		start := time.Now()
+		resp, err := vp.CompleteMultimodal(timeoutCtx, req)
+		cancel()
+		if err != nil {
+			lastErr = fmt.Errorf("vision provider %s: %w", p.Name(), err)
+			slog.Warn("[llm/router] Vision provider failed", "provider", p.Name(), "error", err)
+			continue
+		}
+		resp.DurationMs = time.Since(start).Milliseconds()
+		resp.Provider = p.Name()
+		return resp, nil
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("all vision providers failed, last error: %w", lastErr)
+	}
+	return nil, fmt.Errorf("no vision-capable provider available")
+}
+
 func (r *Router) ListProviders() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

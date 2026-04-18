@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -315,8 +316,38 @@ type ChatRequest struct {
 }
 
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+// extractTextAndParts inspects raw content. Returns (text, parts, hasImages).
+// - If raw is a string, returns (text, nil, false).
+// - If raw is an array of ContentPart, returns (concatenated text, parts, hasImages).
+func extractTextAndParts(raw json.RawMessage) (string, []router.ContentPart, bool) {
+	if len(raw) == 0 {
+		return "", nil, false
+	}
+	var asStr string
+	if err := json.Unmarshal(raw, &asStr); err == nil {
+		return asStr, nil, false
+	}
+	var parts []router.ContentPart
+	if err := json.Unmarshal(raw, &parts); err == nil {
+		var textBuf strings.Builder
+		hasImg := false
+		for _, p := range parts {
+			if p.Type == "text" {
+				if textBuf.Len() > 0 {
+					textBuf.WriteString("\n")
+				}
+				textBuf.WriteString(p.Text)
+			} else if p.Type == "image_url" {
+				hasImg = true
+			}
+		}
+		return textBuf.String(), parts, hasImg
+	}
+	return "", nil, false
 }
 
 func (s *LocalServer) handleChat(c *gin.Context) {
@@ -349,8 +380,22 @@ func (s *LocalServer) handleChat(c *gin.Context) {
 	}
 
 	messages := make([]router.Message, len(req.Messages))
+	hasAnyImage := false
+	mmMessages := make([]router.MultimodalMessage, len(req.Messages))
 	for i, m := range req.Messages {
-		messages[i] = router.Message{Role: m.Role, Content: m.Content}
+		text, parts, hasImg := extractTextAndParts(m.Content)
+		messages[i] = router.Message{Role: m.Role, Content: text}
+		if parts != nil {
+			mmMessages[i] = router.MultimodalMessage{Role: m.Role, ContentParts: parts}
+		} else {
+			mmMessages[i] = router.MultimodalMessage{
+				Role:         m.Role,
+				ContentParts: []router.ContentPart{router.NewTextPart(text)},
+			}
+		}
+		if hasImg {
+			hasAnyImage = true
+		}
 	}
 
 	chatCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -366,6 +411,22 @@ func (s *LocalServer) handleChat(c *gin.Context) {
 	maxIter := agent.DefaultMaxIterations
 	if req.MaxIterations > 0 {
 		maxIter = req.MaxIterations
+	}
+
+	if hasAnyImage {
+		mmReq := &router.MultimodalRequest{Messages: mmMessages}
+		mmResp, err := s.llmRouter.CompleteMultimodal(chatCtx, mmReq)
+		if err != nil {
+			if chatCtx.Err() == context.Canceled {
+				writeSSE("cancelled", gin.H{"message": "Chat cancelled by user"})
+				return
+			}
+			writeSSE("error", gin.H{"error": err.Error()})
+			return
+		}
+		writeSSE("message", gin.H{"content": mmResp.Content})
+		writeSSE("done", gin.H{"content": mmResp.Content})
+		return
 	}
 
 	loop := agent.NewLoop(

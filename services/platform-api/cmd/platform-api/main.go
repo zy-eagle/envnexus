@@ -277,6 +277,8 @@ func main() {
 	imProviderHandler := httphandler.NewIMProviderHandler(imProviderRepo, notifChannelRepo, cryptoService)
 	fileAccessHandler := httphandler.NewFileAccessHandler(fileAccessService)
 	deviceGroupHandler := httphandler.NewDeviceGroupHandler(deviceGroupService)
+	batchService := command_svc.NewBatchService(commandService, deviceGroupRepo, cmdExecRepo, cmdTaskRepo)
+	deviceGroupHandler.SetBatchExecutor(batchService, cmdTaskRepo)
 	healthHandler := httphandler.NewHealthHandler(healthService)
 	govRuleHandler := httphandler.NewGovernanceRuleHandler(ruleService)
 	var metricsHandler *httphandler.MetricsHandler

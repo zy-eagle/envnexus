@@ -1361,7 +1361,7 @@ function registerIPC(): void {
   let activeChatSessionId: string | null = null;
   let chatCancelling = false;
 
-  ipcMain.handle('send-chat', (_e, messages: Array<{ role: string; content: string }>) => {
+  ipcMain.handle('send-chat', (_e, messages: Array<{ role: string; content: unknown }>) => {
     chatCancelling = false;
     return new Promise((resolve) => {
       let resolved = false;

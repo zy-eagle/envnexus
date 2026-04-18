@@ -8,6 +8,15 @@ import { api, APIError } from '@/lib/api/client';
 interface PolicyFields {
   default_mode: string;
   allow_write_tools: boolean;
+  tool_whitelist: string[];
+  tool_blacklist: string[];
+  allowed_paths: string[];
+  denied_paths: string[];
+}
+
+function parseList(val: unknown): string[] {
+  if (Array.isArray(val)) return val.filter((v) => typeof v === 'string' && v.trim().length > 0);
+  return [];
 }
 
 function parsePolicyJSON(json: string): PolicyFields {
@@ -16,9 +25,20 @@ function parsePolicyJSON(json: string): PolicyFields {
     return {
       default_mode: obj.default_mode || 'read_only',
       allow_write_tools: obj.allow_write_tools !== false,
+      tool_whitelist: parseList(obj.tool_whitelist),
+      tool_blacklist: parseList(obj.tool_blacklist),
+      allowed_paths: parseList(obj.allowed_paths),
+      denied_paths: parseList(obj.denied_paths),
     };
   } catch {
-    return { default_mode: 'read_only', allow_write_tools: true };
+    return {
+      default_mode: 'read_only',
+      allow_write_tools: true,
+      tool_whitelist: [],
+      tool_blacklist: [],
+      allowed_paths: [],
+      denied_paths: [],
+    };
   }
 }
 
@@ -26,7 +46,75 @@ function toPolicyJSON(fields: PolicyFields): string {
   return JSON.stringify({
     default_mode: fields.default_mode,
     allow_write_tools: fields.allow_write_tools,
+    tool_whitelist: fields.tool_whitelist,
+    tool_blacklist: fields.tool_blacklist,
+    allowed_paths: fields.allowed_paths,
+    denied_paths: fields.denied_paths,
   });
+}
+
+function ListEditor({
+  label,
+  description,
+  placeholder,
+  items,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  placeholder: string;
+  items: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const v = draft.trim();
+    if (!v) return;
+    if (items.includes(v)) { setDraft(''); return; }
+    onChange([...items, v]);
+    setDraft('');
+  };
+  const remove = (idx: number) => {
+    onChange(items.filter((_, i) => i !== idx));
+  };
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700">{label}</label>
+      <p className="text-xs text-gray-500 mt-0.5 mb-2">{description}</p>
+      <div className="flex gap-2 mb-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          placeholder={placeholder}
+          className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:ring-blue-500 focus:border-blue-500"
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="px-3 py-1.5 bg-gray-800 text-white rounded-md text-sm hover:bg-gray-900"
+        >+</button>
+      </div>
+      {items.length === 0 ? (
+        <div className="text-xs text-gray-400 italic">(empty)</div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((it, idx) => (
+            <span key={`${it}-${idx}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-xs text-gray-800 border border-gray-200">
+              <code className="font-mono">{it}</code>
+              <button
+                type="button"
+                onClick={() => remove(idx)}
+                className="text-gray-500 hover:text-red-600 ml-1"
+                aria-label={`remove ${it}`}
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PolicyProfilesPage({ params }: { params: { tenantId: string } }) {
@@ -44,6 +132,10 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
   const [policyFields, setPolicyFields] = useState<PolicyFields>({
     default_mode: 'read_only',
     allow_write_tools: true,
+    tool_whitelist: [],
+    tool_blacklist: [],
+    allowed_paths: [],
+    denied_paths: [],
   });
 
   const fetchProfiles = async () => {
@@ -66,7 +158,14 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
     setFormError(null);
     setFormName('');
     setFormStatus('active');
-    setPolicyFields({ default_mode: 'read_only', allow_write_tools: true });
+    setPolicyFields({
+      default_mode: 'read_only',
+      allow_write_tools: true,
+      tool_whitelist: [],
+      tool_blacklist: [],
+      allowed_paths: [],
+      denied_paths: [],
+    });
     setIsModalOpen(true);
   };
 
@@ -133,7 +232,7 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-semibold mb-5">{editingId ? t.editTitle : t.createTitle}</h2>
             <form onSubmit={handleSave} className="space-y-5">
               {formError && (
@@ -221,6 +320,48 @@ export default function PolicyProfilesPage({ params }: { params: { tenantId: str
                       }`}
                     />
                   </button>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">Tool Permissions</h3>
+                <p className="text-xs text-gray-500 mb-3">Control which tools this policy allows. Whitelist overrides default mode; blacklist always denies. Tool names are matched exactly (e.g. <code className="font-mono">file_download</code>, <code className="font-mono">shell_exec</code>).</p>
+                <div className="space-y-4">
+                  <ListEditor
+                    label="Tool Whitelist"
+                    description="Only tools in this list are allowed (if non-empty, takes precedence over default mode)."
+                    placeholder="e.g. ping, dir_list"
+                    items={policyFields.tool_whitelist}
+                    onChange={(next) => setPolicyFields({ ...policyFields, tool_whitelist: next })}
+                  />
+                  <ListEditor
+                    label="Tool Blacklist"
+                    description="Tools in this list are always denied, even if allowed elsewhere."
+                    placeholder="e.g. shell_exec, file_download"
+                    items={policyFields.tool_blacklist}
+                    onChange={(next) => setPolicyFields({ ...policyFields, tool_blacklist: next })}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">File Path Access Control</h3>
+                <p className="text-xs text-gray-500 mb-3">Restrict which paths file-related tools (<code className="font-mono">file_download</code>, <code className="font-mono">file_tail</code>, <code className="font-mono">dir_list</code>) can access. Patterns are glob-like prefixes (e.g. <code className="font-mono">/var/log/</code>, <code className="font-mono">C:\\Users\\public\\</code>).</p>
+                <div className="space-y-4">
+                  <ListEditor
+                    label="Allowed Path Prefixes"
+                    description="If non-empty, file tools may only access paths starting with one of these prefixes."
+                    placeholder="e.g. /var/log/, /tmp/"
+                    items={policyFields.allowed_paths}
+                    onChange={(next) => setPolicyFields({ ...policyFields, allowed_paths: next })}
+                  />
+                  <ListEditor
+                    label="Denied Path Prefixes"
+                    description="File tools will always refuse paths starting with these prefixes (e.g. system secrets)."
+                    placeholder="e.g. /etc/shadow, /root/.ssh/"
+                    items={policyFields.denied_paths}
+                    onChange={(next) => setPolicyFields({ ...policyFields, denied_paths: next })}
+                  />
                 </div>
               </div>
 
