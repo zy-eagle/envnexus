@@ -33,13 +33,13 @@ context_requires:
 
 1. **Decompose** into atomic tasks (single clear deliverable).
 2. **Frontend Impact Analysis** (if `fullstack` or `frontend-only`):
-   - Auto-create frontend sync tasks for backend API/schema changes.
-   - Tag with `[frontend]` and link via `depends` to the backend task.
-   - If purely backend, explicitly note `前端影响: none`.
+ - Auto-create frontend sync tasks for backend API/schema changes.
+ - Tag with `[frontend]` and link via `depends` to the backend task.
+ - If purely backend, explicitly note `前端影响: none`.
 3. **Dependency Analysis**: Identify inputs, outputs, and `depends` (prerequisite task IDs).
 4. **Parallel / Serial Grouping**:
-   - Tasks with NO dependency edges belong to the same parallel group.
-   - Groups execute in topological order.
+ - Tasks with NO dependency edges belong to the same parallel group.
+ - Groups execute in topological order.
 5. Output structured plan to `docs/omnidev-state/[branch]/02-plan.md`.
 6. Checkpoint → WAIT.
 
