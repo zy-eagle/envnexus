@@ -8,8 +8,8 @@
   - `apps/`: Frontend and client applications (Next.js, Electron).
   - `services/`: Backend microservices in Go.
   - `libs/`: Shared libraries.
-- **Backend (Go)**:
-  - Framework: Gin (`github.com/gin-gonic/gin`)
+- **Backend (Go)**: 
+  - Framework: Gin (`github.com/gin-gonic/gin` v1.12.0)
   - Database ORM: GORM (`gorm.io/gorm`)
   - Architecture Pattern: **Domain-Driven Design (DDD) / Clean Architecture**.
     - `domain/`: Entities, value objects, repository interfaces.
@@ -18,11 +18,15 @@
     - `handler/`: HTTP layer (Gin handlers).
   - Dependency Injection: Manual DI in `cmd/*/main.go`.
   - Logging: Standard library `log/slog` with JSON handler.
-- **Frontend (Web)**:
-  - Framework: Next.js (React 18)
-  - Styling: Tailwind CSS
+- **Frontend (Web)**: 
+  - Framework: Next.js 14.2.3 (React 18)
+  - Styling: Tailwind CSS 3.4.19
+  - Language: TypeScript 5
 - **Desktop Client**:
   - Framework: Electron + TypeScript
+- **Database**: MySQL 8.0
+- **Cache**: Redis 7
+- **Object Storage**: MinIO
 
 ## 3. Coding Conventions (Strict Constraints)
 - **Go Backend**:
@@ -37,15 +41,18 @@
 ## Stack & Layers
 
 - `stack_type`: `fullstack`
-- `frontend_framework`: `next@14` (React 18)
+- `frontend_framework`: `next@14.2.3` (React 18)
 - `frontend_root`: `apps/console-web/`
 - `frontend_patterns`: API client at `src/lib/api.ts`, i18n dictionary at `src/lib/i18n/`, App Router (`src/app/`), components at `src/components/`, PascalCase components
-- `backend_framework`: `gin@1.10` (Go 1.22+)
+- `backend_framework`: `gin@1.12.0` (Go 1.25.0)
 - `backend_root`: `services/platform-api/`
 - `desktop_framework`: `electron@30` (TypeScript)
 - `desktop_root`: `apps/agent-desktop/`
 - `agent_framework`: Go (standalone binary)
 - `agent_root`: `apps/agent-core/`
+- `database`: `mysql@8.0`
+- `cache`: `redis@7`
+- `object_storage`: `minio@latest`
 
 ## 4. AI Pitfall Guide (Self-Learned Rules)
 

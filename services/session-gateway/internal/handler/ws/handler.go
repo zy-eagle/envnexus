@@ -325,6 +325,10 @@ func (m *SessionManager) readPump(dc *DeviceConnection) {
 		m.mu.Lock()
 		if current, ok := m.connections[dc.DeviceID]; ok && current == dc {
 			delete(m.connections, dc.DeviceID)
+			// Update device status to offline when connection is closed
+			if m.platformURL != "" {
+				go m.updateDeviceOfflineStatus(dc.DeviceID, dc.TenantID)
+			}
 		}
 		m.mu.Unlock()
 		close(dc.SendCh)
@@ -546,5 +550,32 @@ func (m *SessionManager) forwardFileAccessResult(dc *DeviceConnection, evt Event
 
 	if resp.StatusCode >= 400 {
 		slog.Warn("Platform rejected file access result", "device_id", dc.DeviceID, "event_type", evt.EventType, "status", resp.StatusCode)
+	}
+}
+
+func (m *SessionManager) updateDeviceOfflineStatus(deviceID, tenantID string) {
+	// Create a heartbeat request with current time to update last_seen_at
+	heartbeatPayload := map[string]interface{}{
+		"device_id": deviceID,
+		"status": "offline",
+		"agent_version": "",
+		"distribution_package_version": "",
+		"policy_version": 0,
+		"environment": nil,
+	}
+
+	body, _ := json.Marshal(heartbeatPayload)
+	url := m.platformURL + "/agent/v1/heartbeat"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("Failed to update device offline status", "device_id", deviceID, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		slog.Warn("Platform rejected offline status update", "device_id", deviceID, "status", resp.StatusCode)
+	} else {
+		slog.Info("Device offline status updated", "device_id", deviceID)
 	}
 }

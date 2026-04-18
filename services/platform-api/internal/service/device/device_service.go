@@ -102,7 +102,7 @@ func (s *Service) DeleteDevice(ctx context.Context, tenantID, id string) error {
 }
 
 // Heartbeat records a device heartbeat and returns updated state.
-func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion, distPkgVersion string, policyVersion int, env *dto.AgentRuntimeEnvironment) (*domain.Device, error) {
+func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion, distPkgVersion string, policyVersion int, env *dto.AgentRuntimeEnvironment, status string) (*domain.Device, error) {
 	device, err := s.deviceRepo.GetByID(ctx, deviceID)
 	if err != nil {
 		return nil, domain.ErrInternalError
@@ -114,7 +114,26 @@ func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion, distPkg
 		return nil, domain.ErrDeviceRevoked
 	}
 
-	device.RecordHeartbeat(agentVersion, distPkgVersion, policyVersion)
+	// Update last seen time regardless of status
+	now := time.Now()
+	device.LastSeenAt = &now
+	device.AgentVersion = agentVersion
+	if distPkgVersion != "" {
+		device.DistributionPackageVersion = strings.TrimPrefix(strings.TrimPrefix(distPkgVersion, "v"), "V")
+	}
+	device.PolicyVersion = policyVersion
+	device.UpdatedAt = now
+
+	// Update status if provided
+	if status == "offline" {
+		// Keep device status as active but update last_seen_at
+		// This allows the frontend to determine online status based on time difference
+	} else if status != "" {
+		device.Status = domain.DeviceStatus(status)
+	} else if device.Status == domain.DeviceStatusPendingActivation {
+		device.Status = domain.DeviceStatusActive
+	}
+
 	if env != nil {
 		if b, err := json.Marshal(env); err == nil {
 			meta := string(b)

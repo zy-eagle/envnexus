@@ -72,7 +72,7 @@ func (h *LifecycleHandler) Heartbeat(c *gin.Context) {
 		deviceID = ctxDeviceID.(string)
 	}
 
-	dev, err := h.deviceService.Heartbeat(c.Request.Context(), deviceID, req.AgentVersion, req.DistributionPackageVersion, req.PolicyVersion, req.Environment)
+	dev, err := h.deviceService.Heartbeat(c.Request.Context(), deviceID, req.AgentVersion, req.DistributionPackageVersion, req.PolicyVersion, req.Environment, req.Status)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
