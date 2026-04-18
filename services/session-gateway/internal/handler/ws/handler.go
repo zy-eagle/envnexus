@@ -414,7 +414,7 @@ func (m *SessionManager) handleAgentEvent(dc *DeviceConnection, evt EventEnvelop
 
 	case "file.browse_result", "file.preview_result", "file.download_result":
 		slog.Info("File access result from device", "event_type", evt.EventType, "device_id", dc.DeviceID, "session_id", evt.SessionID)
-		m.publishToRedis(evt)
+		go m.forwardFileAccessResult(dc, evt)
 
 	case "command.result":
 		slog.Info("Command result from device", "device_id", dc.DeviceID, "session_id", evt.SessionID)
@@ -521,5 +521,30 @@ func (m *SessionManager) forwardCommandResult(dc *DeviceConnection, evt EventEnv
 
 	if resp.StatusCode >= 400 {
 		slog.Warn("Platform rejected command.result", "device_id", dc.DeviceID, "status", resp.StatusCode)
+	}
+}
+
+func (m *SessionManager) forwardFileAccessResult(dc *DeviceConnection, evt EventEnvelope) {
+	if m.platformURL == "" {
+		slog.Warn("Cannot forward file access result: platform URL not configured", "device_id", dc.DeviceID)
+		return
+	}
+
+	body, err := json.Marshal(evt)
+	if err != nil {
+		slog.Warn("Failed to marshal file access result", "device_id", dc.DeviceID, "error", err)
+		return
+	}
+
+	url := m.platformURL + "/internal/v1/file-access-results"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("Failed to forward file access result to platform", "device_id", dc.DeviceID, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		slog.Warn("Platform rejected file access result", "device_id", dc.DeviceID, "event_type", evt.EventType, "status", resp.StatusCode)
 	}
 }

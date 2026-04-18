@@ -80,6 +80,12 @@ func (m *MinIOClient) PresignedGetURL(ctx context.Context, objectName string, ex
 	return c.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
 }
 
+// PresignedPutURL generates a presigned PUT URL for uploading an object.
+// The internal client is always used (agents talk to internal endpoints).
+func (m *MinIOClient) PresignedPutURL(ctx context.Context, objectName string, expiry time.Duration) (*url.URL, error) {
+	return m.client.PresignedPutObject(ctx, m.bucketName, objectName, expiry)
+}
+
 // ObjectExists returns true if the object exists in the bucket.
 func (m *MinIOClient) ObjectExists(ctx context.Context, objectName string) bool {
 	_, err := m.client.StatObject(ctx, m.bucketName, objectName, minio.StatObjectOptions{})

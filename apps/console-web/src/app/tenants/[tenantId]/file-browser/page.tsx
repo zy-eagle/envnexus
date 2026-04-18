@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
@@ -13,8 +13,55 @@ interface FileAccessRequest {
   path: string;
   action: string;
   status: string;
+  result: string;
   note: string;
   created_at: string;
+}
+
+interface BrowseEntry {
+  name: string;
+  is_dir: boolean;
+  size_bytes: number;
+  modified_at: string;
+  mode: string;
+}
+
+interface FileResult {
+  request_id?: string;
+  status?: string;
+  error?: string;
+  summary?: string;
+  download_url?: string;
+  output?: {
+    path?: string;
+    entries?: BrowseEntry[];
+    dir_count?: number;
+    file_count?: number;
+    total_size?: number;
+    truncated?: boolean;
+    content?: string;
+    lines_read?: number;
+    file_size?: number;
+    file_size_bytes?: number;
+    content_type?: string;
+  };
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function parseResult(resultStr: string): FileResult | null {
+  if (!resultStr) return null;
+  try {
+    return JSON.parse(resultStr);
+  } catch {
+    return null;
+  }
 }
 
 export default function FileBrowserPage({ params }: { params: { tenantId: string } }) {
@@ -28,8 +75,9 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
   const [formPath, setFormPath] = useState('');
   const [formAction, setFormAction] = useState<'browse' | 'preview' | 'download'>('browse');
   const [creating, setCreating] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const fetchRequests = async () => {
+  const fetchRequests = useCallback(async () => {
     setLoading(true);
     try {
       const qs = statusFilter ? `?status=${statusFilter}` : '';
@@ -40,9 +88,17 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
     } finally {
       setLoading(false);
     }
-  };
+  }, [params.tenantId, statusFilter]);
 
-  useEffect(() => { fetchRequests(); }, [params.tenantId, statusFilter]);
+  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  // Auto-refresh for approved requests that may have pending results
+  useEffect(() => {
+    const hasWaiting = requests.some(r => r.status === 'approved' && !r.result);
+    if (!hasWaiting) return;
+    const timer = setInterval(fetchRequests, 5000);
+    return () => clearInterval(timer);
+  }, [requests, fetchRequests]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,11 +149,126 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
     }
   };
 
+  const actionLabel = (action: string) => {
+    switch (action) {
+      case 'browse': return t.browse;
+      case 'preview': return t.preview;
+      case 'download': return t.download;
+      default: return action;
+    }
+  };
+
+  const renderResultBadge = (req: FileAccessRequest) => {
+    if (req.status !== 'approved') return null;
+    const result = parseResult(req.result);
+    if (!result) {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+          <span className="animate-pulse inline-block w-2 h-2 bg-blue-400 rounded-full" />
+          {t.noResult}
+        </span>
+      );
+    }
+    if (result.status === 'failed' || result.error) {
+      return <span className="text-xs text-red-600 font-medium">{t.resultFailed}</span>;
+    }
+    return <span className="text-xs text-green-600 font-medium">{t.resultSuccess}</span>;
+  };
+
+  const renderResultDetail = (req: FileAccessRequest) => {
+    const result = parseResult(req.result);
+    if (!result) return null;
+
+    if (result.error) {
+      return (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-sm text-red-700 font-mono">{result.error}</p>
+        </div>
+      );
+    }
+
+    const output = result.output;
+    if (!output) return <p className="text-sm text-gray-500">{result.summary}</p>;
+
+    if (req.action === 'browse' && output.entries) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">
+            {output.dir_count} dirs, {output.file_count} files
+            {output.total_size != null && ` · ${formatBytes(output.total_size)}`}
+            {output.truncated && ' (truncated)'}
+          </p>
+          <div className="max-h-80 overflow-auto border border-gray-200 rounded-lg">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">{t.fileName}</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">{t.fileSize}</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">{t.modTime}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {output.entries.map((entry, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="px-3 py-1.5 whitespace-nowrap">
+                      <span className={entry.is_dir ? 'text-blue-600 font-medium' : 'text-gray-700'}>
+                        {entry.is_dir ? '📁 ' : '📄 '}{entry.name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap text-right text-gray-500 font-mono text-xs">
+                      {entry.is_dir ? '-' : formatBytes(entry.size_bytes)}
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap text-gray-500 text-xs">
+                      {entry.modified_at ? new Date(entry.modified_at).toLocaleString() : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    if (req.action === 'preview' && output.content != null) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">
+            {output.lines_read} lines · {output.file_size != null && formatBytes(output.file_size)}
+          </p>
+          <pre className="bg-gray-900 text-green-300 p-4 rounded-lg text-xs font-mono overflow-auto max-h-96 whitespace-pre-wrap">
+            {output.content}
+          </pre>
+        </div>
+      );
+    }
+
+    if (req.action === 'download' && result.download_url) {
+      return (
+        <div className="space-y-2">
+          <p className="text-sm text-gray-700">{result.summary}</p>
+          <a
+            href={result.download_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+          >
+            {t.download}
+          </a>
+          {output.file_size != null && (
+            <span className="text-xs text-gray-500 ml-2">{formatBytes(output.file_size)}</span>
+          )}
+        </div>
+      );
+    }
+
+    return <pre className="text-xs bg-gray-50 p-3 rounded-lg overflow-auto max-h-60">{JSON.stringify(output, null, 2)}</pre>;
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
 
-      {/* New request form */}
       <form onSubmit={handleCreate} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <input
@@ -133,7 +304,6 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
         </div>
       </form>
 
-      {/* Status filter */}
       <div className="flex gap-2">
         {['', 'pending', 'approved', 'denied', 'expired'].map(s => (
           <button
@@ -145,61 +315,81 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
                 : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
             }`}
           >
-            {s === '' ? 'All' : statusLabel(s)}
+            {s === '' ? t.all : statusLabel(s)}
           </button>
         ))}
       </div>
 
-      {/* Requests table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500">{ct.loading}</div>
         ) : requests.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">{t.noFiles}</div>
+          <div className="p-8 text-center text-gray-500">{t.noRequests}</div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.selectDevice}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.path}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.action}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.status}</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">{ct.actions}</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {requests.map(req => (
-                <tr key={req.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">{req.device_id}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{req.path}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{req.action}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+          <div className="divide-y divide-gray-200">
+            {requests.map(req => (
+              <div key={req.id}>
+                <div
+                  className={`grid grid-cols-12 gap-4 items-center px-6 py-4 hover:bg-gray-50 transition-colors ${
+                    req.result ? 'cursor-pointer' : ''
+                  }`}
+                  onClick={() => req.result && setExpandedId(expandedId === req.id ? null : req.id)}
+                >
+                  <div className="col-span-2 text-sm font-mono text-gray-900 truncate" title={req.device_id}>
+                    {req.device_id.slice(0, 12)}...
+                  </div>
+                  <div className="col-span-3 text-sm text-gray-700 truncate font-mono" title={req.path}>
+                    {req.path}
+                  </div>
+                  <div className="col-span-1 text-sm text-gray-500">
+                    {actionLabel(req.action)}
+                  </div>
+                  <div className="col-span-2">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor(req.status)}`}>
                       {statusLabel(req.status)}
                     </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                  </div>
+                  <div className="col-span-2">
+                    {renderResultBadge(req)}
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-2">
                     {req.status === 'pending' && (
-                      <div className="flex justify-end gap-2">
+                      <>
                         <button
-                          onClick={() => handleAction(req.id, 'approve')}
-                          className="text-green-600 hover:text-green-900 text-xs font-medium"
+                          onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'approve'); }}
+                          className="text-green-600 hover:text-green-900 text-xs font-medium px-2 py-1 rounded hover:bg-green-50"
                         >
                           {t.approve}
                         </button>
                         <button
-                          onClick={() => handleAction(req.id, 'deny')}
-                          className="text-red-600 hover:text-red-900 text-xs font-medium"
+                          onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'deny'); }}
+                          className="text-red-600 hover:text-red-900 text-xs font-medium px-2 py-1 rounded hover:bg-red-50"
                         >
                           {t.deny}
                         </button>
-                      </div>
+                      </>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    {req.result && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setExpandedId(expandedId === req.id ? null : req.id); }}
+                        className="text-indigo-600 hover:text-indigo-900 text-xs font-medium px-2 py-1 rounded hover:bg-indigo-50"
+                      >
+                        {expandedId === req.id ? t.closePreview : t.viewResult}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {expandedId === req.id && req.result && (
+                  <div className="px-6 pb-4 bg-gray-50 border-t border-gray-100">
+                    <div className="pt-3">
+                      {renderResultDetail(req)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

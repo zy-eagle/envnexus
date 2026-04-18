@@ -224,7 +224,7 @@ export default function TenantsPage() {
                           {ct.delete}
                         </button>
                         <button
-                          onClick={() => { switchTenant(tenant.id); router.push(`/tenants/${tenant.id}/devices`); }}
+                          onClick={() => { switchTenant(tenant.id); router.push(`/tenants/${tenant.id}/health`); }}
                           className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 ${
                             activeTenantId === tenant.id
                               ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20'

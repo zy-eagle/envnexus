@@ -272,6 +272,9 @@ func (c *WSClient) handleServerEvent(evt EventEnvelope) {
 	case "command.execute":
 		c.handleCommandExecute(evt)
 
+	case "file.execute":
+		c.handleFileExecute(evt)
+
 	case "heartbeat.pong":
 		slog.Info("[ws] Heartbeat pong received")
 
@@ -500,6 +503,123 @@ func generateEventID() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func (c *WSClient) handleFileExecute(evt EventEnvelope) {
+	payloadMap, ok := evt.Payload.(map[string]interface{})
+	if !ok {
+		slog.Warn("[ws] file.execute: invalid payload")
+		return
+	}
+
+	requestID, _ := payloadMap["request_id"].(string)
+	path, _ := payloadMap["path"].(string)
+	action, _ := payloadMap["action"].(string)
+
+	if requestID == "" || path == "" || action == "" {
+		slog.Warn("[ws] file.execute: missing request_id, path, or action")
+		return
+	}
+
+	slog.Info("[ws] file.execute",
+		"request_id", requestID,
+		"path", path,
+		"action", action,
+	)
+
+	go func() {
+		var toolName string
+		var params map[string]interface{}
+		var resultEventType string
+		var downloadURL string
+
+		switch action {
+		case "browse":
+			toolName = "read_dir_list"
+			params = map[string]interface{}{"path": path}
+			resultEventType = "file.browse_result"
+		case "preview":
+			toolName = "read_file_tail"
+			params = map[string]interface{}{"path": path, "lines": float64(100)}
+			resultEventType = "file.preview_result"
+		case "download":
+			uploadURL, _ := payloadMap["upload_url"].(string)
+			downloadURL, _ = payloadMap["download_url"].(string)
+			if uploadURL == "" {
+				c.sendFileResult(requestID, "file.download_result", map[string]interface{}{
+					"request_id": requestID,
+					"status":     "failed",
+					"error":      "download action requires upload_url (MinIO not configured on platform)",
+				})
+				return
+			}
+			toolName = "file_download"
+			params = map[string]interface{}{"path": path, "upload_url": uploadURL}
+			resultEventType = "file.download_result"
+		default:
+			slog.Warn("[ws] file.execute: unsupported action", "action", action)
+			return
+		}
+
+		tool, found := c.registry.Get(toolName)
+		if !found {
+			slog.Warn("[ws] file.execute: tool not found", "tool_name", toolName)
+			c.sendFileResult(requestID, resultEventType, map[string]interface{}{
+				"request_id": requestID,
+				"status":     "failed",
+				"error":      fmt.Sprintf("tool %s not registered", toolName),
+			})
+			return
+		}
+
+		timeout := 30 * time.Second
+		if action == "download" {
+			timeout = 10 * time.Minute
+		}
+		toolCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		result, err := tool.Execute(toolCtx, params)
+
+		payload := map[string]interface{}{
+			"request_id": requestID,
+		}
+		if err != nil {
+			payload["status"] = "failed"
+			payload["error"] = err.Error()
+		} else if result != nil {
+			payload["status"] = result.Status
+			payload["output"] = result.Output
+			payload["summary"] = result.Summary
+			payload["duration_ms"] = result.DurationMs
+			if result.Error != "" {
+				payload["error"] = result.Error
+			}
+		}
+
+		if downloadURL != "" && (payload["status"] == "succeeded") {
+			payload["download_url"] = downloadURL
+		}
+
+		c.sendFileResult(requestID, resultEventType, payload)
+
+		slog.Info("[ws] file.execute completed",
+			"request_id", requestID,
+			"action", action,
+			"result_type", resultEventType,
+		)
+	}()
+}
+
+func (c *WSClient) sendFileResult(requestID, eventType string, payload map[string]interface{}) {
+	c.SendEvent(EventEnvelope{
+		EventID:   generateEventID(),
+		EventType: eventType,
+		DeviceID:  c.deviceID,
+		SessionID: requestID,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Payload:   payload,
+	})
 }
 
 func (c *WSClient) handleCommandExecute(evt EventEnvelope) {

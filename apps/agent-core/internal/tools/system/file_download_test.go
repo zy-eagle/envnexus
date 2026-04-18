@@ -172,7 +172,7 @@ func TestIsSensitivePath(t *testing.T) {
 		{"/var/log/syslog", false},
 	}
 	for _, tc := range cases {
-		got := isSensitivePath(tc.path)
+		got := IsSensitivePath(tc.path)
 		if got != tc.expected {
 			t.Errorf("isSensitivePath(%q) = %v, want %v", tc.path, got, tc.expected)
 		}

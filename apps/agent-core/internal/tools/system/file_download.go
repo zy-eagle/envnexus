@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -51,72 +50,7 @@ func (t *FileDownloadTool) NeedsApproval(map[string]interface{}) bool { return t
 
 const defaultMaxSizeMB = 100
 
-var blockedPathSubstrings = []string{
-	"/etc/shadow",
-	"/etc/passwd",
-	`\windows\system32\config\sam`,
-	`/windows/system32/config/sam`,
-}
-
-var sensitivePrivateKeyBasenames = map[string]struct{}{
-	"id_rsa": {}, "id_ed25519": {}, "id_ecdsa": {}, "id_dsa": {},
-}
-
-func expandUserPath(path string) (string, error) {
-	if strings.HasPrefix(path, "~"+string(os.PathSeparator)) || path == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		if path == "~" {
-			return home, nil
-		}
-		return filepath.Join(home, path[2:]), nil
-	}
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, path[2:]), nil
-	}
-	return path, nil
-}
-
-func pathKeyForMatch(p string) string {
-	s := filepath.ToSlash(p)
-	if runtime.GOOS == "windows" {
-		return strings.ToLower(s)
-	}
-	return s
-}
-
-func isSensitivePath(absClean string) bool {
-	key := pathKeyForMatch(absClean)
-	for _, sub := range blockedPathSubstrings {
-		cmp := sub
-		if runtime.GOOS == "windows" {
-			cmp = strings.ToLower(filepath.ToSlash(sub))
-		}
-		if strings.Contains(key, cmp) {
-			return true
-		}
-	}
-
-	segs := strings.Split(key, "/")
-	for _, seg := range segs {
-		if seg == ".ssh" || seg == ".gnupg" {
-			return true
-		}
-	}
-
-	base := strings.ToLower(filepath.Base(absClean))
-	if _, ok := sensitivePrivateKeyBasenames[base]; ok {
-		return true
-	}
-
-	return false
-}
+// Path expansion and sensitive-path detection are in pathutil.go.
 
 func failResult(toolName, err string, start time.Time) *tools.ToolResult {
 	return &tools.ToolResult{
@@ -153,16 +87,9 @@ func (t *FileDownloadTool) Execute(ctx context.Context, params map[string]interf
 		return failResult(t.Name(), "invalid upload_url: must be an http(s) URL", start), nil
 	}
 
-	expanded, err := expandUserPath(path)
+	absPath, err := ResolveSafePath(path)
 	if err != nil {
-		return failResult(t.Name(), fmt.Sprintf("could not expand path: %v", err), start), nil
-	}
-	absPath, err := filepath.Abs(filepath.Clean(expanded))
-	if err != nil {
-		return failResult(t.Name(), fmt.Sprintf("could not resolve path: %v", err), start), nil
-	}
-	if isSensitivePath(absPath) {
-		return failResult(t.Name(), "access denied: path matches a sensitive location or credential pattern", start), nil
+		return failResult(t.Name(), fmt.Sprintf("path error: %v", err), start), nil
 	}
 
 	li, err := os.Lstat(absPath)
@@ -181,7 +108,7 @@ func (t *FileDownloadTool) Execute(ctx context.Context, params map[string]interf
 		if err != nil {
 			return failResult(t.Name(), fmt.Sprintf("could not resolve symlink target: %v", err), start), nil
 		}
-		if isSensitivePath(resAbs) {
+		if IsSensitivePath(resAbs) {
 			return failResult(t.Name(), "access denied: symlink target is a sensitive path", start), nil
 		}
 	}

@@ -51,7 +51,7 @@ func (r *noopAuditRepo) ListByTenant(_ context.Context, _ string, _ interface{})
 
 func TestCreateAndApprove(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, nil, nil, nil)
 	ctx := context.Background()
 
 	req, err := svc.CreateRequest(ctx, "t1", "d1", "u1", "/var/log/app.log", domain.FileAccessBrowse, "need to check logs")
@@ -73,7 +73,7 @@ func TestCreateAndApprove(t *testing.T) {
 
 func TestCreateAndDeny(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, nil, nil, nil)
 	ctx := context.Background()
 
 	req, err := svc.CreateRequest(ctx, "t1", "d1", "u1", "/etc/config", domain.FileAccessDownload, "")
@@ -92,7 +92,7 @@ func TestCreateAndDeny(t *testing.T) {
 
 func TestDoubleApprove(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, nil, nil, nil)
 	ctx := context.Background()
 
 	req, _ := svc.CreateRequest(ctx, "t1", "d1", "u1", "/tmp/file", domain.FileAccessPreview, "")
@@ -106,7 +106,7 @@ func TestDoubleApprove(t *testing.T) {
 
 func TestListByTenant(t *testing.T) {
 	repo := newMemoryFileAccessRepo()
-	svc := NewService(repo, nil)
+	svc := NewService(repo, nil, nil, nil)
 	ctx := context.Background()
 
 	svc.CreateRequest(ctx, "t1", "d1", "u1", "/a", domain.FileAccessBrowse, "")

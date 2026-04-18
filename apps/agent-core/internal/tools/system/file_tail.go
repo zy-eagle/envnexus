@@ -56,6 +56,18 @@ func (t *ReadFileTailTool) Execute(ctx context.Context, params map[string]interf
 
 	start := time.Now()
 
+	safePath, err := ResolveSafePath(path)
+	if err != nil {
+		return &tools.ToolResult{
+			ToolName:   t.Name(),
+			Status:     "failed",
+			Summary:    fmt.Sprintf("Cannot access '%s': %v", path, err),
+			Output:     map[string]interface{}{"path": path, "error": err.Error()},
+			DurationMs: time.Since(start).Milliseconds(),
+		}, nil
+	}
+	path = safePath
+
 	info, err := os.Stat(path)
 	if err != nil {
 		return &tools.ToolResult{

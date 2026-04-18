@@ -224,7 +224,7 @@ func main() {
 	commandService := command_svc.NewService(cmdTaskRepo, cmdExecRepo, deviceRepo, approvalPolicyService, auditRepo, rbacService, gatewayClient, userRepo)
 	notificationRouter := notification.NewRouter(notifChannelRepo, imProviderRepo)
 	_ = notificationRouter
-	fileAccessService := file_access_svc.NewService(fileAccessRepo, auditRepo)
+	fileAccessService := file_access_svc.NewService(fileAccessRepo, auditRepo, gatewayClient, minioClient)
 	deviceGroupService := device_group_svc.NewService(deviceGroupRepo)
 	ruleService := governance.NewRuleService(govRuleRepo, toolPermRepo)
 	healthService := health.NewService(deviceRepo, govRepo)
@@ -411,6 +411,7 @@ func main() {
 	// Internal service-to-service API (session-gateway -> platform-api)
 	internalV1 := router.Group("/internal/v1")
 	commandTaskHandler.RegisterInternalRoutes(internalV1)
+	fileAccessHandler.RegisterInternalRoutes(internalV1)
 
 	// Agent API (device token or open for enrollment/activation)
 	agentEnrollHandler.RegisterRoutes(router.Group(""))

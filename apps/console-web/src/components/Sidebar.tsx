@@ -110,7 +110,7 @@ export default function Sidebar() {
   const handleTenantSelect = (newTid: string) => {
     switchTenant(newTid);
     setTenantOpen(false);
-    router.push(`/tenants/${newTid}/devices`);
+    router.push(`/tenants/${newTid}/health`);
   };
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + '/');
@@ -123,7 +123,7 @@ export default function Sidebar() {
         label: t.navGroupOperations,
         sectionIcon: 'devices',
         links: [
-          { href: `/tenants/${tid}/devices`, icon: 'devices', label: t.devices },
+          { href: `/tenants/${tid}/health`, icon: 'dashboard', label: t.healthDashboard },
           { href: `/tenants/${tid}/sessions`, icon: 'sessions', label: t.sessions },
           { href: `/tenants/${tid}/command-tasks`, icon: 'command', label: t.commandTasks },
           { href: `/tenants/${tid}/file-browser`, icon: 'files', label: t.fileBrowser },
@@ -161,7 +161,6 @@ export default function Sidebar() {
           { href: `/tenants/${tid}/governance`, icon: 'governance', label: t.governance },
           { href: `/tenants/${tid}/governance-rules`, icon: 'policy', label: t.governanceRules },
           { href: `/tenants/${tid}/tool-permissions`, icon: 'roles', label: t.toolPermissions },
-          { href: `/tenants/${tid}/health`, icon: 'dashboard', label: t.healthDashboard },
           { href: `/tenants/${tid}/audit-events`, icon: 'audit', label: t.auditEvents },
         ],
       },

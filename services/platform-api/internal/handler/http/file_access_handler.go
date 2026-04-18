@@ -1,6 +1,8 @@
 package http
 
 import (
+	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +26,10 @@ func (h *FileAccessHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/tenants/:tenantId/file-access-requests/:requestId", h.Get)
 	router.POST("/tenants/:tenantId/file-access-requests/:requestId/approve", h.Approve)
 	router.POST("/tenants/:tenantId/file-access-requests/:requestId/deny", h.Deny)
+}
+
+func (h *FileAccessHandler) RegisterInternalRoutes(router *gin.RouterGroup) {
+	router.POST("/file-access-results", h.HandleFileAccessResult)
 }
 
 type createFileAccessReq struct {
@@ -99,4 +105,43 @@ func (h *FileAccessHandler) Deny(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, far)
+}
+
+// HandleFileAccessResult receives file operation results forwarded by session-gateway.
+// Mirrors the command.result callback pattern.
+func (h *FileAccessHandler) HandleFileAccessResult(c *gin.Context) {
+	var evt struct {
+		EventType string          `json:"event_type"`
+		DeviceID  string          `json:"device_id"`
+		SessionID string          `json:"session_id"`
+		Payload   json.RawMessage `json:"payload"`
+	}
+	if err := c.ShouldBindJSON(&evt); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	requestID := evt.SessionID
+	if requestID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing session_id (request_id)"})
+		return
+	}
+
+	resultJSON := string(evt.Payload)
+	if err := h.svc.SetResult(c.Request.Context(), requestID, resultJSON); err != nil {
+		slog.Error("[file_access] Failed to store result",
+			"request_id", requestID,
+			"event_type", evt.EventType,
+			"error", err,
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	slog.Info("[file_access] Result stored",
+		"request_id", requestID,
+		"event_type", evt.EventType,
+		"device_id", evt.DeviceID,
+	)
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
