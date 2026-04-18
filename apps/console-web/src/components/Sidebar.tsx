@@ -205,7 +205,7 @@ export default function Sidebar() {
                 <span className="text-indigo-600 text-[10px] font-bold">{activeTenantName?.charAt(0)?.toUpperCase() || 'T'}</span>
               </div>
               <div className="min-w-0 text-left">
-                <div className="text-[13px] font-medium text-slate-800 truncate">{activeTenantName || 'Select Tenant'}</div>
+                <div className="text-[13px] font-medium text-slate-800 truncate">{activeTenantName || t.selectTenant}</div>
               </div>
             </div>
             <Icon name="switchArrows" className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 flex-shrink-0" />

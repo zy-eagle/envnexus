@@ -66,8 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchTenants = useCallback(async () => {
     try {
-      const data = await api.get<Tenant[]>("/tenants");
-      setTenants(Array.isArray(data) ? data : []);
+      const data = await api.get<any>('/tenants');
+      setTenants(Array.isArray(data?.items) ? data.items : []);
     } catch {
       setTenants([]);
     }
