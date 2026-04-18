@@ -210,7 +210,7 @@ func RegisterDefaultCommands(
 			tenantID = "default"
 		}
 		filters := repository.AuditFilters{DeviceID: deviceID}
-		events, err := auditRepo.ListByTenant(ctx, tenantID, filters)
+		events, _, err := auditRepo.ListByTenant(ctx, tenantID, filters, 1, 10)
 		if err != nil {
 			return "", fmt.Errorf("查询审计: %w", err)
 		}

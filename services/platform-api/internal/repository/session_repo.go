@@ -49,15 +49,22 @@ func (r *MySQLSessionRepository) ListByTenant(ctx context.Context, tenantID stri
 	var sessions []*domain.Session
 	var total int64
 
-	// 计算总数
-	err := r.db.WithContext(ctx).Model(&domain.Session{}).Where("tenant_id = ?", tenantID).Count(&total).Error
+	// 计算总数（过滤掉已完成、已中止、已过期的会话）
+	err := r.db.WithContext(ctx).Model(&domain.Session{}).
+		Where("tenant_id = ? AND status NOT IN ?", tenantID, []string{"completed", "aborted", "expired"}).
+		Count(&total).Error
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// 分页查询
+	// 分页查询（过滤掉已完成、已中止、已过期的会话）
 	offset := (page - 1) * pageSize
-	err = r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("started_at DESC").Offset(offset).Limit(pageSize).Find(&sessions).Error
+	err = r.db.WithContext(ctx).
+		Where("tenant_id = ? AND status NOT IN ?", tenantID, []string{"completed", "aborted", "expired"}).
+		Order("started_at DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&sessions).Error
 	return sessions, total, err
 }
 

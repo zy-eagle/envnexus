@@ -33,6 +33,9 @@ export default function OverviewPage() {
   const [deviceCount, setDeviceCount] = useState<number | string>('...');
   const [sessionCount, setSessionCount] = useState<number | string>('...');
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     if (!activeTenantId) return;
@@ -48,12 +51,13 @@ export default function OverviewPage() {
       .catch(() => setSessionCount(0));
 
     // 获取最近活动（审计日志）
-    api.get<{ items: any[] }>(`/tenants/${activeTenantId}/audit-events?page=1&page_size=10`)
+    api.get<{ items: any[]; total: number; page: number; page_size: number }>(`/tenants/${activeTenantId}/audit-events?page=${currentPage}&page_size=${pageSize}`)
       .then(data => {
         setRecentActivities(Array.isArray(data.items) ? data.items : []);
+        setTotalPages(Math.ceil((data.total || 0) / pageSize));
       })
       .catch(() => setRecentActivities([]));
-  }, [activeTenantId]);
+  }, [activeTenantId, currentPage, pageSize]);
 
   return (
     <div className="space-y-6">
@@ -110,6 +114,32 @@ export default function OverviewPage() {
           <div className="px-5 py-12 text-center">
             <svg className="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
             <p className="text-sm text-slate-400">{t.noAct}</p>
+          </div>
+        )}
+        {/* 分页控制 */}
+        {recentActivities.length > 0 && totalPages > 1 && (
+          <div className="px-5 py-4 border-t border-slate-100">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-slate-500">
+                显示 {Math.min((currentPage - 1) * pageSize + 1, recentActivities.length)} - {Math.min(currentPage * pageSize, recentActivities.length)} 条，共 {totalPages} 页
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  上一页
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

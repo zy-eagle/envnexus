@@ -24,10 +24,10 @@ func (s *Service) BulkCreate(ctx context.Context, events []*domain.AuditEvent) e
 	return s.auditRepo.CreateBatch(ctx, events)
 }
 
-func (s *Service) ListEvents(ctx context.Context, tenantID string, filters repository.AuditFilters) ([]*dto.AuditEventResponse, error) {
-	events, err := s.auditRepo.ListByTenant(ctx, tenantID, filters)
+func (s *Service) ListEvents(ctx context.Context, tenantID string, filters repository.AuditFilters, page, pageSize int) ([]*dto.AuditEventResponse, int64, error) {
+	events, total, err := s.auditRepo.ListByTenant(ctx, tenantID, filters, page, pageSize)
 	if err != nil {
-		return nil, domain.ErrInternalError
+		return nil, 0, domain.ErrInternalError
 	}
 
 	var resp []*dto.AuditEventResponse
@@ -47,5 +47,5 @@ func (s *Service) ListEvents(ctx context.Context, tenantID string, filters repos
 		}
 		resp = append(resp, item)
 	}
-	return resp, nil
+	return resp, total, nil
 }

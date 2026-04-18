@@ -262,35 +262,41 @@ export default function TenantsPage() {
           </table>
           {/* Pagination */}
           {pagination.total > 0 && (
-            <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
-              <div className="text-sm text-slate-500">
-                Showing {pagination.page * pagination.pageSize - pagination.pageSize + 1}-{Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total} tenants
+            <div className="flex justify-between items-center px-5 py-4 border-t border-slate-100">
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-slate-500">
+                  共 {pagination.total} 条记录
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-slate-500">每页显示：</span>
+                  <select 
+                    value={pagination.pageSize}
+                    onChange={(e) => setPagination({ ...pagination, pageSize: parseInt(e.target.value), page: 1 })}
+                    className="border rounded-md px-2 py-1 text-sm"
+                  >
+                    <option value="10">10条</option>
+                    <option value="20">20条</option>
+                    <option value="50">50条</option>
+                    <option value="100">100条</option>
+                  </select>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center space-x-2">
                 <button 
                   onClick={() => setPagination({ ...pagination, page: Math.max(1, pagination.page - 1) })}
                   disabled={pagination.page === 1}
-                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                 >
-                  Previous
+                  上一页
                 </button>
+                <span className="text-sm">{pagination.page}</span>
                 <button 
                   onClick={() => setPagination({ ...pagination, page: Math.min(Math.ceil(pagination.total / pagination.pageSize), pagination.page + 1) })}
                   disabled={pagination.page * pagination.pageSize >= pagination.total}
-                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
                 >
-                  Next
+                  下一页
                 </button>
-                <select 
-                  value={pagination.pageSize}
-                  onChange={(e) => setPagination({ ...pagination, pageSize: parseInt(e.target.value), page: 1 })}
-                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-200 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
-                  <option value={10}>10 per page</option>
-                  <option value={20}>20 per page</option>
-                  <option value={50}>50 per page</option>
-                  <option value={100}>100 per page</option>
-                </select>
               </div>
             </div>
           )}

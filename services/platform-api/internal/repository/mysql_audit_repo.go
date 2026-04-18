@@ -10,7 +10,7 @@ import (
 type AuditRepository interface {
 	Create(ctx context.Context, event *domain.AuditEvent) error
 	CreateBatch(ctx context.Context, events []*domain.AuditEvent) error
-	ListByTenant(ctx context.Context, tenantID string, filters AuditFilters) ([]*domain.AuditEvent, error)
+	ListByTenant(ctx context.Context, tenantID string, filters AuditFilters, page, pageSize int) ([]*domain.AuditEvent, int64, error)
 }
 
 type AuditFilters struct {
@@ -41,7 +41,7 @@ func (r *MySQLAuditRepository) CreateBatch(ctx context.Context, events []*domain
 	return r.db.WithContext(ctx).Create(&events).Error
 }
 
-func (r *MySQLAuditRepository) ListByTenant(ctx context.Context, tenantID string, filters AuditFilters) ([]*domain.AuditEvent, error) {
+func (r *MySQLAuditRepository) ListByTenant(ctx context.Context, tenantID string, filters AuditFilters, page, pageSize int) ([]*domain.AuditEvent, int64, error) {
 	query := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
 	if !filters.IncludeArchived {
 		query = query.Where("archived = ?", false)
@@ -62,7 +62,15 @@ func (r *MySQLAuditRepository) ListByTenant(ctx context.Context, tenantID string
 		query = query.Where("created_at <= ?", filters.EndAt)
 	}
 
+	// 计算总数
+	var total int64
+	if err := query.Model(&domain.AuditEvent{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询
+	offset := (page - 1) * pageSize
 	var events []*domain.AuditEvent
-	err := query.Order("created_at DESC").Limit(200).Find(&events).Error
-	return events, err
+	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&events).Error
+	return events, total, err
 }

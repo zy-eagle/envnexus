@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -38,12 +39,33 @@ func (h *AuditHandler) List(c *gin.Context) {
 		IncludeArchived: c.Query("include_archived") == "true",
 	}
 
-	events, err := h.auditService.ListEvents(c.Request.Context(), tenantID, filters)
+	// 处理分页参数
+	page := 1
+	pageSize := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsedPage, err := strconv.Atoi(p); err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+
+	if ps := c.Query("page_size"); ps != "" {
+		if parsedPageSize, err := strconv.Atoi(ps); err == nil && parsedPageSize > 0 && parsedPageSize <= 100 {
+			pageSize = parsedPageSize
+		}
+	}
+
+	events, total, err := h.auditService.ListEvents(c.Request.Context(), tenantID, filters, page, pageSize)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
-	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": events})
+	mw.RespondSuccess(c, http.StatusOK, gin.H{
+		"items":     events,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 // Export returns audit events as NDJSON with PII redacted.
@@ -58,7 +80,7 @@ func (h *AuditHandler) Export(c *gin.Context) {
 		IncludeArchived: c.Query("include_archived") == "true",
 	}
 
-	events, err := h.auditService.ListEvents(c.Request.Context(), tenantID, filters)
+	events, _, err := h.auditService.ListEvents(c.Request.Context(), tenantID, filters, 1, 1000)
 	if err != nil {
 		mw.RespondError(c, err)
 		return

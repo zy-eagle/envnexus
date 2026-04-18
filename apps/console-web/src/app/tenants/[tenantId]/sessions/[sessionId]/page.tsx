@@ -18,11 +18,11 @@ interface SessionDetail {
 }
 
 interface AuditEvent {
-  ID: string;
-  EventType: string;
-  DeviceID: string | null;
-  EventPayloadJSON: string;
-  CreatedAt: string;
+  id: string;
+  event_type: string;
+  device_id: string | null;
+  event_payload_json: string;
+  created_at: string;
 }
 
 export default function SessionDetailPage({ params }: { params: { tenantId: string; sessionId: string } }) {
@@ -140,10 +140,10 @@ export default function SessionDetailPage({ params }: { params: { tenantId: stri
         ) : (
           <div className="space-y-3">
             {events.map((evt, idx) => (
-              <div key={evt.ID} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+              <div key={evt.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 <div
                   className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50"
-                  onClick={() => setExpandedId(expandedId === evt.ID ? null : evt.ID)}
+                  onClick={() => setExpandedId(expandedId === evt.id ? null : evt.id)}
                 >
                   <div className="flex items-center space-x-4">
                     <div className="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-xs font-bold">
@@ -151,22 +151,22 @@ export default function SessionDetailPage({ params }: { params: { tenantId: stri
                     </div>
                     <div>
                       <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                        {evt.EventType}
+                        {evt.event_type}
                       </span>
                     </div>
                   </div>
                   <span className="text-xs text-gray-500">
-                    {new Date(evt.CreatedAt).toLocaleString()}
+                    {new Date(evt.created_at).toLocaleString()}
                   </span>
                 </div>
-                {expandedId === evt.ID && evt.EventPayloadJSON && (
+                {expandedId === evt.id && evt.event_payload_json && (
                   <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">
                     <pre className="text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap">
                       {(() => {
                         try {
-                          return JSON.stringify(JSON.parse(evt.EventPayloadJSON), null, 2);
+                          return JSON.stringify(JSON.parse(evt.event_payload_json), null, 2);
                         } catch {
-                          return evt.EventPayloadJSON;
+                          return evt.event_payload_json;
                         }
                       })()}
                     </pre>
