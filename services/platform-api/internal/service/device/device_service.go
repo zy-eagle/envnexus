@@ -116,9 +116,7 @@ func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion, distPkg
 		return nil, domain.ErrDeviceRevoked
 	}
 
-	// Update last seen time regardless of status
 	now := time.Now()
-	device.LastSeenAt = &now
 	device.AgentVersion = agentVersion
 	if distPkgVersion != "" {
 		device.DistributionPackageVersion = strings.TrimPrefix(strings.TrimPrefix(distPkgVersion, "v"), "V")
@@ -126,11 +124,13 @@ func (s *Service) Heartbeat(ctx context.Context, deviceID, agentVersion, distPkg
 	device.PolicyVersion = policyVersion
 	device.UpdatedAt = now
 
+	// Update last seen time only if status is not offline
+	if status != "offline" {
+		device.LastSeenAt = &now
+	}
+
 	// Update status if provided
-	if status == "offline" {
-		// Keep device status as active but update last_seen_at
-		// This allows the frontend to determine online status based on time difference
-	} else if status != "" {
+	if status != "" && status != "offline" {
 		device.Status = domain.DeviceStatus(status)
 	} else if device.Status == domain.DeviceStatusPendingActivation {
 		device.Status = domain.DeviceStatusActive
