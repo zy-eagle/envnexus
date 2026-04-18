@@ -515,8 +515,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
           <p className="text-sm text-gray-700">{t.resultSuccess}</p>
           <a
             href={downloadUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+            download
             className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">

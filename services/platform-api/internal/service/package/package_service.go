@@ -199,7 +199,7 @@ func (s *Service) GetPresignedURL(ctx context.Context, tenantID, packageID strin
 		return "", domain.ErrNotFound
 	}
 
-	presignedURL, err := s.minioClient.PresignedGetURL(ctx, pkg.ArtifactPath, 15*time.Minute)
+	presignedURL, err := s.minioClient.PresignedDownloadURL(ctx, pkg.ArtifactPath, 15*time.Minute, pkg.PackageName)
 	if err != nil {
 		return "", err
 	}
@@ -209,7 +209,7 @@ func (s *Service) GetPresignedURL(ctx context.Context, tenantID, packageID strin
 func (s *Service) toResponse(ctx context.Context, pkg *domain.DownloadPackage) *dto.PackageResponse {
 	downloadURL := pkg.DownloadURL
 	if downloadURL == "" && s.minioClient != nil && pkg.ArtifactPath != "" && pkg.SignStatus == "signed" {
-		if u, err := s.minioClient.PresignedGetURL(ctx, pkg.ArtifactPath, 1*time.Hour); err == nil {
+		if u, err := s.minioClient.PresignedDownloadURL(ctx, pkg.ArtifactPath, 1*time.Hour, pkg.PackageName); err == nil {
 			downloadURL = u.String()
 		}
 	}

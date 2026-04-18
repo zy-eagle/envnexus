@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -160,7 +161,8 @@ func (s *Service) dispatchToDevice(ctx context.Context, req *domain.FileAccessRe
 			)
 			return
 		}
-		downloadURL, err := s.minioClient.PresignedGetURL(ctx, objectKey, 24*time.Hour)
+		filename := filepath.Base(req.Path)
+		downloadURL, err := s.minioClient.PresignedDownloadURL(ctx, objectKey, 24*time.Hour, filename)
 		if err != nil {
 			slog.Error("[file_access] Failed to generate presigned download URL",
 				"request_id", req.ID,

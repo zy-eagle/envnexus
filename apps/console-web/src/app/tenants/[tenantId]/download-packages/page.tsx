@@ -122,7 +122,12 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     try {
       const resp = await api.get<{ download_url: string }>(`/tenants/${params.tenantId}/download-packages/${pkg.id}/download-url`);
       if (resp.download_url) {
-        window.open(resp.download_url, '_blank');
+        const a = document.createElement('a');
+        a.href = resp.download_url;
+        a.download = pkg.package_name || '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       }
     } catch (err: any) {
       alert(err.message || ct.error);

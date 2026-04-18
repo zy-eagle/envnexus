@@ -80,6 +80,22 @@ func (m *MinIOClient) PresignedGetURL(ctx context.Context, objectName string, ex
 	return c.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
 }
 
+// PresignedDownloadURL generates a presigned GET URL with Content-Disposition: attachment
+// so that browsers trigger a file download instead of displaying the content inline.
+func (m *MinIOClient) PresignedDownloadURL(ctx context.Context, objectName string, expiry time.Duration, filename string) (*url.URL, error) {
+	reqParams := make(url.Values)
+	if filename != "" {
+		reqParams.Set("response-content-disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	} else {
+		reqParams.Set("response-content-disposition", "attachment")
+	}
+	c := m.client
+	if m.publicClient != nil {
+		c = m.publicClient
+	}
+	return c.PresignedGetObject(ctx, m.bucketName, objectName, expiry, reqParams)
+}
+
 // PresignedPutURL generates a presigned PUT URL for uploading an object.
 // Uses the public client when available so agents running outside Docker
 // can reach MinIO via a routable address (e.g. localhost:9000).
