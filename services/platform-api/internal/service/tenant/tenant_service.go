@@ -85,6 +85,26 @@ func (s *Service) ListTenants(ctx context.Context) ([]*dto.TenantResponse, error
 	return resp, nil
 }
 
+func (s *Service) ListTenantsWithPagination(ctx context.Context, page, pageSize int) ([]*dto.TenantResponse, int64, error) {
+	tenants, total, err := s.repo.ListWithPagination(ctx, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var resp []*dto.TenantResponse
+	for _, t := range tenants {
+		resp = append(resp, &dto.TenantResponse{
+			ID:        t.ID,
+			Name:      t.Name,
+			Slug:      t.Slug,
+			Status:    string(t.Status),
+			CreatedAt: t.CreatedAt,
+			UpdatedAt: t.UpdatedAt,
+		})
+	}
+	return resp, total, nil
+}
+
 // ListTenantsForActor returns all tenants for platform super admins, or only the caller's home tenant otherwise.
 func (s *Service) ListTenantsForActor(ctx context.Context, platformSuperAdmin bool, userTenantID string) ([]*dto.TenantResponse, error) {
 	if platformSuperAdmin {

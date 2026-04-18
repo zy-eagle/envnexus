@@ -2,9 +2,11 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
 	mw "github.com/zy-eagle/envnexus/services/platform-api/internal/middleware"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/session"
@@ -20,6 +22,9 @@ func NewSessionHandler(sessionService *session.Service) *SessionHandler {
 
 func (h *SessionHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/tenants/:tenantId/sessions", h.List)
+	router.GET("/tenants/:tenantId/sessions/:sessionId", h.Get)
+	router.GET("/tenants/:tenantId/sessions/active-count", h.GetActiveCount)
+	router.POST("/tenants/:tenantId/sessions/batch-delete", h.BatchDelete)
 	router.POST("/sessions", h.Create)
 	router.POST("/sessions/:sessionId/approve", h.Approve)
 	router.POST("/sessions/:sessionId/deny", h.Deny)
@@ -29,12 +34,29 @@ func (h *SessionHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 func (h *SessionHandler) List(c *gin.Context) {
 	tenantID := c.Param("tenantId")
-	sessions, err := h.sessionService.ListByTenant(c.Request.Context(), tenantID)
+	
+	// 解析分页参数
+	page := 1
+	pageSize := 10
+	
+	if p := c.Query("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+	
+	if ps := c.Query("page_size"); ps != "" {
+		if parsed, err := strconv.Atoi(ps); err == nil && parsed > 0 && parsed <= 100 {
+			pageSize = parsed
+		}
+	}
+	
+	sessions, total, err := h.sessionService.ListByTenant(c.Request.Context(), tenantID, page, pageSize)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
-	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": sessions})
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": sessions, "total": total})
 }
 
 func (h *SessionHandler) Create(c *gin.Context) {
@@ -112,4 +134,53 @@ func (h *SessionHandler) ListToolInvocations(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": invocations})
+}
+
+func (h *SessionHandler) BatchDelete(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	var req struct {
+		SessionIDs []string `json:"session_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+
+	if err := h.sessionService.BatchDeleteSessions(c.Request.Context(), tenantID, req.SessionIDs); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "deleted"})
+}
+
+func (h *SessionHandler) Get(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	sessionID := c.Param("sessionId")
+
+	session, err := h.sessionService.GetByID(c.Request.Context(), sessionID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	// 验证会话属于当前租户
+	if session.TenantID != tenantID {
+		mw.RespondError(c, domain.ErrSessionNotFound)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, session)
+}
+
+func (h *SessionHandler) GetActiveCount(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+
+	count, err := h.sessionService.CountActiveByTenant(c.Request.Context(), tenantID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"count": count})
 }

@@ -12,6 +12,7 @@ type TenantRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.Tenant, error)
 	GetBySlug(ctx context.Context, slug string) (*domain.Tenant, error)
 	List(ctx context.Context) ([]*domain.Tenant, error)
+	ListWithPagination(ctx context.Context, page, pageSize int) ([]*domain.Tenant, int64, error)
 	Update(ctx context.Context, tenant *domain.Tenant) error
 	Delete(ctx context.Context, id string) error
 }
@@ -54,6 +55,29 @@ func (r *MemoryTenantRepository) List(ctx context.Context) ([]*domain.Tenant, er
 		list = append(list, t)
 	}
 	return list, nil
+}
+
+func (r *MemoryTenantRepository) ListWithPagination(ctx context.Context, page, pageSize int) ([]*domain.Tenant, int64, error) {
+	var list []*domain.Tenant
+	for _, t := range r.tenants {
+		list = append(list, t)
+	}
+
+	total := int64(len(list))
+
+	// Calculate offset and limit
+	offset := (page - 1) * pageSize
+	end := offset + pageSize
+
+	// Apply pagination
+	if offset >= len(list) {
+		return []*domain.Tenant{}, total, nil
+	}
+	if end > len(list) {
+		end = len(list)
+	}
+
+	return list[offset:end], total, nil
 }
 
 func (r *MemoryTenantRepository) Update(ctx context.Context, tenant *domain.Tenant) error {

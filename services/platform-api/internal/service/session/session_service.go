@@ -51,8 +51,12 @@ func (s *Service) SetToolInvocationRepository(repo repository.ToolInvocationRepo
 	s.toolInvRepo = repo
 }
 
-func (s *Service) ListByTenant(ctx context.Context, tenantID string) ([]*domain.Session, error) {
-	return s.sessionRepo.ListByTenant(ctx, tenantID)
+func (s *Service) ListByTenant(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.Session, int64, error) {
+	return s.sessionRepo.ListByTenant(ctx, tenantID, page, pageSize)
+}
+
+func (s *Service) CountActiveByTenant(ctx context.Context, tenantID string) (int64, error) {
+	return s.sessionRepo.CountActiveByTenant(ctx, tenantID)
 }
 
 type CreateSessionResult struct {
@@ -210,6 +214,25 @@ func (s *Service) AbortSession(ctx context.Context, sessionID string, reason str
 		"reason": reason,
 	})
 
+	return nil
+}
+
+func (s *Service) BatchDeleteSessions(ctx context.Context, tenantID string, sessionIDs []string) error {
+	for _, sessionID := range sessionIDs {
+		session, err := s.sessionRepo.GetByID(ctx, sessionID)
+		if err != nil || session == nil {
+			continue
+		}
+		if session.TenantID != tenantID {
+			continue
+		}
+		// 这里可以添加删除逻辑，例如将会话标记为已删除或直接从数据库中删除
+		// 由于没有明确的删除方法，我们可以通过更新状态来实现
+		if session.TransitionTo(domain.SessionStatusAborted) {
+			_ = s.sessionRepo.Update(ctx, session)
+			s.recordAudit(ctx, session.TenantID, session.DeviceID, sessionID, "session.deleted", nil)
+		}
+	}
 	return nil
 }
 

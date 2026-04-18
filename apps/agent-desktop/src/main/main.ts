@@ -1573,9 +1573,14 @@ function registerIPC(): void {
 
   ipcMain.handle('get-app-version', () => app.getVersion());
 
-  ipcMain.handle('get-recent-sessions', () =>
-    safeLocalAPI('GET', '/local/v1/sessions/recent')
-  );
+  ipcMain.handle('get-recent-sessions', (_e, params?: { page?: number; pageSize?: number }) => {
+    let qs = '';
+    const queryParams: string[] = [];
+    if (params?.page) queryParams.push(`page=${params.page}`);
+    if (params?.pageSize) queryParams.push(`page_size=${params.pageSize}`);
+    if (queryParams.length) qs = '?' + queryParams.join('&');
+    return safeLocalAPI('GET', `/local/v1/sessions/recent${qs}`);
+  });
 
   ipcMain.handle('get-agent-core-logs', () => agentCoreLogs.join('\n'));
 

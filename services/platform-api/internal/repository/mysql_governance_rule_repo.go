@@ -56,6 +56,8 @@ type ToolPermissionRepository interface {
 	ListByTenant(ctx context.Context, tenantID string) ([]*domain.ToolPermission, error)
 	Delete(ctx context.Context, id string) error
 	GetByToolAndRole(ctx context.Context, tenantID, toolName string, roleID *string) (*domain.ToolPermission, error)
+	Update(ctx context.Context, tp *domain.ToolPermission) error
+	GetByID(ctx context.Context, id string) (*domain.ToolPermission, error)
 }
 
 type MySQLToolPermissionRepository struct {
@@ -91,6 +93,18 @@ func (r *MySQLToolPermissionRepository) GetByToolAndRole(ctx context.Context, te
 	}
 	var tp domain.ToolPermission
 	if err := q.First(&tp).Error; err != nil {
+		return nil, err
+	}
+	return &tp, nil
+}
+
+func (r *MySQLToolPermissionRepository) Update(ctx context.Context, tp *domain.ToolPermission) error {
+	return r.db.WithContext(ctx).Save(tp).Error
+}
+
+func (r *MySQLToolPermissionRepository) GetByID(ctx context.Context, id string) (*domain.ToolPermission, error) {
+	var tp domain.ToolPermission
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&tp).Error; err != nil {
 		return nil, err
 	}
 	return &tp, nil

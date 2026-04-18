@@ -26,6 +26,8 @@ func (h *GovernanceRuleHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 	router.POST("/tenants/:tenantId/tool-permissions", h.CreateToolPermission)
 	router.GET("/tenants/:tenantId/tool-permissions", h.ListToolPermissions)
+	router.GET("/tenants/:tenantId/tool-permissions/:permId", h.GetToolPermission)
+	router.PUT("/tenants/:tenantId/tool-permissions/:permId", h.UpdateToolPermission)
 	router.DELETE("/tenants/:tenantId/tool-permissions/:permId", h.DeleteToolPermission)
 }
 
@@ -119,6 +121,13 @@ type createToolPermReq struct {
 	MaxRisk  string  `json:"max_risk"`
 }
 
+type updateToolPermReq struct {
+	ToolName string  `json:"tool_name"`
+	RoleID   *string `json:"role_id"`
+	Allowed  bool    `json:"allowed"`
+	MaxRisk  string  `json:"max_risk"`
+}
+
 func (h *GovernanceRuleHandler) CreateToolPermission(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	var req createToolPermReq
@@ -151,4 +160,29 @@ func (h *GovernanceRuleHandler) DeleteToolPermission(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, gin.H{"deleted": true})
+}
+
+func (h *GovernanceRuleHandler) UpdateToolPermission(c *gin.Context) {
+	permID := c.Param("permId")
+	var req updateToolPermReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+	perm, err := h.svc.UpdateToolPermission(c.Request.Context(), permID, req.ToolName, req.RoleID, req.Allowed, req.MaxRisk)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, perm)
+}
+
+func (h *GovernanceRuleHandler) GetToolPermission(c *gin.Context) {
+	permID := c.Param("permId")
+	perm, err := h.svc.GetToolPermission(c.Request.Context(), permID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, perm)
 }

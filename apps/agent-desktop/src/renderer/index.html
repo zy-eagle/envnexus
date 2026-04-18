@@ -1917,16 +1917,28 @@ function renderDashboardFindings(findings) {
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
-async function loadHistory() {
+let historyPagination = {
+  page: 1,
+  pageSize: 10,
+  total: 0
+};
+
+async function loadHistory(page = 1, pageSize = 10) {
   const container = document.getElementById('history-list');
   try {
-    const data = await api.getRecentSessions();
+    const data = await api.getRecentSessions({ page, pageSize });
     if (data && data.error) throw new Error(data.error);
     const raw = data.sessions || data;
     const sessions = Array.isArray(raw) ? raw : [];
+    historyPagination = {
+      page,
+      pageSize,
+      total: data.total || 0
+    };
 
     if (sessions.length === 0) {
       container.innerHTML = `<div class="empty"><div class="empty-icon">⏱</div><div class="empty-text">${t('history_empty')}</div></div>`;
+      renderHistoryPagination();
       return;
     }
 
@@ -1950,9 +1962,72 @@ async function loadHistory() {
       `;
       container.appendChild(div);
     });
+    renderHistoryPagination();
   } catch (e) {
     container.innerHTML = `<div class="alert alert-error">${t('history_error')}${e.details || e.message || t('unknown_error')}</div>`;
+    renderHistoryPagination();
   }
+}
+
+function renderHistoryPagination() {
+  const container = document.getElementById('history-list');
+  const paginationDiv = document.createElement('div');
+  paginationDiv.className = 'flex justify-between items-center px-6 py-4 border-t border-gray-200';
+  paginationDiv.innerHTML = `
+    <div class="flex items-center space-x-4">
+      <div class="text-sm text-gray-500">
+        共 ${historyPagination.total} 条记录
+      </div>
+      <div class="flex items-center space-x-2">
+        <span class="text-sm text-gray-500">每页显示：</span>
+        <select 
+          id="history-page-size" 
+          value="${historyPagination.pageSize}" 
+          onchange="handleHistoryPageSizeChange(this.value)"
+          class="border rounded-md px-2 py-1 text-sm"
+        >
+          <option value="10">10条</option>
+          <option value="20">20条</option>
+          <option value="50">50条</option>
+          <option value="100">100条</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex items-center space-x-2">
+      <button 
+        onclick="handleHistoryPageChange(${historyPagination.page - 1})"
+        disabled="${historyPagination.page === 1}"
+        class="px-3 py-1 border rounded-md text-sm ${historyPagination.page === 1 ? 'opacity-50 cursor-not-allowed' : ''}"
+      >
+        上一页
+      </button>
+      <span class="text-sm">${historyPagination.page}</span>
+      <button 
+        onclick="handleHistoryPageChange(${historyPagination.page + 1})"
+        disabled="${historyPagination.page * historyPagination.pageSize >= historyPagination.total}"
+        class="px-3 py-1 border rounded-md text-sm ${historyPagination.page * historyPagination.pageSize >= historyPagination.total ? 'opacity-50 cursor-not-allowed' : ''}"
+      >
+        下一页
+      </button>
+    </div>
+  `;
+  // 检查是否已存在分页控件，如果存在则替换，否则添加
+  const existingPagination = container.nextElementSibling;
+  if (existingPagination && existingPagination.id === 'history-pagination') {
+    existingPagination.replaceWith(paginationDiv);
+  } else {
+    paginationDiv.id = 'history-pagination';
+    container.parentNode.insertBefore(paginationDiv, container.nextSibling);
+  }
+}
+
+function handleHistoryPageChange(newPage) {
+  if (newPage < 1) return;
+  loadHistory(newPage, historyPagination.pageSize);
+}
+
+function handleHistoryPageSizeChange(newPageSize) {
+  loadHistory(1, parseInt(newPageSize));
 }
 
 // ── Logs ──────────────────────────────────────────────────────────────────────

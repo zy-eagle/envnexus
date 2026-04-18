@@ -110,3 +110,26 @@ func (s *RuleService) IsToolAllowed(ctx context.Context, tenantID, toolName stri
 	}
 	return tp.Allowed, nil
 }
+
+func (s *RuleService) UpdateToolPermission(ctx context.Context, id, toolName string, roleID *string, allowed bool, maxRisk string) (*domain.ToolPermission, error) {
+	tp, err := s.permRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if toolName != "" {
+		tp.ToolName = toolName
+	}
+	tp.RoleID = roleID
+	tp.Allowed = allowed
+	if maxRisk != "" {
+		tp.MaxRisk = maxRisk
+	}
+	if err := s.permRepo.Update(ctx, tp); err != nil {
+		return nil, err
+	}
+	return tp, nil
+}
+
+func (s *RuleService) GetToolPermission(ctx context.Context, id string) (*domain.ToolPermission, error) {
+	return s.permRepo.GetByID(ctx, id)
+}

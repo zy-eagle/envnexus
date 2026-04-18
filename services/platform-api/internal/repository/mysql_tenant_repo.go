@@ -53,6 +53,28 @@ func (r *MySQLTenantRepository) List(ctx context.Context) ([]*domain.Tenant, err
 	return tenants, nil
 }
 
+func (r *MySQLTenantRepository) ListWithPagination(ctx context.Context, page, pageSize int) ([]*domain.Tenant, int64, error) {
+	var tenants []*domain.Tenant
+	var total int64
+
+	// Calculate offset
+	offset := (page - 1) * pageSize
+
+	// Get total count
+	err := r.db.WithContext(ctx).Model(&domain.Tenant{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Get paginated results
+	err = r.db.WithContext(ctx).Offset(offset).Limit(pageSize).Find(&tenants).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return tenants, total, nil
+}
+
 func (r *MySQLTenantRepository) Update(ctx context.Context, tenant *domain.Tenant) error {
 	return r.db.WithContext(ctx).Save(tenant).Error
 }

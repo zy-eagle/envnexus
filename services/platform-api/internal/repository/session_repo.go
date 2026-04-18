@@ -12,8 +12,9 @@ type SessionRepository interface {
 	Create(ctx context.Context, session *domain.Session) error
 	GetByID(ctx context.Context, id string) (*domain.Session, error)
 	Update(ctx context.Context, session *domain.Session) error
-	ListByTenant(ctx context.Context, tenantID string) ([]*domain.Session, error)
+	ListByTenant(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.Session, int64, error)
 	ListByDevice(ctx context.Context, deviceID string) ([]*domain.Session, error)
+	CountActiveByTenant(ctx context.Context, tenantID string) (int64, error)
 }
 
 type MySQLSessionRepository struct {
@@ -44,14 +45,32 @@ func (r *MySQLSessionRepository) Update(ctx context.Context, session *domain.Ses
 	return r.db.WithContext(ctx).Save(session).Error
 }
 
-func (r *MySQLSessionRepository) ListByTenant(ctx context.Context, tenantID string) ([]*domain.Session, error) {
+func (r *MySQLSessionRepository) ListByTenant(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.Session, int64, error) {
 	var sessions []*domain.Session
-	err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("started_at DESC").Find(&sessions).Error
-	return sessions, err
+	var total int64
+
+	// 计算总数
+	err := r.db.WithContext(ctx).Model(&domain.Session{}).Where("tenant_id = ?", tenantID).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询
+	offset := (page - 1) * pageSize
+	err = r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("started_at DESC").Offset(offset).Limit(pageSize).Find(&sessions).Error
+	return sessions, total, err
 }
 
 func (r *MySQLSessionRepository) ListByDevice(ctx context.Context, deviceID string) ([]*domain.Session, error) {
 	var sessions []*domain.Session
 	err := r.db.WithContext(ctx).Where("device_id = ?", deviceID).Order("started_at DESC").Find(&sessions).Error
 	return sessions, err
+}
+
+func (r *MySQLSessionRepository) CountActiveByTenant(ctx context.Context, tenantID string) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&domain.Session{}).
+		Where("tenant_id = ? AND status NOT IN ?", tenantID, []string{"completed", "aborted", "expired"}).
+		Count(&count).Error
+	return count, err
 }

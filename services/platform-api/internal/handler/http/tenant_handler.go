@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
@@ -66,13 +67,36 @@ func (h *TenantHandler) ListTenants(c *gin.Context) {
 			super = b
 		}
 	}
-	resp, err := h.tenantService.ListTenantsForActor(c.Request.Context(), super, userTenantID)
-	if err != nil {
-		mw.RespondError(c, err)
-		return
+
+	// Get pagination parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	// Validate pagination parameters
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
 	}
 
-	mw.RespondSuccess(c, http.StatusOK, resp)
+	if super {
+		// For super admins, return paginated list
+		tenants, total, err := h.tenantService.ListTenantsWithPagination(c.Request.Context(), page, pageSize)
+		if err != nil {
+			mw.RespondError(c, err)
+			return
+		}
+		mw.RespondSuccess(c, http.StatusOK, gin.H{"items": tenants, "total": total, "page": page, "page_size": pageSize})
+	} else {
+		// For regular users, return only their home tenant
+		resp, err := h.tenantService.ListTenantsForActor(c.Request.Context(), super, userTenantID)
+		if err != nil {
+			mw.RespondError(c, err)
+			return
+		}
+		mw.RespondSuccess(c, http.StatusOK, gin.H{"items": resp, "total": len(resp), "page": 1, "page_size": 1})
+	}
 }
 
 func (h *TenantHandler) UpdateTenant(c *gin.Context) {
