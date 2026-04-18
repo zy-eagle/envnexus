@@ -1594,12 +1594,25 @@ function registerIPC(): void {
   );
 
   ipcMain.handle('agent-update-check', () =>
-    safeLocalAPI('POST', '/local/v1/update/check')
+    safeLocalAPI('POST', '/local/v1/update/check', undefined, 30_000)
   );
 
-  ipcMain.handle('agent-update-download', () =>
-    safeLocalAPI('POST', '/local/v1/update/download')
-  );
+  ipcMain.handle('agent-update-download', async () => {
+    const progressPoller = setInterval(async () => {
+      try {
+        const st = await localAPIRequest('GET', '/local/v1/update/status', undefined, 3000);
+        if (st && mainWindow) {
+          mainWindow.webContents.send('agent-update-status', st);
+        }
+      } catch { /* agent-core busy downloading, ignore */ }
+    }, 2000);
+
+    try {
+      return await safeLocalAPI('POST', '/local/v1/update/download', undefined, 600_000);
+    } finally {
+      clearInterval(progressPoller);
+    }
+  });
 
   ipcMain.handle('agent-update-apply', async () => {
     const result = await safeLocalAPI('POST', '/local/v1/update/apply', undefined, 120_000);
