@@ -20,26 +20,64 @@ export default function GovernanceRulesPage({ params }: { params: { tenantId: st
   const ct = useDict('common', lang);
   const [rules, setRules] = useState<GovernanceRule[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
-  const fetchRules = async () => {
+  const fetchRules = async (page: number = 1, pageSize: number = 10) => {
     setLoading(true);
     try {
-      const data = await api.get<{ items: GovernanceRule[] }>(`/tenants/${params.tenantId}/governance-rules`);
-      setRules(Array.isArray(data) ? data : (data as any)?.items || []);
+      const data = await api.get<{ items: GovernanceRule[]; total: number } | GovernanceRule[]>(
+        `/tenants/${params.tenantId}/governance-rules?page=${page}&page_size=${pageSize}`
+      );
+      
+      if (Array.isArray(data)) {
+        setRules(data);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.length
+        }));
+      } else if (data && 'items' in data) {
+        setRules(data.items);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.total
+        }));
+      } else {
+        setRules([]);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: 0
+        }));
+      }
     } catch {
       setRules([]);
+      setPagination(prev => ({
+        ...prev,
+        total: 0
+      }));
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchRules(); }, [params.tenantId]);
+  useEffect(() => { fetchRules(pagination.page, pagination.pageSize); }, [params.tenantId, pagination.page, pagination.pageSize]);
 
   const handleDelete = async (id: string) => {
     if (!confirm(ct.confirmDelete)) return;
     try {
       await api.delete(`/tenants/${params.tenantId}/governance-rules/${id}`);
-      fetchRules();
+      fetchRules(pagination.page, pagination.pageSize);
     } catch (error) {
       console.error('Failed to delete rule:', error);
     }
@@ -52,6 +90,15 @@ export default function GovernanceRulesPage({ params }: { params: { tenantId: st
       case 'info': return 'bg-blue-100 text-blue-800';
       default: return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  // Pagination handlers
+  const handlePageChange = (newPage: number) => {
+    setPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPagination(prev => ({ ...prev, page: 1, pageSize: newPageSize }));
   };
 
   return (
@@ -90,6 +137,45 @@ export default function GovernanceRulesPage({ params }: { params: { tenantId: st
               ))}
             </tbody>
           </table>
+            {rules.length > 0 && (
+              <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-500">
+                    共 {pagination.total} 条记录
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">每页显示：</span>
+                    <select 
+                      value={pagination.pageSize} 
+                      onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="10">10条</option>
+                      <option value="20">20条</option>
+                      <option value="50">50条</option>
+                      <option value="100">100条</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => handlePageChange(pagination.page - 1)}
+                    disabled={pagination.page === 1}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm">{pagination.page}</span>
+                  <button 
+                    onClick={() => handlePageChange(pagination.page + 1)}
+                    disabled={pagination.page * pagination.pageSize >= pagination.total}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
         )}
       </div>
     </div>

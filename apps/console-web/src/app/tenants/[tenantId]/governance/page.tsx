@@ -52,6 +52,20 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
   const [deviceFilter, setDeviceFilter] = useState('');
   const [severityFilter, setSeverityFilter] = useState('');
   const [unresolvedOnly, setUnresolvedOnly] = useState(false);
+  
+  // Pagination state for drifts
+  const [driftPagination, setDriftPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
+  
+  // Pagination state for baselines
+  const [baselinePagination, setBaselinePagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -62,35 +76,103 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
     }
   }, [params.tenantId]);
 
-  const fetchBaselines = useCallback(async () => {
+  const fetchBaselines = useCallback(async (page: number = 1, pageSize: number = 10) => {
     try {
-      const qs = deviceFilter ? `?device_id=${deviceFilter}` : '';
-      const data = await api.get<Baseline[]>(`/tenants/${params.tenantId}/governance/baselines${qs}`);
-      setBaselines(Array.isArray(data) ? data : []);
+      const parts: string[] = [];
+      if (deviceFilter) parts.push(`device_id=${deviceFilter}`);
+      parts.push(`page=${page}`);
+      parts.push(`page_size=${pageSize}`);
+      const qs = parts.length > 0 ? `?${parts.join('&')}` : '';
+      const data = await api.get<{ items: Baseline[]; total: number } | Baseline[]>(
+        `/tenants/${params.tenantId}/governance/baselines${qs}`
+      );
+      
+      if (Array.isArray(data)) {
+        setBaselines(data);
+        setBaselinePagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.length
+        }));
+      } else if (data && 'items' in data) {
+        setBaselines(data.items);
+        setBaselinePagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.total
+        }));
+      } else {
+        setBaselines([]);
+        setBaselinePagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: 0
+        }));
+      }
     } catch {
       setBaselines([]);
+      setBaselinePagination(prev => ({
+        ...prev,
+        total: 0
+      }));
     }
   }, [params.tenantId, deviceFilter]);
 
-  const fetchDrifts = useCallback(async () => {
+  const fetchDrifts = useCallback(async (page: number = 1, pageSize: number = 10) => {
     const parts: string[] = [];
     if (deviceFilter) parts.push(`device_id=${deviceFilter}`);
     if (severityFilter) parts.push(`severity=${severityFilter}`);
     if (unresolvedOnly) parts.push('unresolved=true');
+    parts.push(`page=${page}`);
+    parts.push(`page_size=${pageSize}`);
     const qs = parts.length > 0 ? `?${parts.join('&')}` : '';
     try {
-      const data = await api.get<Drift[]>(`/tenants/${params.tenantId}/governance/drifts${qs}`);
-      setDrifts(Array.isArray(data) ? data : []);
+      const data = await api.get<{ items: Drift[]; total: number } | Drift[]>(
+        `/tenants/${params.tenantId}/governance/drifts${qs}`
+      );
+      
+      if (Array.isArray(data)) {
+        setDrifts(data);
+        setDriftPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.length
+        }));
+      } else if (data && 'items' in data) {
+        setDrifts(data.items);
+        setDriftPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.total
+        }));
+      } else {
+        setDrifts([]);
+        setDriftPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: 0
+        }));
+      }
     } catch {
       setDrifts([]);
+      setDriftPagination(prev => ({
+        ...prev,
+        total: 0
+      }));
     }
   }, [params.tenantId, deviceFilter, severityFilter, unresolvedOnly]);
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchSummary(), tab === 'baselines' ? fetchBaselines() : fetchDrifts()])
+    Promise.all([fetchSummary(), tab === 'baselines' ? fetchBaselines(baselinePagination.page, baselinePagination.pageSize) : fetchDrifts(driftPagination.page, driftPagination.pageSize)])
       .finally(() => setLoading(false));
-  }, [fetchSummary, fetchBaselines, fetchDrifts, tab]);
+  }, [fetchSummary, fetchBaselines, fetchDrifts, tab, baselinePagination.page, baselinePagination.pageSize, driftPagination.page, driftPagination.pageSize]);
 
   const handleResolve = async (driftId: string) => {
     try {
@@ -104,13 +186,31 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
 
   const handleFilter = (e: React.FormEvent) => {
     e.preventDefault();
-    if (tab === 'baselines') fetchBaselines();
-    else fetchDrifts();
+    if (tab === 'baselines') fetchBaselines(baselinePagination.page, baselinePagination.pageSize);
+    else fetchDrifts(driftPagination.page, driftPagination.pageSize);
   };
 
   const severityLabel = (s: string) => {
     const map: Record<string, string> = { low: t.severityLow, medium: t.severityMedium, high: t.severityHigh, critical: t.severityCritical };
     return map[s] || s;
+  };
+
+  // Pagination handlers for drifts
+  const handleDriftPageChange = (newPage: number) => {
+    setDriftPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handleDriftPageSizeChange = (newPageSize: number) => {
+    setDriftPagination(prev => ({ ...prev, page: 1, pageSize: newPageSize }));
+  };
+
+  // Pagination handlers for baselines
+  const handleBaselinePageChange = (newPage: number) => {
+    setBaselinePagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handleBaselinePageSizeChange = (newPageSize: number) => {
+    setBaselinePagination(prev => ({ ...prev, page: 1, pageSize: newPageSize }));
   };
 
   return (
@@ -268,6 +368,64 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 ))}
               </tbody>
             </table>
+            {(tab === 'drifts' ? drifts.length > 0 : baselines.length > 0) && (
+              <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-500">
+                    共 {(tab === 'drifts' ? driftPagination.total : baselinePagination.total)} 条记录
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">每页显示：</span>
+                    <select 
+                      value={tab === 'drifts' ? driftPagination.pageSize : baselinePagination.pageSize} 
+                      onChange={(e) => {
+                        const newSize = parseInt(e.target.value);
+                        if (tab === 'drifts') {
+                          handleDriftPageSizeChange(newSize);
+                        } else {
+                          handleBaselinePageSizeChange(newSize);
+                        }
+                      }}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="10">10条</option>
+                      <option value="20">20条</option>
+                      <option value="50">50条</option>
+                      <option value="100">100条</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => {
+                      if (tab === 'drifts') {
+                        handleDriftPageChange(driftPagination.page - 1);
+                      } else {
+                        handleBaselinePageChange(baselinePagination.page - 1);
+                      }
+                    }}
+                    disabled={tab === 'drifts' ? driftPagination.page === 1 : baselinePagination.page === 1}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm">{tab === 'drifts' ? driftPagination.page : baselinePagination.page}</span>
+                  <button 
+                    onClick={() => {
+                      if (tab === 'drifts') {
+                        handleDriftPageChange(driftPagination.page + 1);
+                      } else {
+                        handleBaselinePageChange(baselinePagination.page + 1);
+                      }
+                    }}
+                    disabled={tab === 'drifts' ? driftPagination.page * driftPagination.pageSize >= driftPagination.total : baselinePagination.page * baselinePagination.pageSize >= baselinePagination.total}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           )
         ) : (
           baselines.length === 0 ? (
@@ -317,6 +475,64 @@ export default function GovernancePage({ params }: { params: { tenantId: string 
                 ))}
               </tbody>
             </table>
+            {(tab === 'drifts' ? drifts.length > 0 : baselines.length > 0) && (
+              <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-500">
+                    共 {(tab === 'drifts' ? driftPagination.total : baselinePagination.total)} 条记录
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">每页显示：</span>
+                    <select 
+                      value={tab === 'drifts' ? driftPagination.pageSize : baselinePagination.pageSize} 
+                      onChange={(e) => {
+                        const newSize = parseInt(e.target.value);
+                        if (tab === 'drifts') {
+                          handleDriftPageSizeChange(newSize);
+                        } else {
+                          handleBaselinePageSizeChange(newSize);
+                        }
+                      }}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="10">10条</option>
+                      <option value="20">20条</option>
+                      <option value="50">50条</option>
+                      <option value="100">100条</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => {
+                      if (tab === 'drifts') {
+                        handleDriftPageChange(driftPagination.page - 1);
+                      } else {
+                        handleBaselinePageChange(baselinePagination.page - 1);
+                      }
+                    }}
+                    disabled={tab === 'drifts' ? driftPagination.page === 1 : baselinePagination.page === 1}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm">{tab === 'drifts' ? driftPagination.page : baselinePagination.page}</span>
+                  <button 
+                    onClick={() => {
+                      if (tab === 'drifts') {
+                        handleDriftPageChange(driftPagination.page + 1);
+                      } else {
+                        handleBaselinePageChange(baselinePagination.page + 1);
+                      }
+                    }}
+                    disabled={tab === 'drifts' ? driftPagination.page * driftPagination.pageSize >= driftPagination.total : baselinePagination.page * baselinePagination.pageSize >= baselinePagination.total}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           )
         )}
       </div>

@@ -29,8 +29,15 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
     include_archived: false,
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
-  const fetchEvents = async () => {
+  const fetchEvents = async (page: number = 1, pageSize: number = 10) => {
     setLoading(true);
     try {
       const queryParts: string[] = [];
@@ -38,25 +45,65 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
       if (filters.device_id) queryParts.push(`device_id=${filters.device_id}`);
       if (filters.event_type) queryParts.push(`event_type=${filters.event_type}`);
       if (filters.include_archived) queryParts.push(`include_archived=true`);
+      queryParts.push(`page=${page}`);
+      queryParts.push(`page_size=${pageSize}`);
       const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
 
-      const data = await api.get<{ items: AuditEvent[] }>(`/tenants/${params.tenantId}/audit-events${qs}`);
-      setEvents(Array.isArray(data) ? data : []);
+      const data = await api.get<{ items: AuditEvent[]; total: number } | AuditEvent[]>(`/tenants/${params.tenantId}/audit-events${qs}`);
+      
+      if (Array.isArray(data)) {
+        setEvents(data);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.length
+        }));
+      } else if (data && 'items' in data) {
+        setEvents(data.items);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.total
+        }));
+      } else {
+        setEvents([]);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: 0
+        }));
+      }
     } catch (error) {
       console.error('Failed to fetch audit events:', error);
       setEvents([]);
+      setPagination(prev => ({
+        ...prev,
+        total: 0
+      }));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchEvents();
-  }, [params.tenantId]);
+    fetchEvents(pagination.page, pagination.pageSize);
+  }, [params.tenantId, pagination.page, pagination.pageSize]);
 
   const handleFilter = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchEvents();
+    fetchEvents(pagination.page, pagination.pageSize);
+  };
+
+  // Pagination handlers
+  const handlePageChange = (newPage: number) => {
+    setPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPagination(prev => ({ ...prev, page: 1, pageSize: newPageSize }));
   };
 
   return (
@@ -170,6 +217,45 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
               ))}
             </tbody>
           </table>
+            {events.length > 0 && (
+              <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-500">
+                    共 {pagination.total} 条记录
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">每页显示：</span>
+                    <select 
+                      value={pagination.pageSize} 
+                      onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="10">10条</option>
+                      <option value="20">20条</option>
+                      <option value="50">50条</option>
+                      <option value="100">100条</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => handlePageChange(pagination.page - 1)}
+                    disabled={pagination.page === 1}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm">{pagination.page}</span>
+                  <button 
+                    onClick={() => handlePageChange(pagination.page + 1)}
+                    disabled={pagination.page * pagination.pageSize >= pagination.total}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
         )}
       </div>
     </div>

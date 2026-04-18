@@ -98,6 +98,18 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
   const [tasks, setTasks] = useState<CommandTask[]>([]);
   const [fileApprovals, setFileApprovals] = useState<FileApproval[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Pagination states
+  const [taskPagination, setTaskPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
+  const [filePagination, setFilePagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
   const [approveModal, setApproveModal] = useState<CommandTask | null>(null);
   const [approveNote, setApproveNote] = useState('');
@@ -111,11 +123,19 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
 
   const [detailModal, setDetailModal] = useState<CommandTask | null>(null);
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (page?: number, pageSize?: number) => {
     try {
-      const data = await api.get<PendingApprovalsResponse>(`/tenants/${tenantId}/pending-approvals`);
+      const currentPage = page || taskPagination.page;
+      const currentPageSize = pageSize || taskPagination.pageSize;
+      const data = await api.get<PendingApprovalsResponse>(`/tenants/${tenantId}/pending-approvals?page=${currentPage}&page_size=${currentPageSize}`);
       if (data && Array.isArray(data.tasks)) {
         setTasks(data.tasks);
+        setTaskPagination(prev => ({
+          ...prev,
+          page: currentPage,
+          pageSize: currentPageSize,
+          total: data.total || 0
+        }));
       } else if (Array.isArray(data)) {
         setTasks(data as unknown as CommandTask[]);
       } else {
@@ -127,16 +147,24 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, taskPagination.page, taskPagination.pageSize]);
 
-  const fetchFileApprovals = useCallback(async () => {
+  const fetchFileApprovals = useCallback(async (page?: number, pageSize?: number) => {
     try {
-      const data = await api.get<{ items: FileApproval[] }>(`/tenants/${tenantId}/pending-file-approvals`);
-      setFileApprovals(Array.isArray(data) ? data : (data as any)?.items || []);
+      const currentPage = page || filePagination.page;
+      const currentPageSize = pageSize || filePagination.pageSize;
+      const data = await api.get<any>(`/tenants/${tenantId}/pending-file-approvals?page=${currentPage}&page_size=${currentPageSize}`);
+      setFileApprovals(Array.isArray(data) ? data : (data?.items ?? []));
+      setFilePagination(prev => ({
+        ...prev,
+        page: currentPage,
+        pageSize: currentPageSize,
+        total: data?.total || 0
+      }));
     } catch {
       setFileApprovals([]);
     }
-  }, [tenantId]);
+  }, [tenantId, filePagination.page, filePagination.pageSize]);
 
   useEffect(() => {
     fetchTasks();
@@ -195,6 +223,23 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
     } finally {
       setDenying(false);
     }
+  };
+
+  // Pagination handlers
+  const handleTaskPageChange = (newPage: number) => {
+    fetchTasks(newPage, taskPagination.pageSize);
+  };
+
+  const handleTaskPageSizeChange = (newPageSize: number) => {
+    fetchTasks(1, newPageSize);
+  };
+
+  const handleFilePageChange = (newPage: number) => {
+    fetchFileApprovals(newPage, filePagination.pageSize);
+  };
+
+  const handleFilePageSizeChange = (newPageSize: number) => {
+    fetchFileApprovals(1, newPageSize);
   };
 
   return (
@@ -294,6 +339,45 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
                 </div>
               ))}
             </div>
+            {fileApprovals.length > 0 && (
+              <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-500">
+                    共 {filePagination.total} 条记录
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">每页显示：</span>
+                    <select 
+                      value={filePagination.pageSize} 
+                      onChange={(e) => handleFilePageSizeChange(parseInt(e.target.value))}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="10">10条</option>
+                      <option value="20">20条</option>
+                      <option value="50">50条</option>
+                      <option value="100">100条</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => handleFilePageChange(filePagination.page - 1)}
+                    disabled={filePagination.page === 1}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm">{filePagination.page}</span>
+                  <button 
+                    onClick={() => handleFilePageChange(filePagination.page + 1)}
+                    disabled={filePagination.page * filePagination.pageSize >= filePagination.total}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           )}
         </div>
       )}
@@ -389,9 +473,48 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
                 </div>
               </div>
             ))}
-          </div>
-        )}
-      </div>}
+            </div>
+            {tasks.length > 0 && (
+              <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-500">
+                    共 {taskPagination.total} 条记录
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">每页显示：</span>
+                    <select 
+                      value={taskPagination.pageSize} 
+                      onChange={(e) => handleTaskPageSizeChange(parseInt(e.target.value))}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="10">10条</option>
+                      <option value="20">20条</option>
+                      <option value="50">50条</option>
+                      <option value="100">100条</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => handleTaskPageChange(taskPagination.page - 1)}
+                    disabled={taskPagination.page === 1}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm">{taskPagination.page}</span>
+                  <button 
+                    onClick={() => handleTaskPageChange(taskPagination.page + 1)}
+                    disabled={taskPagination.page * taskPagination.pageSize >= taskPagination.total}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
+          )}
+        </div>}
 
       {/* Approve Modal */}
       {approveModal && (

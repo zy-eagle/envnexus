@@ -181,6 +181,11 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [approvalPolicyNameById, setApprovalPolicyNameById] = useState<Record<string, string>>({});
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -541,11 +546,15 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     return false;
   };
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (page?: number, pageSize?: number) => {
     try {
-      const endpoint = statusFilter
-        ? `/tenants/${tenantId}/command-tasks?status=${statusFilter}`
-        : `/tenants/${tenantId}/command-tasks`;
+      const currentPage = page || pagination.page;
+      const currentPageSize = pageSize || pagination.pageSize;
+      const queryParams: string[] = [];
+      if (statusFilter) queryParams.push(`status=${statusFilter}`);
+      queryParams.push(`page=${currentPage}`);
+      queryParams.push(`page_size=${currentPageSize}`);
+      const endpoint = `/tenants/${tenantId}/command-tasks?${queryParams.join('&')}`;
       const data = await api.get<any>(endpoint);
       // API standard response unwraps to `data`.
       // platform-api ListTasks returns `{ tasks: [...], total: n }`.
@@ -554,12 +563,18 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
           ? data
           : (data?.tasks ?? data?.items ?? [])
       );
+      setPagination(prev => ({
+        ...prev,
+        page: currentPage,
+        pageSize: currentPageSize,
+        total: data?.total || 0
+      }));
     } catch (error) {
       console.error("Failed to fetch command tasks:", error);
     } finally {
       setLoading(false);
     }
-  }, [tenantId, statusFilter]);
+  }, [tenantId, statusFilter, pagination.page, pagination.pageSize]);
 
   const fetchApprovalPolicies = useCallback(async () => {
     try {
@@ -855,6 +870,14 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handlePageChange = (newPage: number) => {
+    fetchTasks(newPage, pagination.pageSize);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    fetchTasks(1, newPageSize);
   };
 
   const handleApprove = async (taskId: string) => {
@@ -1568,6 +1591,45 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+        {!loading && tasks.length > 0 && (
+          <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+            <div className="flex items-center space-x-4">
+              <div className="text-sm text-gray-500">
+                共 {pagination.total} 条记录
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-500">每页显示：</span>
+                <select 
+                  value={pagination.pageSize} 
+                  onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                  className="border rounded-md px-2 py-1 text-sm"
+                >
+                  <option value="10">10条</option>
+                  <option value="20">20条</option>
+                  <option value="50">50条</option>
+                  <option value="100">100条</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={() => handlePageChange(pagination.page - 1)}
+                disabled={pagination.page === 1}
+                className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+              >
+                上一页
+              </button>
+              <span className="text-sm">{pagination.page}</span>
+              <button 
+                onClick={() => handlePageChange(pagination.page + 1)}
+                disabled={pagination.page * pagination.pageSize >= pagination.total}
+                className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+              >
+                下一页
+              </button>
+            </div>
           </div>
         )}
       </div>

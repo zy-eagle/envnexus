@@ -120,6 +120,16 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [devicePagination, setDevicePagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
+  const [requestPagination, setRequestPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
   // Active browse request tracking
   const [activeBrowseId, setActiveBrowseId] = useState<string | null>(null);
@@ -133,19 +143,35 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
   const [previewAction, setPreviewAction] = useState<string | null>(null);
   const [pendingDownloadId, setPendingDownloadId] = useState<string | null>(null);
 
-  const fetchDevices = useCallback(async () => {
+  const fetchDevices = useCallback(async (page?: number, pageSize?: number) => {
     try {
-      const data = await api.get<Device[]>(`/tenants/${params.tenantId}/devices`);
-      setDevices(Array.isArray(data) ? data : []);
+      const currentPage = page || devicePagination.page;
+      const currentPageSize = pageSize || devicePagination.pageSize;
+      const data = await api.get<any>(`/tenants/${params.tenantId}/devices?page=${currentPage}&page_size=${currentPageSize}`);
+      setDevices(Array.isArray(data) ? data : (data?.items ?? []));
+      setDevicePagination(prev => ({
+        ...prev,
+        page: currentPage,
+        pageSize: currentPageSize,
+        total: data?.total || 0
+      }));
     } catch { setDevices([]); }
-  }, [params.tenantId]);
+  }, [params.tenantId, devicePagination.page, devicePagination.pageSize]);
 
-  const fetchRequests = useCallback(async () => {
+  const fetchRequests = useCallback(async (page?: number, pageSize?: number) => {
     try {
-      const data = await api.get<{ items: FileAccessRequest[] }>(`/tenants/${params.tenantId}/file-access-requests`);
-      setRequests(Array.isArray(data) ? data : (data as any)?.items || []);
+      const currentPage = page || requestPagination.page;
+      const currentPageSize = pageSize || requestPagination.pageSize;
+      const data = await api.get<any>(`/tenants/${params.tenantId}/file-access-requests?page=${currentPage}&page_size=${currentPageSize}`);
+      setRequests(Array.isArray(data) ? data : (data?.items ?? []));
+      setRequestPagination(prev => ({
+        ...prev,
+        page: currentPage,
+        pageSize: currentPageSize,
+        total: data?.total || 0
+      }));
     } catch { setRequests([]); }
-  }, [params.tenantId]);
+  }, [params.tenantId, requestPagination.page, requestPagination.pageSize]);
 
   useEffect(() => { fetchDevices(); fetchRequests(); }, [fetchDevices, fetchRequests]);
 
@@ -329,6 +355,22 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
     }
   };
 
+  const handleDevicePageChange = (newPage: number) => {
+    fetchDevices(newPage, devicePagination.pageSize);
+  };
+
+  const handleDevicePageSizeChange = (newPageSize: number) => {
+    fetchDevices(1, newPageSize);
+  };
+
+  const handleRequestPageChange = (newPage: number) => {
+    fetchRequests(newPage, requestPagination.pageSize);
+  };
+
+  const handleRequestPageSizeChange = (newPageSize: number) => {
+    fetchRequests(1, newPageSize);
+  };
+
   const statusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-800';
@@ -358,7 +400,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
       {/* Device selector + path input */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-4">
+          <div className="md:col-span-4 space-y-2">
             <select
               value={selectedDeviceId}
               onChange={e => {
@@ -379,6 +421,37 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
                 </option>
               ))}
             </select>
+            <div className="flex justify-between items-center text-xs text-gray-500">
+              <div>共 {devicePagination.total} 台设备</div>
+              <div className="flex items-center space-x-2">
+                <span>每页显示：</span>
+                <select 
+                  value={devicePagination.pageSize} 
+                  onChange={(e) => handleDevicePageSizeChange(parseInt(e.target.value))}
+                  className="border rounded-md px-1 py-0.5 text-xs"
+                >
+                  <option value="10">10条</option>
+                  <option value="20">20条</option>
+                  <option value="50">50条</option>
+                  <option value="100">100条</option>
+                </select>
+                <button 
+                  onClick={() => handleDevicePageChange(devicePagination.page - 1)}
+                  disabled={devicePagination.page === 1}
+                  className="px-2 py-0.5 border rounded-md text-xs disabled:opacity-50"
+                >
+                  上一页
+                </button>
+                <span>{devicePagination.page}</span>
+                <button 
+                  onClick={() => handleDevicePageChange(devicePagination.page + 1)}
+                  disabled={devicePagination.page * devicePagination.pageSize >= devicePagination.total}
+                  className="px-2 py-0.5 border rounded-md text-xs disabled:opacity-50"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
           </div>
           <form onSubmit={handleManualBrowse} className="md:col-span-8 flex gap-2">
             <input
@@ -683,6 +756,39 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
                 </div>
               ))}
             </div>
+            {requests.length > 0 && (
+              <div className="flex justify-between items-center px-4 py-3 border-t border-gray-200 text-xs text-gray-500">
+                <div>共 {requestPagination.total} 条记录</div>
+                <div className="flex items-center space-x-2">
+                  <span>每页显示：</span>
+                  <select 
+                    value={requestPagination.pageSize} 
+                    onChange={(e) => handleRequestPageSizeChange(parseInt(e.target.value))}
+                    className="border rounded-md px-1 py-0.5 text-xs"
+                  >
+                    <option value="10">10条</option>
+                    <option value="20">20条</option>
+                    <option value="50">50条</option>
+                    <option value="100">100条</option>
+                  </select>
+                  <button 
+                    onClick={() => handleRequestPageChange(requestPagination.page - 1)}
+                    disabled={requestPagination.page === 1}
+                    className="px-2 py-0.5 border rounded-md text-xs disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span>{requestPagination.page}</span>
+                  <button 
+                    onClick={() => handleRequestPageChange(requestPagination.page + 1)}
+                    disabled={requestPagination.page * requestPagination.pageSize >= requestPagination.total}
+                    className="px-2 py-0.5 border rounded-md text-xs disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           )}
         </div>
       )}

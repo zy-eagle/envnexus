@@ -58,6 +58,13 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
   const [submitting, setSubmitting] = useState(false);
   const [createdKey, setCreatedKey] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
+  
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
   const [formData, setFormData] = useState({
     agent_profile_id: '',
     distribution_mode: 'standard',
@@ -84,12 +91,44 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
-  const fetchPackages = useCallback(async () => {
+  const fetchPackages = useCallback(async (page: number = 1, pageSize: number = 10) => {
+    setLoading(true);
     try {
-      const data = await api.get<DownloadPackage[]>(`/tenants/${params.tenantId}/download-packages`);
-      setPackages(Array.isArray(data) ? data : []);
+      const data = await api.get<{ items: DownloadPackage[]; total: number } | DownloadPackage[]>(
+        `/tenants/${params.tenantId}/download-packages?page=${page}&page_size=${pageSize}`
+      );
+      
+      if (Array.isArray(data)) {
+        setPackages(data);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.length
+        }));
+      } else if (data && 'items' in data) {
+        setPackages(data.items);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.total
+        }));
+      } else {
+        setPackages([]);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: 0
+        }));
+      }
     } catch {
       setPackages([]);
+      setPagination(prev => ({
+        ...prev,
+        total: 0
+      }));
     } finally {
       setLoading(false);
     }
@@ -105,9 +144,9 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
   }, [params.tenantId]);
 
   useEffect(() => {
-    fetchPackages();
+    fetchPackages(pagination.page, pagination.pageSize);
     fetchAgentProfiles();
-  }, [fetchPackages, fetchAgentProfiles]);
+  }, [fetchPackages, fetchAgentProfiles, pagination.page, pagination.pageSize]);
 
   useEffect(() => {
     const hasBuilding = packages.some(p => p.status === 'building');
@@ -151,7 +190,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
       } else {
         setIsModalOpen(false);
       }
-      fetchPackages();
+      fetchPackages(pagination.page, pagination.pageSize);
     } catch (err: unknown) {
       const msg =
         err instanceof APIError && err.code === 'duplicate_download_package'
@@ -186,7 +225,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
       });
       setBindDeviceCode('');
       fetchBindings(bindingPkg);
-      fetchPackages();
+      fetchPackages(pagination.page, pagination.pageSize);
     } catch (err: any) {
       alert(err.message || ct.error);
     }
@@ -197,7 +236,7 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     try {
       await api.delete(`/tenants/${params.tenantId}/download-packages/${bindingPkg.id}/bindings/${bindingId}`);
       fetchBindings(bindingPkg);
-      fetchPackages();
+      fetchPackages(pagination.page, pagination.pageSize);
     } catch (err: any) {
       alert(err.message || ct.error);
     }
@@ -220,10 +259,19 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
     if (!confirm(t.deletePackageConfirm)) return;
     try {
       await api.delete(`/tenants/${params.tenantId}/download-packages/${pkg.id}`);
-      fetchPackages();
+      fetchPackages(pagination.page, pagination.pageSize);
     } catch (err: any) {
       alert(err.message || ct.error);
     }
+  };
+
+  // Pagination handlers
+  const handlePageChange = (newPage: number) => {
+    setPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPagination(prev => ({ ...prev, page: 1, pageSize: newPageSize }));
   };
 
   const modeLabel = (mode: string) => {
@@ -712,6 +760,45 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
               ))}
             </tbody>
           </table>
+          {packages.length > 0 && (
+            <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-gray-500">
+                  共 {pagination.total} 条记录
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-500">每页显示：</span>
+                  <select 
+                    value={pagination.pageSize} 
+                    onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                    className="border rounded-md px-2 py-1 text-sm"
+                  >
+                    <option value="10">10条</option>
+                    <option value="20">20条</option>
+                    <option value="50">50条</option>
+                    <option value="100">100条</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={pagination.page === 1}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  上一页
+                </button>
+                <span className="text-sm">{pagination.page}</span>
+                <button 
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={pagination.page * pagination.pageSize >= pagination.total}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
         )}
       </div>
     </div>

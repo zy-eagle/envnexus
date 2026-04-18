@@ -33,6 +33,11 @@ export default function HealthDashboardPage({ params }: { params: { tenantId: st
   const [devices, setDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [editNameDraft, setEditNameDraft] = useState('');
@@ -44,21 +49,29 @@ export default function HealthDashboardPage({ params }: { params: { tenantId: st
     return () => clearInterval(id);
   }, []);
 
-  const fetchData = useCallback(async (initial = false) => {
+  const fetchData = useCallback(async (initial = false, page?: number, pageSize?: number) => {
     if (initial) setLoading(true);
     try {
+      const currentPage = page || pagination.page;
+      const currentPageSize = pageSize || pagination.pageSize;
       const [sum, devList] = await Promise.all([
         api.get<HealthSummary>(`/tenants/${params.tenantId}/health/summary`).catch(() => null),
-        api.get<any[]>(`/tenants/${params.tenantId}/devices`),
+        api.get<any>(`/tenants/${params.tenantId}/devices?page=${currentPage}&page_size=${currentPageSize}`),
       ]);
       setSummary(sum);
-      setDevices(Array.isArray(devList) ? devList : []);
+      setDevices(Array.isArray(devList) ? devList : (devList?.items ?? []));
+      setPagination(prev => ({
+        ...prev,
+        page: currentPage,
+        pageSize: currentPageSize,
+        total: devList?.total || 0
+      }));
     } catch {
       setDevices([]);
     } finally {
       if (initial) setLoading(false);
     }
-  }, [params.tenantId]);
+  }, [params.tenantId, pagination.page, pagination.pageSize]);
 
   useEffect(() => {
     fetchData(true);
@@ -107,6 +120,14 @@ export default function HealthDashboardPage({ params }: { params: { tenantId: st
     } finally {
       setRenameSaving(false);
     }
+  };
+
+  const handlePageChange = (newPage: number) => {
+    fetchData(false, newPage, pagination.pageSize);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    fetchData(false, 1, newPageSize);
   };
 
   const statusColor = (status: string) => {
@@ -251,6 +272,45 @@ export default function HealthDashboardPage({ params }: { params: { tenantId: st
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {!loading && devices.length > 0 && (
+              <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <div className="text-sm text-gray-500">
+                    共 {pagination.total} 条记录
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">每页显示：</span>
+                    <select 
+                      value={pagination.pageSize} 
+                      onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="10">10条</option>
+                      <option value="20">20条</option>
+                      <option value="50">50条</option>
+                      <option value="100">100条</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    onClick={() => handlePageChange(pagination.page - 1)}
+                    disabled={pagination.page === 1}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm">{pagination.page}</span>
+                  <button 
+                    onClick={() => handlePageChange(pagination.page + 1)}
+                    disabled={pagination.page * pagination.pageSize >= pagination.total}
+                    className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                  >
+                    下一页
+                  </button>
+                </div>
               </div>
             )}
           </div>

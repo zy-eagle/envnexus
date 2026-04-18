@@ -79,6 +79,13 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
   const [formError, setFormError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [deleteTarget, setDeleteTarget] = useState<ApprovalPolicy | null>(null);
+  
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
   const [userQuery, setUserQuery] = useState('');
   const [roleQuery, setRoleQuery] = useState('');
@@ -87,20 +94,53 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
   const [userLoading, setUserLoading] = useState(false);
   const [roleLoading, setRoleLoading] = useState(false);
 
-  const fetchPolicies = async () => {
+  const fetchPolicies = async (page: number = 1, pageSize: number = 10) => {
+    setLoading(true);
     try {
-      const data = await api.get<ApprovalPolicy[]>(`/tenants/${params.tenantId}/approval-policies`);
-      setPolicies(Array.isArray(data) ? data : []);
+      const data = await api.get<{ items: ApprovalPolicy[]; total: number } | ApprovalPolicy[]>(
+        `/tenants/${params.tenantId}/approval-policies?page=${page}&page_size=${pageSize}`
+      );
+      
+      if (Array.isArray(data)) {
+        setPolicies(data);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.length
+        }));
+      } else if (data && 'items' in data) {
+        setPolicies(data.items);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.total
+        }));
+      } else {
+        setPolicies([]);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: 0
+        }));
+      }
     } catch (error) {
       console.error('Failed to fetch approval policies:', error);
+      setPolicies([]);
+      setPagination(prev => ({
+        ...prev,
+        total: 0
+      }));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchPolicies();
-  }, [params.tenantId]);
+    fetchPolicies(pagination.page, pagination.pageSize);
+  }, [params.tenantId, pagination.page, pagination.pageSize]);
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -214,7 +254,7 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
         await api.post(`/tenants/${params.tenantId}/approval-policies`, body);
       }
       setIsModalOpen(false);
-      fetchPolicies();
+      fetchPolicies(pagination.page, pagination.pageSize);
     } catch (error) {
       if (error instanceof APIError && error.status === 409) {
         setFormError(ct.duplicateName);
@@ -229,7 +269,7 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
     try {
       await api.delete(`/tenants/${params.tenantId}/approval-policies/${deleteTarget.id}`);
       setDeleteTarget(null);
-      fetchPolicies();
+      fetchPolicies(pagination.page, pagination.pageSize);
     } catch (error) {
       console.error('Failed to delete approval policy:', error);
     }
@@ -259,6 +299,15 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
     if (policy.approver_user_id) return policy.approver_user_id;
     if (policy.approver_role_id) return policy.approver_role_id;
     return '-';
+  };
+
+  // Pagination handlers
+  const handlePageChange = (newPage: number) => {
+    setPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPagination(prev => ({ ...prev, page: 1, pageSize: newPageSize }));
   };
 
   return (
@@ -335,6 +384,45 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
               </tbody>
             </table>
           </div>
+          {policies.length > 0 && (
+            <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-gray-500">
+                  共 {pagination.total} 条记录
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-500">每页显示：</span>
+                  <select 
+                    value={pagination.pageSize} 
+                    onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                    className="border rounded-md px-2 py-1 text-sm"
+                  >
+                    <option value="10">10条</option>
+                    <option value="20">20条</option>
+                    <option value="50">50条</option>
+                    <option value="100">100条</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={pagination.page === 1}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  上一页
+                </button>
+                <span className="text-sm">{pagination.page}</span>
+                <button 
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={pagination.page * pagination.pageSize >= pagination.total}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
         )}
       </div>
 

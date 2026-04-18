@@ -53,6 +53,13 @@ export default function TenantRolesPage() {
   const [items, setItems] = useState<RoleItem[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
   const [permissionCatalog, setPermissionCatalog] = useState<string[]>([]);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
@@ -90,26 +97,58 @@ export default function TenantRolesPage() {
     }
   }, [tenantId, t.catalogLoadFailed]);
 
-  const fetchRoles = async (q: string) => {
+  const fetchRoles = async (q: string, page: number = 1, pageSize: number = 10) => {
     if (!tenantId) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await api.get<{ items: RoleItem[] }>(`/tenants/${tenantId}/roles?q=${encodeURIComponent(q)}&limit=100`);
-      setItems(Array.isArray(data?.items) ? data.items : []);
+      const data = await api.get<{ items: RoleItem[]; total: number } | RoleItem[]>(
+        `/tenants/${tenantId}/roles?q=${encodeURIComponent(q)}&page=${page}&page_size=${pageSize}`
+      );
+      
+      if (Array.isArray(data)) {
+        setItems(data);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.length
+        }));
+      } else if (data && 'items' in data) {
+        setItems(data.items);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: data.total
+        }));
+      } else {
+        setItems([]);
+        setPagination(prev => ({
+          ...prev,
+          page,
+          pageSize,
+          total: 0
+        }));
+      }
     } catch (e) {
       console.error("Failed to fetch roles:", e);
       setError(ct.error);
+      setItems([]);
+      setPagination(prev => ({
+        ...prev,
+        total: 0
+      }));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const tmr = setTimeout(() => fetchRoles(query), 250);
+    const tmr = setTimeout(() => fetchRoles(query, pagination.page, pagination.pageSize), 250);
     return () => clearTimeout(tmr);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, query]);
+  }, [tenantId, query, pagination.page, pagination.pageSize]);
 
   useEffect(() => {
     if (modalOpen && tenantId) {
@@ -166,7 +205,7 @@ export default function TenantRolesPage() {
         await api.post(`/tenants/${tenantId}/roles`, { name: form.name, permissions });
       }
       setModalOpen(false);
-      await fetchRoles(query);
+      await fetchRoles(query, pagination.page, pagination.pageSize);
     } catch (e) {
       console.error("Failed to save role:", e);
       if (e instanceof APIError) {
@@ -185,11 +224,20 @@ export default function TenantRolesPage() {
     setError(null);
     try {
       await api.delete(`/tenants/${tenantId}/roles/${r.id}`);
-      await fetchRoles(query);
+      await fetchRoles(query, pagination.page, pagination.pageSize);
     } catch (e) {
       console.error("Failed to delete role:", e);
       setError(t.deleteFailed);
     }
+  };
+
+  // Pagination handlers
+  const handlePageChange = (newPage: number) => {
+    setPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPagination(prev => ({ ...prev, page: 1, pageSize: newPageSize }));
   };
 
   return (
@@ -256,6 +304,45 @@ export default function TenantRolesPage() {
               </tbody>
             </table>
           </div>
+          {items.length > 0 && (
+            <div className="flex justify-between items-center px-6 py-4 border-t border-slate-100">
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-slate-500">
+                  共 {pagination.total} 条记录
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-slate-500">每页显示：</span>
+                  <select 
+                    value={pagination.pageSize} 
+                    onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                    className="border rounded-md px-2 py-1 text-sm"
+                  >
+                    <option value="10">10条</option>
+                    <option value="20">20条</option>
+                    <option value="50">50条</option>
+                    <option value="100">100条</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={pagination.page === 1}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  上一页
+                </button>
+                <span className="text-sm">{pagination.page}</span>
+                <button 
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={pagination.page * pagination.pageSize >= pagination.total}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
         )}
       </div>
 

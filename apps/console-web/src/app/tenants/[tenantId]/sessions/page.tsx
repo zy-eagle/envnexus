@@ -13,10 +13,18 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
   const ct = useDict('common', lang);
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
-  const fetchSessions = async () => {
+  const fetchSessions = async (page?: number, pageSize?: number) => {
     try {
-      const data = await api.get<{ items: any[] }>(`/tenants/${tenantId}/sessions`);
+      const currentPage = page || pagination.page;
+      const currentPageSize = pageSize || pagination.pageSize;
+      const data = await api.get<{ items: any[], total: number }>(`/tenants/${tenantId}/sessions?page=${currentPage}&page_size=${currentPageSize}`);
       console.log('Fetched sessions data:', data);
       if (Array.isArray(data.items)) {
         data.items.forEach((session, index) => {
@@ -24,6 +32,12 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
         });
       }
       setSessions(Array.isArray(data.items) ? data.items : []);
+      setPagination(prev => ({
+        ...prev,
+        page: currentPage,
+        pageSize: currentPageSize,
+        total: data.total || 0
+      }));
     } catch (error) {
       console.error('Failed to fetch sessions:', error);
     } finally {
@@ -39,6 +53,44 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
     } catch (error) {
       console.error('Failed to abort session:', error);
     }
+  };
+
+  const handleSessionSelect = (sessionId: string) => {
+    setSelectedSessions(prev => {
+      if (prev.includes(sessionId)) {
+        return prev.filter(id => id !== sessionId);
+      } else {
+        return [...prev, sessionId];
+      }
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedSessions.length === sessions.length) {
+      setSelectedSessions([]);
+    } else {
+      setSelectedSessions(sessions.map(session => session.id));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedSessions.length === 0) return;
+    if (!confirm('确定要删除选中的会话吗？')) return;
+    try {
+      await api.post(`/tenants/${tenantId}/sessions/batch-delete`, { session_ids: selectedSessions });
+      setSelectedSessions([]);
+      fetchSessions();
+    } catch (error) {
+      console.error('Failed to delete sessions:', error);
+    }
+  };
+
+  const handlePageChange = (newPage: number) => {
+    fetchSessions(newPage, pagination.pageSize);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    fetchSessions(1, newPageSize);
   };
 
   useEffect(() => { fetchSessions(); }, [tenantId]);
@@ -58,7 +110,17 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-semibold text-gray-900">{t.title}</h1>
+        {selectedSessions.length > 0 && (
+          <button 
+            onClick={handleBatchDelete}
+            className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
+          >
+            批量删除 ({selectedSessions.length})
+          </button>
+        )}
+      </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
@@ -69,6 +131,14 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <input 
+                    type="checkbox" 
+                    checked={sessions.length > 0 && selectedSessions.length === sessions.length}
+                    onChange={handleSelectAll}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.deviceId}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.transport}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{ct.status}</th>
@@ -80,6 +150,14 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
             <tbody className="bg-white divide-y divide-gray-200">
               {sessions.map((session: any) => (
                 <tr key={session.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedSessions.includes(session.id)}
+                      onChange={() => handleSessionSelect(session.id)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 font-mono text-xs">{session.device_id}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{session.transport}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -111,6 +189,45 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
           </table>
         )}
       </div>
+      {!loading && sessions.length > 0 && (
+        <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+          <div className="flex items-center space-x-4">
+            <div className="text-sm text-gray-500">
+              共 {pagination.total} 条记录
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">每页显示：</span>
+              <select 
+                value={pagination.pageSize} 
+                onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                className="border rounded-md px-2 py-1 text-sm"
+              >
+                <option value="10">10条</option>
+                <option value="20">20条</option>
+                <option value="50">50条</option>
+                <option value="100">100条</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={() => handlePageChange(pagination.page - 1)}
+              disabled={pagination.page === 1}
+              className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+            >
+              上一页
+            </button>
+            <span className="text-sm">{pagination.page}</span>
+            <button 
+              onClick={() => handlePageChange(pagination.page + 1)}
+              disabled={pagination.page * pagination.pageSize >= pagination.total}
+              className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

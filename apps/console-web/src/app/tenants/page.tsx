@@ -21,6 +21,11 @@ export default function TenantsPage() {
   const [newTenantSlug, setNewTenantSlug] = useState('');
   const [newTenantStatus, setNewTenantStatus] = useState('active');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 20,
+    total: 0
+  });
 
   const openCreateModal = () => {
     setEditingId(null);
@@ -38,22 +43,28 @@ export default function TenantsPage() {
     setIsModalOpen(true);
   };
 
-  const fetchTenants = async () => {
+  const fetchTenants = async (page: number = 1, pageSize: number = 20) => {
     setLoading(true);
     try {
-      const data = await api.get<any[]>('/tenants');
-      setTenants(Array.isArray(data) ? data : []);
+      const data = await api.get<{ items: any[], total: number, page: number, page_size: number }>(`/tenants?page=${page}&page_size=${pageSize}`);
+      setTenants(Array.isArray(data.items) ? data.items : []);
+      setPagination({
+        page: data.page || 1,
+        pageSize: data.page_size || 20,
+        total: data.total || 0
+      });
     } catch (err) {
       console.error('Failed to fetch tenants', err);
       setTenants([]);
+      setPagination({ page: 1, pageSize: 20, total: 0 });
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTenants();
-  }, []);
+    fetchTenants(pagination.page, pagination.pageSize);
+  }, [pagination.page, pagination.pageSize]);
 
   const handleSaveTenant = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +82,7 @@ export default function TenantsPage() {
       setIsModalOpen(false);
       setNewTenantName('');
       setNewTenantSlug('');
-      fetchTenants();
+      fetchTenants(pagination.page, pagination.pageSize);
     } catch (err: any) {
       console.error(err);
       alert(`Failed to save tenant: ${err.message || 'Unknown error'}`);
@@ -84,7 +95,7 @@ export default function TenantsPage() {
     if (!confirm(t.confirmDelete)) return;
     try {
       await api.delete(`/tenants/${id}`);
-      fetchTenants();
+      fetchTenants(pagination.page, pagination.pageSize);
     } catch (err) {
       console.error(err);
     }
@@ -248,10 +259,44 @@ export default function TenantsPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+          </table>
+          {/* Pagination */}
+          {pagination.total > 0 && (
+            <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
+              <div className="text-sm text-slate-500">
+                Showing {pagination.page * pagination.pageSize - pagination.pageSize + 1}-{Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total} tenants
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setPagination({ ...pagination, page: Math.max(1, pagination.page - 1) })}
+                  disabled={pagination.page === 1}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <button 
+                  onClick={() => setPagination({ ...pagination, page: Math.min(Math.ceil(pagination.total / pagination.pageSize), pagination.page + 1) })}
+                  disabled={pagination.page * pagination.pageSize >= pagination.total}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+                <select 
+                  value={pagination.pageSize}
+                  onChange={(e) => setPagination({ ...pagination, pageSize: parseInt(e.target.value), page: 1 })}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-200 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                >
+                  <option value={10}>10 per page</option>
+                  <option value={20}>20 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
     </div>
   );
 }

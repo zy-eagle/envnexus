@@ -23,12 +23,25 @@ export default function BatchTasksPage({ params }: { params: { tenantId: string 
   const ct = useDict('common', lang);
   const [tasks, setTasks] = useState<BatchTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0
+  });
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (page?: number, pageSize?: number) => {
     setLoading(true);
     try {
-      const data = await api.get<{ items: BatchTask[] }>(`/tenants/${params.tenantId}/batch-tasks`);
-      setTasks(Array.isArray(data) ? data : (data as any)?.items || []);
+      const currentPage = page || pagination.page;
+      const currentPageSize = pageSize || pagination.pageSize;
+      const data = await api.get<any>(`/tenants/${params.tenantId}/batch-tasks?page=${currentPage}&page_size=${currentPageSize}`);
+      setTasks(Array.isArray(data) ? data : (data?.items ?? []));
+      setPagination(prev => ({
+        ...prev,
+        page: currentPage,
+        pageSize: currentPageSize,
+        total: data?.total || 0
+      }));
     } catch {
       setTasks([]);
     } finally {
@@ -46,6 +59,14 @@ export default function BatchTasksPage({ params }: { params: { tenantId: string 
       case 'partial_done': return 'bg-orange-100 text-orange-800';
       default: return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const handlePageChange = (newPage: number) => {
+    fetchTasks(newPage, pagination.pageSize);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    fetchTasks(1, newPageSize);
   };
 
   return (
@@ -95,6 +116,45 @@ export default function BatchTasksPage({ params }: { params: { tenantId: string 
               ))}
             </tbody>
           </table>
+          {!loading && tasks.length > 0 && (
+            <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-gray-500">
+                  共 {pagination.total} 条记录
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-500">每页显示：</span>
+                  <select 
+                    value={pagination.pageSize} 
+                    onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                    className="border rounded-md px-2 py-1 text-sm"
+                  >
+                    <option value="10">10条</option>
+                    <option value="20">20条</option>
+                    <option value="50">50条</option>
+                    <option value="100">100条</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={pagination.page === 1}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  上一页
+                </button>
+                <span className="text-sm">{pagination.page}</span>
+                <button 
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={pagination.page * pagination.pageSize >= pagination.total}
+                  className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
         )}
       </div>
     </div>

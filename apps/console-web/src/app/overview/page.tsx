@@ -32,20 +32,27 @@ export default function OverviewPage() {
   const t = dict[lang];
   const [deviceCount, setDeviceCount] = useState<number | string>('...');
   const [sessionCount, setSessionCount] = useState<number | string>('...');
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
 
   useEffect(() => {
     if (!activeTenantId) return;
 
+    // 获取设备总数
     api.get<{ items: any[] }>(`/tenants/${activeTenantId}/devices`)
       .then(data => setDeviceCount(Array.isArray(data) ? data.length : 0))
       .catch(() => setDeviceCount(0));
 
-    api.get<{ items: any[] }>(`/tenants/${activeTenantId}/sessions`)
-      .then(data => {
-        const active = data.items?.filter((s: any) => !['completed', 'aborted', 'expired'].includes(s.status)) || [];
-        setSessionCount(active.length);
-      })
+    // 获取活跃会话数量
+    api.get<{ count: number }>(`/tenants/${activeTenantId}/sessions/active-count`)
+      .then(data => setSessionCount(data.count))
       .catch(() => setSessionCount(0));
+
+    // 获取最近活动（审计日志）
+    api.get<{ items: any[] }>(`/tenants/${activeTenantId}/audit-events?page=1&page_size=10`)
+      .then(data => {
+        setRecentActivities(Array.isArray(data.items) ? data.items : []);
+      })
+      .catch(() => setRecentActivities([]));
   }, [activeTenantId]);
 
   return (
@@ -70,21 +77,41 @@ export default function OverviewPage() {
         />
         <StatCard
           label={t.sysStatus}
-          value=""
+          value={t.healthy}
           color="bg-emerald-50"
           icon={<svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>}
         />
       </div>
 
-      {/* Fix the system status card to show the healthy text */}
+      {/* 最近活动 */}
       <div className="card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
           <h2 className="text-sm font-semibold text-slate-900">{t.recentAct}</h2>
         </div>
-        <div className="px-5 py-12 text-center">
-          <svg className="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
-          <p className="text-sm text-slate-400">{t.noAct}</p>
-        </div>
+        {recentActivities.length > 0 ? (
+          <div className="divide-y divide-slate-100">
+            {recentActivities.map((activity, index) => (
+              <div key={index} className="px-5 py-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{activity.event_type || 'Unknown Event'}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-400">
+                    {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-5 py-12 text-center">
+            <svg className="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            <p className="text-sm text-slate-400">{t.noAct}</p>
+          </div>
+        )}
       </div>
     </div>
   );
