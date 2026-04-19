@@ -90,7 +90,7 @@ func RegisterDefaultCommands(
 		if tenantID == "" {
 			tenantID = "default"
 		}
-		devices, err := deviceRepo.ListByTenantID(ctx, tenantID, false, false)
+		devices, _, err := deviceRepo.ListByTenantID(ctx, tenantID, false, false, 0, 0)
 		if err != nil {
 			return "", fmt.Errorf("查询设备: %w", err)
 		}

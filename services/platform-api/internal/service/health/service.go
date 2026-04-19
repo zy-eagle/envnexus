@@ -58,7 +58,7 @@ func (s *Service) GetTenantSummary(ctx context.Context, tenantID string) (*Tenan
 }
 
 func (s *Service) ListDeviceHealth(ctx context.Context, tenantID string) ([]DeviceHealth, error) {
-	devices, err := s.deviceRepo.ListByTenantID(ctx, tenantID, false, false)
+	devices, _, err := s.deviceRepo.ListByTenantID(ctx, tenantID, false, false, 0, 0)
 	if err != nil {
 		return nil, err
 	}
