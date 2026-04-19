@@ -55,7 +55,7 @@ type DeviceRepository interface {
 	Update(ctx context.Context, device *domain.Device) error
 	// ListByTenantID returns devices with deleted_at IS NULL. When activeOnly is true, only status=active rows are returned.
 	// When requirePlatformArch is true, only rows with non-empty platform and arch (after trim) are returned.
-	ListByTenantID(ctx context.Context, tenantID string, activeOnly, requirePlatformArch bool) ([]*domain.Device, error)
+	ListByTenantID(ctx context.Context, tenantID string, activeOnly, requirePlatformArch bool, page, pageSize int) ([]*domain.Device, int64, error)
 	Delete(ctx context.Context, id string, tenantID string) error
 }
 
@@ -87,17 +87,28 @@ func (r *MySQLDeviceRepository) Update(ctx context.Context, device *domain.Devic
 	return r.db.WithContext(ctx).Save(device).Error
 }
 
-func (r *MySQLDeviceRepository) ListByTenantID(ctx context.Context, tenantID string, activeOnly, requirePlatformArch bool) ([]*domain.Device, error) {
+func (r *MySQLDeviceRepository) ListByTenantID(ctx context.Context, tenantID string, activeOnly, requirePlatformArch bool, page, pageSize int) ([]*domain.Device, int64, error) {
 	var devices []*domain.Device
-	q := r.db.WithContext(ctx).Where("tenant_id = ? AND deleted_at IS NULL", tenantID)
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.Device{}).Where("tenant_id = ? AND deleted_at IS NULL", tenantID)
 	if activeOnly {
 		q = q.Where("status = ?", domain.DeviceStatusActive)
 	}
 	if requirePlatformArch {
 		q = q.Where("TRIM(platform) <> ? AND TRIM(arch) <> ?", "", "")
 	}
+	// Count total records
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	// Apply pagination
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		q = q.Offset(offset).Limit(pageSize)
+	}
+	// Execute query
 	err := q.Find(&devices).Error
-	return devices, err
+	return devices, total, err
 }
 
 func (r *MySQLDeviceRepository) Delete(ctx context.Context, id string, tenantID string) error {

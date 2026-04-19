@@ -10,17 +10,17 @@ import (
 type DeviceGroupRepository interface {
 	CreateGroup(ctx context.Context, g *domain.DeviceGroup) error
 	GetGroup(ctx context.Context, id string) (*domain.DeviceGroup, error)
-	ListGroups(ctx context.Context, tenantID string) ([]*domain.DeviceGroup, error)
+	ListGroups(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.DeviceGroup, int64, error)
 	UpdateGroup(ctx context.Context, g *domain.DeviceGroup) error
 	DeleteGroup(ctx context.Context, id string) error
 
 	AddMembers(ctx context.Context, members []*domain.DeviceGroupMember) error
 	RemoveMember(ctx context.Context, groupID, deviceID string) error
-	ListMembers(ctx context.Context, groupID string) ([]*domain.DeviceGroupMember, error)
+	ListMembers(ctx context.Context, groupID string, page, pageSize int) ([]*domain.DeviceGroupMember, int64, error)
 
 	CreateBatchTask(ctx context.Context, t *domain.BatchTask) error
 	GetBatchTask(ctx context.Context, id string) (*domain.BatchTask, error)
-	ListBatchTasks(ctx context.Context, tenantID string) ([]*domain.BatchTask, error)
+	ListBatchTasks(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.BatchTask, int64, error)
 	UpdateBatchTask(ctx context.Context, t *domain.BatchTask) error
 }
 
@@ -44,12 +44,25 @@ func (r *MySQLDeviceGroupRepository) GetGroup(ctx context.Context, id string) (*
 	return &g, nil
 }
 
-func (r *MySQLDeviceGroupRepository) ListGroups(ctx context.Context, tenantID string) ([]*domain.DeviceGroup, error) {
+func (r *MySQLDeviceGroupRepository) ListGroups(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.DeviceGroup, int64, error) {
 	var groups []*domain.DeviceGroup
-	if err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("created_at DESC").Find(&groups).Error; err != nil {
-		return nil, err
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.DeviceGroup{}).Where("tenant_id = ?", tenantID)
+	
+	// Count total records
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return groups, nil
+	
+	// Apply pagination
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		q = q.Offset(offset).Limit(pageSize)
+	}
+	
+	// Execute query
+	err := q.Order("created_at DESC").Find(&groups).Error
+	return groups, total, err
 }
 
 func (r *MySQLDeviceGroupRepository) UpdateGroup(ctx context.Context, g *domain.DeviceGroup) error {
@@ -76,12 +89,25 @@ func (r *MySQLDeviceGroupRepository) RemoveMember(ctx context.Context, groupID, 
 	return r.db.WithContext(ctx).Where("device_group_id = ? AND device_id = ?", groupID, deviceID).Delete(&domain.DeviceGroupMember{}).Error
 }
 
-func (r *MySQLDeviceGroupRepository) ListMembers(ctx context.Context, groupID string) ([]*domain.DeviceGroupMember, error) {
+func (r *MySQLDeviceGroupRepository) ListMembers(ctx context.Context, groupID string, page, pageSize int) ([]*domain.DeviceGroupMember, int64, error) {
 	var members []*domain.DeviceGroupMember
-	if err := r.db.WithContext(ctx).Where("device_group_id = ?", groupID).Find(&members).Error; err != nil {
-		return nil, err
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.DeviceGroupMember{}).Where("device_group_id = ?", groupID)
+	
+	// Count total records
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return members, nil
+	
+	// Apply pagination
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		q = q.Offset(offset).Limit(pageSize)
+	}
+	
+	// Execute query
+	err := q.Find(&members).Error
+	return members, total, err
 }
 
 func (r *MySQLDeviceGroupRepository) CreateBatchTask(ctx context.Context, t *domain.BatchTask) error {
@@ -96,12 +122,28 @@ func (r *MySQLDeviceGroupRepository) GetBatchTask(ctx context.Context, id string
 	return &t, nil
 }
 
-func (r *MySQLDeviceGroupRepository) ListBatchTasks(ctx context.Context, tenantID string) ([]*domain.BatchTask, error) {
+func (r *MySQLDeviceGroupRepository) ListBatchTasks(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.BatchTask, int64, error) {
 	var tasks []*domain.BatchTask
-	if err := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("created_at DESC").Limit(200).Find(&tasks).Error; err != nil {
-		return nil, err
+	var total int64
+	q := r.db.WithContext(ctx).Model(&domain.BatchTask{}).Where("tenant_id = ?", tenantID)
+	
+	// Count total records
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return tasks, nil
+	
+	// Apply pagination
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		q = q.Offset(offset).Limit(pageSize)
+	} else {
+		// Default limit if no pagination specified
+		q = q.Limit(200)
+	}
+	
+	// Execute query
+	err := q.Order("created_at DESC").Find(&tasks).Error
+	return tasks, total, err
 }
 
 func (r *MySQLDeviceGroupRepository) UpdateBatchTask(ctx context.Context, t *domain.BatchTask) error {

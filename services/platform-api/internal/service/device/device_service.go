@@ -21,10 +21,10 @@ func NewService(deviceRepo repository.DeviceRepository, authService *auth.Servic
 	return &Service{deviceRepo: deviceRepo, authService: authService}
 }
 
-func (s *Service) ListDevices(ctx context.Context, tenantID string, activeOnly, requirePlatformArch bool) ([]*dto.DeviceResponse, error) {
-	devices, err := s.deviceRepo.ListByTenantID(ctx, tenantID, activeOnly, requirePlatformArch)
+func (s *Service) ListDevices(ctx context.Context, tenantID string, activeOnly, requirePlatformArch bool, page, pageSize int) ([]*dto.DeviceResponse, int64, error) {
+	devices, total, err := s.deviceRepo.ListByTenantID(ctx, tenantID, activeOnly, requirePlatformArch, page, pageSize)
 	if err != nil {
-		return nil, domain.ErrInternalError
+		return nil, 0, domain.ErrInternalError
 	}
 
 	var resp []*dto.DeviceResponse
@@ -52,7 +52,7 @@ func (s *Service) ListDevices(ctx context.Context, tenantID string, activeOnly, 
 			UpdatedAt:                  d.UpdatedAt,
 		})
 	}
-	return resp, nil
+	return resp, total, nil
 }
 
 func (s *Service) UpdateDevice(ctx context.Context, tenantID, id string, req dto.UpdateDeviceRequest) (*dto.DeviceResponse, error) {

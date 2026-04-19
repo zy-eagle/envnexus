@@ -37,8 +37,8 @@ func (s *Service) GetGroup(ctx context.Context, id string) (*domain.DeviceGroup,
 	return s.repo.GetGroup(ctx, id)
 }
 
-func (s *Service) ListGroups(ctx context.Context, tenantID string) ([]*domain.DeviceGroup, error) {
-	return s.repo.ListGroups(ctx, tenantID)
+func (s *Service) ListGroups(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.DeviceGroup, int64, error) {
+	return s.repo.ListGroups(ctx, tenantID, page, pageSize)
 }
 
 func (s *Service) UpdateGroup(ctx context.Context, id, name, description, filterJSON string) (*domain.DeviceGroup, error) {
@@ -82,12 +82,12 @@ func (s *Service) RemoveMember(ctx context.Context, groupID, deviceID string) er
 	return s.repo.RemoveMember(ctx, groupID, deviceID)
 }
 
-func (s *Service) ListMembers(ctx context.Context, groupID string) ([]*domain.DeviceGroupMember, error) {
-	return s.repo.ListMembers(ctx, groupID)
+func (s *Service) ListMembers(ctx context.Context, groupID string, page, pageSize int) ([]*domain.DeviceGroupMember, int64, error) {
+	return s.repo.ListMembers(ctx, groupID, page, pageSize)
 }
 
 func (s *Service) CreateBatchTask(ctx context.Context, tenantID, groupID, commandTaskID, strategy, createdBy string, batchSize int) (*domain.BatchTask, error) {
-	members, err := s.repo.ListMembers(ctx, groupID)
+	members, _, err := s.repo.ListMembers(ctx, groupID, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -120,8 +120,8 @@ func (s *Service) GetBatchTask(ctx context.Context, id string) (*domain.BatchTas
 	return s.repo.GetBatchTask(ctx, id)
 }
 
-func (s *Service) ListBatchTasks(ctx context.Context, tenantID string) ([]*domain.BatchTask, error) {
-	return s.repo.ListBatchTasks(ctx, tenantID)
+func (s *Service) ListBatchTasks(ctx context.Context, tenantID string, page, pageSize int) ([]*domain.BatchTask, int64, error) {
+	return s.repo.ListBatchTasks(ctx, tenantID, page, pageSize)
 }
 
 func (s *Service) UpdateBatchTaskProgress(ctx context.Context, id string, completed, failed int) error {

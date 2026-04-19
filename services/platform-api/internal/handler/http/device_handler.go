@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
@@ -77,12 +78,31 @@ func (h *DeviceHandler) ListDevices(c *gin.Context) {
 	tenantID := c.Param("tenantId")
 	activeOnly := c.Query("active_only") == "true" || c.Query("active_only") == "1"
 	requirePlatformArch := c.Query("require_platform_arch") == "true" || c.Query("require_platform_arch") == "1"
+	
+	// Parse pagination parameters
+	page := 1
+	pageSize := 10
+	if c.Query("page") != "" {
+		if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if c.Query("page_size") != "" {
+		if ps, err := strconv.Atoi(c.Query("page_size")); err == nil && ps > 0 {
+			pageSize = ps
+		}
+	}
 
-	resp, err := h.deviceService.ListDevices(c.Request.Context(), tenantID, activeOnly, requirePlatformArch)
+	resp, total, err := h.deviceService.ListDevices(c.Request.Context(), tenantID, activeOnly, requirePlatformArch, page, pageSize)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
 
-	mw.RespondSuccess(c, http.StatusOK, resp)
+	mw.RespondSuccess(c, http.StatusOK, gin.H{
+		"items": resp,
+		"total": total,
+		"page": page,
+		"page_size": pageSize,
+	})
 }

@@ -71,12 +71,32 @@ func (h *DeviceGroupHandler) Create(c *gin.Context) {
 
 func (h *DeviceGroupHandler) List(c *gin.Context) {
 	tenantID := c.Param("tenantId")
-	groups, err := h.svc.ListGroups(c.Request.Context(), tenantID)
+	
+	// Parse pagination parameters
+	page := 1
+	pageSize := 10
+	if c.Query("page") != "" {
+		if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if c.Query("page_size") != "" {
+		if ps, err := strconv.Atoi(c.Query("page_size")); err == nil && ps > 0 {
+			pageSize = ps
+		}
+	}
+	
+	groups, total, err := h.svc.ListGroups(c.Request.Context(), tenantID, page, pageSize)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
-	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": groups})
+	mw.RespondSuccess(c, http.StatusOK, gin.H{
+		"items": groups,
+		"total": total,
+		"page": page,
+		"page_size": pageSize,
+	})
 }
 
 func (h *DeviceGroupHandler) Get(c *gin.Context) {
@@ -149,12 +169,32 @@ func (h *DeviceGroupHandler) RemoveMember(c *gin.Context) {
 
 func (h *DeviceGroupHandler) ListMembers(c *gin.Context) {
 	groupID := c.Param("groupId")
-	members, err := h.svc.ListMembers(c.Request.Context(), groupID)
+	
+	// Parse pagination parameters
+	page := 1
+	pageSize := 10
+	if c.Query("page") != "" {
+		if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if c.Query("page_size") != "" {
+		if ps, err := strconv.Atoi(c.Query("page_size")); err == nil && ps > 0 {
+			pageSize = ps
+		}
+	}
+	
+	members, total, err := h.svc.ListMembers(c.Request.Context(), groupID, page, pageSize)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
-	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": members})
+	mw.RespondSuccess(c, http.StatusOK, gin.H{
+		"items": members,
+		"total": total,
+		"page": page,
+		"page_size": pageSize,
+	})
 }
 
 type createBatchTaskReq struct {
@@ -222,12 +262,32 @@ func (h *DeviceGroupHandler) CancelBatchTask(c *gin.Context) {
 
 func (h *DeviceGroupHandler) ListBatchTasks(c *gin.Context) {
 	tenantID := c.Param("tenantId")
-	tasks, err := h.svc.ListBatchTasks(c.Request.Context(), tenantID)
+	
+	// Parse pagination parameters
+	page := 1
+	pageSize := 10
+	if c.Query("page") != "" {
+		if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if c.Query("page_size") != "" {
+		if ps, err := strconv.Atoi(c.Query("page_size")); err == nil && ps > 0 {
+			pageSize = ps
+		}
+	}
+	
+	tasks, total, err := h.svc.ListBatchTasks(c.Request.Context(), tenantID, page, pageSize)
 	if err != nil {
 		mw.RespondError(c, err)
 		return
 	}
-	mw.RespondSuccess(c, http.StatusOK, gin.H{"items": tasks})
+	mw.RespondSuccess(c, http.StatusOK, gin.H{
+		"items": tasks,
+		"total": total,
+		"page": page,
+		"page_size": pageSize,
+	})
 }
 
 func (h *DeviceGroupHandler) GetBatchTask(c *gin.Context) {

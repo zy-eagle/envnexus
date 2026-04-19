@@ -59,12 +59,13 @@ export default function HealthDashboardPage({ params }: { params: { tenantId: st
         api.get<any>(`/tenants/${params.tenantId}/devices?page=${currentPage}&page_size=${currentPageSize}`),
       ]);
       setSummary(sum);
-      setDevices(Array.isArray(devList) ? devList : (devList?.items ?? []));
+      const devicesList = Array.isArray(devList) ? devList : (devList?.items ?? []);
+      setDevices(devicesList);
       setPagination(prev => ({
         ...prev,
         page: currentPage,
         pageSize: currentPageSize,
-        total: devList?.total || 0
+        total: devList?.total || devicesList.length
       }));
     } catch {
       setDevices([]);

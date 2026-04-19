@@ -24,19 +24,20 @@ function SessionsContent({ tenantId }: { tenantId: string }) {
     try {
       const currentPage = page || pagination.page;
       const currentPageSize = pageSize || pagination.pageSize;
-      const data = await api.get<{ items: any[], total: number }>(`/tenants/${tenantId}/sessions?page=${currentPage}&page_size=${currentPageSize}`);
+      const data = await api.get<any>(`/tenants/${tenantId}/sessions?page=${currentPage}&page_size=${currentPageSize}`);
       console.log('Fetched sessions data:', data);
-      if (Array.isArray(data.items)) {
-        data.items.forEach((session, index) => {
+      const sessionsList = Array.isArray(data) ? data : (data?.items ?? []);
+      if (Array.isArray(sessionsList)) {
+        sessionsList.forEach((session, index) => {
           console.log(`Session ${index} started_at:`, session.started_at, typeof session.started_at);
         });
       }
-      setSessions(Array.isArray(data.items) ? data.items : []);
+      setSessions(sessionsList);
       setPagination(prev => ({
         ...prev,
         page: currentPage,
         pageSize: currentPageSize,
-        total: data.total || 0
+        total: data?.total || sessionsList.length
       }));
     } catch (error) {
       console.error('Failed to fetch sessions:', error);

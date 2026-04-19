@@ -575,16 +575,15 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       const data = await api.get<any>(endpoint);
       // API standard response unwraps to `data`.
       // platform-api ListTasks returns `{ tasks: [...], total: n }`.
-      setTasks(
-        Array.isArray(data)
+      const tasksList = Array.isArray(data)
           ? data
-          : (data?.tasks ?? data?.items ?? [])
-      );
+          : (data?.tasks ?? data?.items ?? []);
+      setTasks(tasksList);
       setPagination(prev => ({
         ...prev,
         page: currentPage,
         pageSize: currentPageSize,
-        total: data?.total || 0
+        total: data?.total || tasksList.length
       }));
     } catch (error) {
       console.error("Failed to fetch command tasks:", error);
