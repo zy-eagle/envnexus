@@ -36,7 +36,7 @@ const PerBatchTimeout = 5 * time.Minute
 type BatchTaskRepository interface {
 	GetBatchTask(ctx context.Context, id string) (*domain.BatchTask, error)
 	UpdateBatchTask(ctx context.Context, t *domain.BatchTask) error
-	ListMembers(ctx context.Context, groupID string) ([]*domain.DeviceGroupMember, error)
+	ListMembers(ctx context.Context, groupID string, page, pageSize int) ([]*domain.DeviceGroupMember, int64, error)
 }
 
 // BatchService runs a BatchTask: splits the device group into fixed-size
@@ -135,7 +135,7 @@ func (b *BatchService) run(opts BatchDispatchOptions, cancelCh <-chan struct{}) 
 		return
 	}
 
-	members, err := b.batchRepo.ListMembers(rootCtx, opts.GroupID)
+	members, _, err := b.batchRepo.ListMembers(rootCtx, opts.GroupID, 0, 0)
 	if err != nil || len(members) == 0 {
 		b.markFinal(rootCtx, bt, "failed", "no members in device group")
 		return
