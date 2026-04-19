@@ -73,12 +73,13 @@ export default function DeviceGroupsPage({ params }: { params: { tenantId: strin
       const currentPage = page || groupPagination.page;
       const currentPageSize = pageSize || groupPagination.pageSize;
       const data = await api.get<any>(`/tenants/${params.tenantId}/device-groups?page=${currentPage}&page_size=${currentPageSize}`);
-      setGroups(Array.isArray(data) ? data : (data?.items ?? []));
+      const groupsList = Array.isArray(data) ? data : (data?.items ?? []);
+      setGroups(groupsList);
       setGroupPagination(prev => ({
         ...prev,
         page: currentPage,
         pageSize: currentPageSize,
-        total: data?.total || 0
+        total: data?.total || groupsList.length
       }));
     } catch {
       setGroups([]);
@@ -115,12 +116,13 @@ export default function DeviceGroupsPage({ params }: { params: { tenantId: strin
       const currentPage = page || memberPagination.page;
       const currentPageSize = pageSize || memberPagination.pageSize;
       const data = await api.get<any>(`/tenants/${params.tenantId}/device-groups/${groupId}/members?page=${currentPage}&page_size=${currentPageSize}`);
-      setMembers(Array.isArray(data) ? data : (data?.items ?? []));
+      const membersList = Array.isArray(data) ? data : (data?.items ?? []);
+      setMembers(membersList);
       setMemberPagination(prev => ({
         ...prev,
         page: currentPage,
         pageSize: currentPageSize,
-        total: data?.total || 0
+        total: data?.total || membersList.length
       }));
     } catch {
       setMembers([]);
