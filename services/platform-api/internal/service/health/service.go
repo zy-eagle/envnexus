@@ -35,7 +35,7 @@ func NewService(deviceRepo repository.DeviceRepository, govRepo repository.Gover
 }
 
 func (s *Service) GetTenantSummary(ctx context.Context, tenantID string) (*TenantHealthSummary, error) {
-	devices, err := s.deviceRepo.ListByTenantID(ctx, tenantID, false, false)
+	devices, _, err := s.deviceRepo.ListByTenantID(ctx, tenantID, false, false, 0, 0)
 	if err != nil {
 		return nil, err
 	}
