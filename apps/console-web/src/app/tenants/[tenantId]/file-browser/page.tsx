@@ -151,14 +151,39 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
       const currentPage = page || requestPagination.page;
       const currentPageSize = pageSize || requestPagination.pageSize;
       const data = await api.get<any>(`/tenants/${params.tenantId}/file-access-requests?page=${currentPage}&page_size=${currentPageSize}`);
-      setRequests(Array.isArray(data) ? data : (data?.items ?? []));
+      
+      if (Array.isArray(data)) {
+        setRequests(data);
+        setRequestPagination(prev => ({
+          ...prev,
+          page: currentPage,
+          pageSize: currentPageSize,
+          total: data.length
+        }));
+      } else if (data?.items) {
+        setRequests(data.items);
+        setRequestPagination(prev => ({
+          ...prev,
+          page: currentPage,
+          pageSize: currentPageSize,
+          total: data.total || 0
+        }));
+      } else {
+        setRequests([]);
+        setRequestPagination(prev => ({
+          ...prev,
+          page: currentPage,
+          pageSize: currentPageSize,
+          total: 0
+        }));
+      }
+    } catch {
+      setRequests([]);
       setRequestPagination(prev => ({
         ...prev,
-        page: currentPage,
-        pageSize: currentPageSize,
-        total: data?.total || 0
+        total: 0
       }));
-    } catch { setRequests([]); }
+    }
   }, [params.tenantId, requestPagination.page, requestPagination.pageSize]);
 
   useEffect(() => { fetchDevices(); fetchRequests(); }, [fetchDevices, fetchRequests]);
@@ -691,7 +716,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
           ) : (
             <>
             <div className="divide-y divide-gray-200 max-h-80 overflow-y-auto">
-              {requests.slice(0, 50).map(req => (
+              {requests.map(req => (
                 <div key={req.id} className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50">
                   <span className="text-gray-900 flex-shrink-0 w-28 truncate">{getDeviceName(req.device_id)}</span>
                   <span className="text-gray-600 font-mono truncate flex-1" title={req.path}>{req.path}</span>

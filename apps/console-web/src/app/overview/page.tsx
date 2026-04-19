@@ -96,17 +96,17 @@ export default function OverviewPage() {
           <div className="divide-y divide-slate-100">
             {recentActivities.map((activity, index) => (
               <div key={index} className="px-5 py-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">{activity.event_type || 'Unknown Event'}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
-                    </p>
+                <div className="flex items-start space-x-1">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-900">{activity.event_type || 'Unknown Event'}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-400">
+                      {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
+                    </span>
                   </div>
-                  <span className="text-xs text-slate-400">
-                    {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
-                  </span>
-                </div>
               </div>
             ))}
           </div>

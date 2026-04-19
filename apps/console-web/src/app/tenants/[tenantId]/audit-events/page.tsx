@@ -49,33 +49,38 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
       queryParts.push(`page_size=${pageSize}`);
       const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
 
-      const data = await api.get<{ items: AuditEvent[]; total: number } | AuditEvent[]>(`/tenants/${params.tenantId}/audit-events${qs}`);
+      const data = await api.get<{ items: any[]; total: number } | any[]>(`/tenants/${params.tenantId}/audit-events${qs}`);
+      
+      let processedEvents: any[] = [];
+      let total = 0;
       
       if (Array.isArray(data)) {
-        setEvents(data);
-        setPagination(prev => ({
-          ...prev,
-          page,
-          pageSize,
-          total: data.length
-        }));
+        processedEvents = data;
+        total = data.length;
       } else if (data && 'items' in data) {
-        setEvents(data.items);
-        setPagination(prev => ({
-          ...prev,
-          page,
-          pageSize,
-          total: data.total
-        }));
-      } else {
-        setEvents([]);
-        setPagination(prev => ({
-          ...prev,
-          page,
-          pageSize,
-          total: 0
-        }));
+        processedEvents = data.items;
+        total = data.total || 0;
       }
+      
+      // Normalize event data to handle different field names and formats
+      const normalizedEvents = processedEvents.map(event => ({
+        ID: event.ID || event.id || '',
+        TenantID: event.TenantID || event.tenant_id || '',
+        DeviceID: event.DeviceID || event.device_id || null,
+        SessionID: event.SessionID || event.session_id || null,
+        EventType: event.EventType || event.event_type || '',
+        EventPayloadJSON: event.EventPayloadJSON || event.event_payload_json || '',
+        Archived: event.Archived || event.archived || false,
+        CreatedAt: event.CreatedAt || event.created_at || ''
+      }));
+      
+      setEvents(normalizedEvents);
+      setPagination(prev => ({
+        ...prev,
+        page,
+        pageSize,
+        total
+      }));
     } catch (error) {
       console.error('Failed to fetch audit events:', error);
       setEvents([]);
@@ -188,7 +193,17 @@ export default function AuditEventsPage({ params }: { params: { tenantId: string
                       {evt.SessionID || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(evt.CreatedAt).toLocaleString()}
+                      {(() => {
+                        try {
+                          const date = new Date(evt.CreatedAt);
+                          if (isNaN(date.getTime())) {
+                            return evt.CreatedAt || '-';
+                          }
+                          return date.toLocaleString();
+                        } catch {
+                          return evt.CreatedAt || '-';
+                        }
+                      })()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button

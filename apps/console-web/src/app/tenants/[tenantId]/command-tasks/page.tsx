@@ -208,6 +208,11 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const [formNote, setFormNote] = useState("");
   const [formEmergency, setFormEmergency] = useState(false);
   const [formBypassReason, setFormBypassReason] = useState("");
+  
+  // Device group selection
+  const [deviceGroups, setDeviceGroups] = useState<any[]>([]);
+  const [selectedDeviceGroupId, setSelectedDeviceGroupId] = useState<string>("");
+  const [targetType, setTargetType] = useState<'devices' | 'device_group'>('devices');
 
   const [nlInput, setNlInput] = useState("");
   const [nlGenerating, setNlGenerating] = useState(false);
@@ -471,17 +476,25 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   const buildTaskBody = () => {
     const payload = formCommandType === "tool" ? buildToolPayload() : formCommandPayload;
     const riskForTool = formCommandType === "tool" && selectedToolDef ? selectedToolDef.riskLevel : formRiskLevel;
-    return {
+    const body: any = {
       title: formTitle,
       command_type: formCommandType,
       command_payload: payload,
-      device_ids: formDeviceIds,
       risk_level: formCommandType === "tool" ? riskForTool : formRiskLevel,
       target_env: formTargetEnv,
       note: formNote,
       emergency: formEmergency,
       bypass_reason: formEmergency ? formBypassReason : "",
     };
+    
+    // Add either device_ids or device_group_id based on selection
+    if (targetType === 'devices') {
+      body.device_ids = formDeviceIds;
+    } else {
+      body.device_group_id = selectedDeviceGroupId;
+    }
+    
+    return body;
   };
 
   const validateTaskForm = (): string | null => {
@@ -498,10 +511,13 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
         ? "自然语言不能直接下发到设备。请先生成成功，或清空自然语言并手动填写可执行命令。"
         : "Natural language cannot be dispatched. Generate a command successfully, or clear NL and enter a runnable command.";
     }
-    if (formDeviceIds.length === 0) {
+    if (targetType === 'devices' && formDeviceIds.length === 0) {
       return lang === "zh" ? "请选择至少一台目标设备" : "Select at least one target device";
     }
-    {
+    if (targetType === 'device_group' && !selectedDeviceGroupId) {
+      return lang === "zh" ? "请选择目标设备组" : "Select a target device group";
+    }
+    if (targetType === 'devices') {
       const mix = homogeneousPlatformArchForSelection(formDeviceIds, devices, lang);
       if (mix) return mix;
     }
@@ -527,8 +543,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
   /** Disables save/submit when required modal fields are incomplete (mirrors validateTaskForm). */
   const isModalFormIncomplete = (): boolean => {
     if (!formTitle.trim()) return true;
-    if (formDeviceIds.length === 0) return true;
-    if (homogeneousPlatformArchForSelection(formDeviceIds, devices, lang)) return true;
+    if (targetType === 'devices' && formDeviceIds.length === 0) return true;
+    if (targetType === 'device_group' && !selectedDeviceGroupId) return true;
+    if (targetType === 'devices' && homogeneousPlatformArchForSelection(formDeviceIds, devices, lang)) return true;
     if (formEmergency && !formBypassReason.trim()) return true;
     if (formCommandType === "shell") {
       if (!formCommandPayload.trim()) return true;
@@ -649,12 +666,23 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setShowNewModal(true);
     setDevicesLoading(true);
     try {
-      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
-      const list = normalizeDevicesResponse(data);
-      setDevices(list);
-      setFormDeviceIds((prev) => intersectDeviceSelection(prev, list));
+      // Fetch devices
+      const devicesData = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
+      const devicesList = normalizeDevicesResponse(devicesData);
+      setDevices(devicesList);
+      setFormDeviceIds((prev) => intersectDeviceSelection(prev, devicesList));
+      
+      // Fetch device groups
+      const groupsData = await api.get<any>(`/tenants/${tenantId}/device-groups`);
+      if (Array.isArray(groupsData)) {
+        setDeviceGroups(groupsData);
+      } else if (groupsData?.items) {
+        setDeviceGroups(groupsData.items);
+      } else {
+        setDeviceGroups([]);
+      }
     } catch (error) {
-      console.error("Failed to fetch devices:", error);
+      console.error("Failed to fetch devices or device groups:", error);
     } finally {
       setDevicesLoading(false);
     }
@@ -785,6 +813,9 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setNlMustSucceed(false);
     setFormToolName("");
     setFormToolParams({});
+    // Reset device group selection
+    setSelectedDeviceGroupId("");
+    setTargetType('devices');
   };
 
   const closeTaskModal = () => {
@@ -1662,46 +1693,92 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 />
               </div>
 
-              {/* Target Devices */}
+              {/* Target Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {(t as any).targetDevices} ({formDeviceIds.length}{" "}
-                  {(t as any).selected})
+                  目标类型
                 </label>
-                <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto p-2">
-                  {devicesLoading ? (
-                    <p className="text-sm text-gray-500 text-center py-2">
-                      {ct.loading}
-                    </p>
-                  ) : devices.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-2">
-                      {(t as any).noDevicesAvailable}
-                    </p>
-                  ) : (
-                    devices.map((d) => (
-                      <label
-                        key={d.id}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formDeviceIds.includes(d.id)}
-                          onChange={() => toggleDevice(d.id)}
-                          className="rounded text-blue-600"
-                        />
-                        <span className="font-medium text-gray-900">
-                          {d.device_name}
-                        </span>
-                        <span className="text-gray-400 text-xs">
-                          {d.hostname}
-                        </span>
-                        <span className="text-gray-500 text-xs font-mono shrink-0" title={lang === "zh" ? "系统/架构" : "OS / arch"}>
-                          {d.platform}/{d.arch}
-                        </span>
-                      </label>
-                    ))
-                  )}
+                <div className="flex rounded-lg border border-gray-200 overflow-hidden mb-3">
+                  {([{ value: 'devices', label: '设备' }, { value: 'device_group', label: '设备组' }] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setTargetType(option.value)}
+                      className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                        targetType === option.value
+                          ? "bg-blue-600 text-white"
+                          : "bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
+                
+                {/* Device selection */}
+                {targetType === 'devices' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {(t as any).targetDevices} ({formDeviceIds.length}{" "}
+                      {(t as any).selected})
+                    </label>
+                    <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto p-2">
+                      {devicesLoading ? (
+                        <p className="text-sm text-gray-500 text-center py-2">
+                          {ct.loading}
+                        </p>
+                      ) : devices.length === 0 ? (
+                        <p className="text-sm text-gray-500 text-center py-2">
+                          {(t as any).noDevicesAvailable}
+                        </p>
+                      ) : (
+                        devices.map((d) => (
+                          <label
+                            key={d.id}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={formDeviceIds.includes(d.id)}
+                              onChange={() => toggleDevice(d.id)}
+                              className="rounded text-blue-600"
+                            />
+                            <span className="font-medium text-gray-900">
+                              {d.device_name}
+                            </span>
+                            <span className="text-gray-400 text-xs">
+                              {d.hostname}
+                            </span>
+                            <span className="text-gray-500 text-xs font-mono shrink-0" title={lang === "zh" ? "系统/架构" : "OS / arch"}>
+                              {d.platform}/{d.arch}
+                            </span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Device group selection */}
+                {targetType === 'device_group' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      目标设备组
+                    </label>
+                    <select
+                      value={selectedDeviceGroupId}
+                      onChange={(e) => setSelectedDeviceGroupId(e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="">请选择设备组</option>
+                      {deviceGroups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name} ({group.device_count || 0} 台设备)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Command Type Tabs */}
