@@ -674,13 +674,51 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       
       // Fetch device groups
       const groupsData = await api.get<any>(`/tenants/${tenantId}/device-groups`);
+      let groupsList: any[] = [];
       if (Array.isArray(groupsData)) {
-        setDeviceGroups(groupsData);
+        groupsList = groupsData;
       } else if (groupsData?.items) {
-        setDeviceGroups(groupsData.items);
+        groupsList = groupsData.items;
       } else {
-        setDeviceGroups([]);
+        groupsList = [];
       }
+      
+      // Fetch online device count for each group
+      const groupsWithDeviceCount = await Promise.all(
+        groupsList.map(async (group) => {
+          try {
+            // Get group members
+            const membersData = await api.get<any>(`/tenants/${tenantId}/device-groups/${group.id}/members`);
+            const members = Array.isArray(membersData) ? membersData : (membersData?.items ?? []);
+            
+            // Get device IDs from members
+            const deviceIds = members.map((member: any) => member.device_id).filter((id: string) => id);
+            
+            // Get online devices
+            let onlineCount = 0;
+            if (deviceIds.length > 0) {
+              const devicesData = await api.get<any>(`/tenants/${tenantId}/devices`);
+              const allDevices = Array.isArray(devicesData) ? devicesData : (devicesData?.items ?? []);
+              onlineCount = allDevices
+                .filter((device: any) => deviceIds.includes(device.id) && device.status === 'online')
+                .length;
+            }
+            
+            return {
+              ...group,
+              online_device_count: onlineCount
+            };
+          } catch (error) {
+            console.error(`Failed to fetch device count for group ${group.id}:`, error);
+            return {
+              ...group,
+              online_device_count: 0
+            };
+          }
+        })
+      );
+      
+      setDeviceGroups(groupsWithDeviceCount);
     } catch (error) {
       console.error("Failed to fetch devices or device groups:", error);
     } finally {
@@ -1773,7 +1811,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                       <option value="">请选择设备组</option>
                       {deviceGroups.map((group) => (
                         <option key={group.id} value={group.id}>
-                          {group.name} ({group.device_count || 0} 台设备)
+                          {group.name} ({group.online_device_count || 0} 台在线设备)
                         </option>
                       ))}
                     </select>

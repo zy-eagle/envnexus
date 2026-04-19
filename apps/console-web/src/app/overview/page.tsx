@@ -103,9 +103,9 @@ export default function OverviewPage() {
                         {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
                       </p>
                     </div>
-                    <span className="text-xs text-slate-400">
+                    <div className="text-xs text-slate-400">
                       {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
-                    </span>
+                    </div>
                   </div>
               </div>
             ))}
@@ -149,6 +149,7 @@ export default function OverviewPage() {
                 >
                   上一页
                 </button>
+                <span className="text-sm">{currentPage}</span>
                 <button 
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages}
