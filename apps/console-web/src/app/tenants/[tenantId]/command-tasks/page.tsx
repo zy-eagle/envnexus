@@ -697,9 +697,8 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
             // Get online devices
             let onlineCount = 0;
             if (deviceIds.length > 0) {
-              const devicesData = await api.get<any>(`/tenants/${tenantId}/devices`);
-              const allDevices = Array.isArray(devicesData) ? devicesData : (devicesData?.items ?? []);
-              onlineCount = allDevices
+              // Use the same device data already fetched above to avoid duplicate API calls
+              onlineCount = devicesList
                 .filter((device: any) => deviceIds.includes(device.id) && device.status === 'online')
                 .length;
             }
