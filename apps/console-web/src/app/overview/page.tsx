@@ -103,7 +103,7 @@ export default function OverviewPage() {
                         {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
                       </p>
                     </div>
-                    <div className="ml-1 text-xs text-slate-400">
+                    <div className="ml-1.5 text-xs text-slate-400">
                       {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
                     </div>
                   </div>

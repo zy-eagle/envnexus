@@ -666,7 +666,11 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setShowNewModal(true);
     setDevicesLoading(true);
     try {
-      // Fetch devices
+      // Fetch all devices to ensure we have complete data for online status
+      const allDevicesData = await api.get<any>(`/tenants/${tenantId}/devices`);
+      const allDevicesList = normalizeDevicesResponse(allDevicesData);
+      
+      // Fetch devices for command execution (with required filters)
       const devicesData = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
       const devicesList = normalizeDevicesResponse(devicesData);
       setDevices(devicesList);
@@ -697,8 +701,8 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
             // Get online devices
             let onlineCount = 0;
             if (deviceIds.length > 0) {
-              // Use the same device data already fetched above to avoid duplicate API calls
-              onlineCount = devicesList
+              // Use all devices data to ensure we have complete online status information
+              onlineCount = allDevicesList
                 .filter((device: any) => deviceIds.includes(device.id) && device.status === 'online')
                 .length;
             }
