@@ -23,7 +23,7 @@ export default function TenantsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
-    pageSize: 20,
+    pageSize: 10,
     total: 0
   });
 
@@ -43,20 +43,20 @@ export default function TenantsPage() {
     setIsModalOpen(true);
   };
 
-  const fetchTenants = async (page: number = 1, pageSize: number = 20) => {
+  const fetchTenants = async (page: number = 1, pageSize: number = 10) => {
     setLoading(true);
     try {
       const data = await api.get<{ items: any[], total: number, page: number, page_size: number }>(`/tenants?page=${page}&page_size=${pageSize}`);
       setTenants(Array.isArray(data.items) ? data.items : []);
       setPagination({
         page: data.page || 1,
-        pageSize: data.page_size || 20,
+        pageSize: data.page_size || 10,
         total: data.total || 0
       });
     } catch (err) {
       console.error('Failed to fetch tenants', err);
       setTenants([]);
-      setPagination({ page: 1, pageSize: 20, total: 0 });
+      setPagination({ page: 1, pageSize: 10, total: 0 });
     } finally {
       setLoading(false);
     }

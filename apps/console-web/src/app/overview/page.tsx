@@ -6,17 +6,20 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import { api } from '@/lib/api/client';
 
 const dict = {
-  en: { title: "Dashboard", subtitle: "Overview of your environment", totalDev: "Total Devices", activeSess: "Active Sessions", sysStatus: "System Status", healthy: "All systems operational", recentAct: "Recent Activity", noAct: "No recent activity to display." },
-  zh: { title: "仪表盘", subtitle: "环境概览", totalDev: "设备总数", activeSess: "活跃会话", sysStatus: "系统状态", healthy: "所有系统运行正常", recentAct: "最近活动", noAct: "暂无最近活动。" }
+  en: { title: "Dashboard", subtitle: "Overview of your environment", totalDev: "Total Devices", activeSess: "Active Sessions", sysStatus: "System Status", healthy: "Operational", healthyDesc: "All systems running normally", recentAct: "Recent Activity", noAct: "No recent activity to display." },
+  zh: { title: "仪表盘", subtitle: "环境概览", totalDev: "设备总数", activeSess: "活跃会话", sysStatus: "系统状态", healthy: "正常", healthyDesc: "所有系统运行正常", recentAct: "最近活动", noAct: "暂无最近活动。" }
 };
 
-function StatCard({ label, value, icon, color }: { label: string; value: string | number; icon: JSX.Element; color: string }) {
+function StatCard({ label, value, description, icon, color }: { label: string; value: string | number; description?: string; icon: JSX.Element; color: string }) {
   return (
     <div className="card p-5">
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900 tracking-tight">{value}</p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <p className="text-3xl font-semibold text-slate-900 tracking-tight">{value}</p>
+            {description && <span className="text-sm text-emerald-600 font-medium">{description}</span>}
+          </div>
         </div>
         <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center`}>
           {icon}
@@ -82,6 +85,7 @@ export default function OverviewPage() {
         <StatCard
           label={t.sysStatus}
           value={t.healthy}
+          description={t.healthyDesc}
           color="bg-emerald-50"
           icon={<svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>}
         />
@@ -96,17 +100,17 @@ export default function OverviewPage() {
           <div className="divide-y divide-slate-100">
             {recentActivities.map((activity, index) => (
               <div key={index} className="px-5 py-4">
-                <div className="flex items-start">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-slate-900">{activity.event_type || 'Unknown Event'}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
-                      </p>
-                    </div>
-                    <div className="ml-1.5 text-xs text-slate-400">
-                      {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
-                    </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{activity.event_type || 'Unknown Event'}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
+                    </p>
                   </div>
+                  <div className="text-sm text-slate-600 flex items-center">
+                    {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
+                  </div>
+                </div>
               </div>
             ))}
           </div>
