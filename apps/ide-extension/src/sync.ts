@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import fetch from "node-fetch";
 import { API_BASE, getValidAccessToken } from "./auth";
 
 type ApiSuccess<T> = { data: T; error: null; request_id?: string };

@@ -1,5 +1,6 @@
 import * as os from "os";
 import * as vscode from "vscode";
+import fetch from "node-fetch";
 
 export const API_BASE = "http://localhost:8080/api/v1";
 /** Web console base URL where the user confirms device auth (`/device-auth/confirm?code=…`). */
