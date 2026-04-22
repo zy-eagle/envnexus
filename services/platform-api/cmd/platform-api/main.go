@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -26,13 +27,13 @@ import (
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/auth"
 	command_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/command"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device"
-	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
-	device_group_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_group"
-	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/health"
-	file_access_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/file_access"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_auth"
+	device_binding "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_binding"
+	device_group_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_group"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/enrollment"
+	file_access_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/file_access"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/governance"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/health"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/license"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/marketplace"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/metrics"
@@ -246,7 +247,14 @@ func main() {
 	var marketplaceService *marketplace.Service
 	if gormDB != nil {
 		deviceAuthService = device_auth.NewService(repository.NewMySQLDeviceAuthRepository(gormDB))
-		marketplaceService = marketplace.NewService(repository.NewMySQLMarketplaceRepository(gormDB))
+		marketplaceService = marketplace.NewService(repository.NewMySQLMarketplaceRepository(gormDB), minioClient)
+	}
+
+	if marketplaceService != nil {
+		vsixPath := envOrDefault("ENX_IDE_EXTENSION_VSIX_PATH", filepath.Join("..", "..", "apps", "ide-extension", "envnexus-sync-0.1.0.vsix"))
+		if err := marketplace.SeedIDEExtension(context.Background(), marketplaceService, vsixPath); err != nil {
+			slog.Warn("IDE extension marketplace seed failed", "error", err)
+		}
 	}
 
 	// --- Feishu Integration ---

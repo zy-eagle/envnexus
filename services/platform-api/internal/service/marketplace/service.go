@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"path"
 	"strings"
 	"time"
 
@@ -13,14 +15,50 @@ import (
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/dto"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/infrastructure"
 )
 
 type Service struct {
-	repo domain.MarketplaceRepository
+	repo        domain.MarketplaceRepository
+	minioClient *infrastructure.MinIOClient
 }
 
-func NewService(repo domain.MarketplaceRepository) *Service {
-	return &Service{repo: repo}
+func NewService(repo domain.MarketplaceRepository, minio *infrastructure.MinIOClient) *Service {
+	return &Service{repo: repo, minioClient: minio}
+}
+
+// CreateMarketplaceItemInput is parsed from multipart (or form) for creating an item.
+type CreateMarketplaceItemInput struct {
+	Type        domain.MarketplaceItemType
+	Name        string
+	Description string
+	Version     string
+	Author      string
+	Status      domain.MarketplaceItemStatus
+	File        io.Reader
+	FileSize    int64
+	Filename    string
+	ContentType string
+	// PayloadJSON is used when there is no file (e.g. skill/rule content as raw JSON string).
+	PayloadJSON string
+}
+
+// UpdateMarketplaceItemInput is parsed from multipart for updating an item.
+// Empty string means "leave unchanged" (except type: if set, it must match the current type).
+// FileSize > 0 means a new file replaces the stored artifact (plugin) or JSON payload (other types).
+// Non-empty PayloadJSON without a new file updates stored JSON for non-plugin types only.
+type UpdateMarketplaceItemInput struct {
+	Type        string
+	Name        string
+	Description string
+	Version     string
+	Author      string
+	Status      string
+	File        io.Reader
+	FileSize    int64
+	Filename    string
+	ContentType string
+	PayloadJSON string
 }
 
 // ListItems lists marketplace items with optional type/status filters.
@@ -162,7 +200,8 @@ func (s *Service) IdeSyncManifest(ctx context.Context, tenantID string) ([]*dto.
 }
 
 // GetItemDownloadURL returns a download URL for a published, subscribed marketplace item.
-// If the item payload JSON contains "download_url", that value is used; otherwise a placeholder URL is returned.
+// If the payload has "object_key" and object storage is configured, a fresh presigned GET URL is returned.
+// Otherwise, if the payload has "download_url", that value is used; else a placeholder URL is returned.
 func (s *Service) GetItemDownloadURL(ctx context.Context, tenantID, itemID string) (*dto.MarketplaceItemDownloadResponse, error) {
 	item, err := s.repo.GetMarketplaceItemByID(ctx, itemID)
 	if err != nil {
@@ -186,13 +225,265 @@ func (s *Service) GetItemDownloadURL(ctx context.Context, tenantID, itemID strin
 	}
 	var payload struct {
 		DownloadURL string `json:"download_url"`
+		ObjectKey   string `json:"object_key"`
 	}
 	if item.Payload != "" {
 		_ = json.Unmarshal([]byte(item.Payload), &payload)
+	}
+	if key := strings.TrimSpace(payload.ObjectKey); key != "" && s.minioClient != nil {
+		u, err := s.minioClient.PresignedGetURL(ctx, key, time.Hour)
+		if err == nil && u != nil {
+			return &dto.MarketplaceItemDownloadResponse{DownloadURL: u.String()}, nil
+		}
 	}
 	url := strings.TrimSpace(payload.DownloadURL)
 	if url == "" {
 		url = fmt.Sprintf("https://example.com/marketplace/plugins/%s.zip", itemID)
 	}
 	return &dto.MarketplaceItemDownloadResponse{DownloadURL: url}, nil
+}
+
+const maxMarketplaceFileBytes = 32 << 20
+
+func isKnownItemType(t domain.MarketplaceItemType) bool {
+	switch t {
+	case domain.MarketplaceItemTypeMcp, domain.MarketplaceItemTypeSkill, domain.MarketplaceItemTypeSubagent,
+		domain.MarketplaceItemTypePlugin, domain.MarketplaceItemTypeRule:
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownStatus(st domain.MarketplaceItemStatus) bool {
+	switch st {
+	case domain.MarketplaceItemStatusPublished, domain.MarketplaceItemStatusDraft, domain.MarketplaceItemStatusArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+func safeObjectFilename(name string) string {
+	name = path.Base(strings.ReplaceAll(name, "\x00", ""))
+	if name == "." || name == "/" || name == "" || strings.Contains(name, "..") {
+		return "artifact"
+	}
+	return name
+}
+
+func extractObjectKey(payload string) string {
+	var p struct {
+		ObjectKey string `json:"object_key"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(p.ObjectKey)
+}
+
+func (s *Service) buildPluginPayloadJSON(ctx context.Context, objectKey string) (string, error) {
+	p := struct {
+		ObjectKey   string `json:"object_key"`
+		DownloadURL string `json:"download_url"`
+	}{
+		ObjectKey: objectKey,
+	}
+	if s.minioClient != nil {
+		if u, err := s.minioClient.PresignedGetURL(ctx, objectKey, 7*24*time.Hour); err == nil && u != nil {
+			p.DownloadURL = u.String()
+		}
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func readValidateJSONPayload(r io.Reader, size int64) (string, error) {
+	if size <= 0 || size > maxMarketplaceFileBytes {
+		return "", domain.ErrInvalidRequest
+	}
+	b, err := io.ReadAll(io.LimitReader(r, size+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(b)) > size || int64(len(b)) > maxMarketplaceFileBytes {
+		return "", domain.ErrInvalidRequest
+	}
+	if !json.Valid(b) {
+		return "", domain.ErrInvalidRequest
+	}
+	return string(b), nil
+}
+
+// CreateMarketplaceItem stores a new item. Plugin types require a file and MinIO; other types use a file or a raw JSON "payload" string.
+func (s *Service) CreateMarketplaceItem(ctx context.Context, in CreateMarketplaceItemInput) (*dto.MarketplaceItemResponse, error) {
+	name := strings.TrimSpace(in.Name)
+	ver := strings.TrimSpace(in.Version)
+	if in.Type == "" || name == "" || ver == "" {
+		return nil, domain.ErrInvalidRequest
+	}
+	if !isKnownItemType(in.Type) {
+		return nil, domain.ErrInvalidRequest
+	}
+	st := in.Status
+	if st == "" {
+		st = domain.MarketplaceItemStatusDraft
+	}
+	if !isKnownStatus(st) {
+		return nil, domain.ErrInvalidRequest
+	}
+	now := time.Now()
+	id := ulid.Make().String()
+	var payload string
+	switch in.Type {
+	case domain.MarketplaceItemTypePlugin:
+		if in.File == nil || in.FileSize <= 0 {
+			return nil, domain.ErrInvalidRequest
+		}
+		if s.minioClient == nil {
+			return nil, domain.ErrObjectStorageUnavailable
+		}
+		ct := strings.TrimSpace(in.ContentType)
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		key := fmt.Sprintf("marketplace/items/%s/%s", id, safeObjectFilename(in.Filename))
+		if err := s.minioClient.PutObject(ctx, key, in.File, in.FileSize, ct); err != nil {
+			return nil, err
+		}
+		p, err := s.buildPluginPayloadJSON(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		payload = p
+	default:
+		if in.File != nil && in.FileSize > 0 {
+			p, err := readValidateJSONPayload(in.File, in.FileSize)
+			if err != nil {
+				return nil, err
+			}
+			payload = p
+		} else {
+			p := strings.TrimSpace(in.PayloadJSON)
+			if p == "" {
+				return nil, domain.ErrInvalidRequest
+			}
+			if !json.Valid([]byte(p)) {
+				return nil, domain.ErrInvalidRequest
+			}
+			payload = p
+		}
+	}
+	item := &domain.MarketplaceItem{
+		ID:          id,
+		Type:        in.Type,
+		Name:        name,
+		Description: strings.TrimSpace(in.Description),
+		Version:     ver,
+		Author:      strings.TrimSpace(in.Author),
+		Payload:     payload,
+		Status:      st,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := s.repo.CreateMarketplaceItem(ctx, item); err != nil {
+		return nil, err
+	}
+	return itemToDTO(item), nil
+}
+
+// UpdateMarketplaceItem updates metadata and/or replaces the artifact (plugin) or JSON payload (other types).
+func (s *Service) UpdateMarketplaceItem(ctx context.Context, id string, in UpdateMarketplaceItemInput) (*dto.MarketplaceItemResponse, error) {
+	item, err := s.repo.GetMarketplaceItemByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrMarketplaceItemNotFound
+		}
+		return nil, err
+	}
+	if t := strings.TrimSpace(in.Type); t != "" && domain.MarketplaceItemType(t) != item.Type {
+		return nil, domain.ErrInvalidRequest
+	}
+	if n := strings.TrimSpace(in.Name); n != "" {
+		item.Name = n
+	}
+	if n := strings.TrimSpace(in.Version); n != "" {
+		item.Version = n
+	}
+	if n := strings.TrimSpace(in.Description); n != "" {
+		item.Description = n
+	}
+	if n := strings.TrimSpace(in.Author); n != "" {
+		item.Author = n
+	}
+	if s := strings.TrimSpace(in.Status); s != "" {
+		st := domain.MarketplaceItemStatus(s)
+		if !isKnownStatus(st) {
+			return nil, domain.ErrInvalidRequest
+		}
+		item.Status = st
+	}
+	if in.FileSize > 0 && in.File != nil {
+		switch item.Type {
+		case domain.MarketplaceItemTypePlugin:
+			if s.minioClient == nil {
+				return nil, domain.ErrObjectStorageUnavailable
+			}
+			ct := strings.TrimSpace(in.ContentType)
+			if ct == "" {
+				ct = "application/octet-stream"
+			}
+			newKey := fmt.Sprintf("marketplace/items/%s/%s", id, safeObjectFilename(in.Filename))
+			if err := s.minioClient.PutObject(ctx, newKey, in.File, in.FileSize, ct); err != nil {
+				return nil, err
+			}
+			if old := extractObjectKey(item.Payload); old != "" {
+				_ = s.minioClient.RemoveObject(ctx, old)
+			}
+			p, err := s.buildPluginPayloadJSON(ctx, newKey)
+			if err != nil {
+				return nil, err
+			}
+			item.Payload = p
+		default:
+			p, err := readValidateJSONPayload(in.File, in.FileSize)
+			if err != nil {
+				return nil, err
+			}
+			item.Payload = p
+		}
+	} else if strings.TrimSpace(in.PayloadJSON) != "" {
+		if item.Type == domain.MarketplaceItemTypePlugin {
+			return nil, domain.ErrInvalidRequest
+		}
+		if !json.Valid([]byte(in.PayloadJSON)) {
+			return nil, domain.ErrInvalidRequest
+		}
+		item.Payload = in.PayloadJSON
+	}
+	item.UpdatedAt = time.Now()
+	if err := s.repo.UpdateMarketplaceItem(ctx, item); err != nil {
+		return nil, err
+	}
+	return itemToDTO(item), nil
+}
+
+// DeleteMarketplaceItem removes the item. Plugin artifacts in object storage are best-effort deleted when present in payload.
+func (s *Service) DeleteMarketplaceItem(ctx context.Context, id string) error {
+	item, err := s.repo.GetMarketplaceItemByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.ErrMarketplaceItemNotFound
+		}
+		return err
+	}
+	if item.Type == domain.MarketplaceItemTypePlugin && s.minioClient != nil {
+		if k := extractObjectKey(item.Payload); k != "" {
+			_ = s.minioClient.RemoveObject(ctx, k)
+		}
+	}
+	return s.repo.DeleteMarketplaceItem(ctx, id)
 }

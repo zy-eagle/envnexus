@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api, APIError } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useDict } from "@/lib/i18n/dictionary";
+
+const FILTER_TYPES = ["all", "plugin", "mcp", "skill", "rule", "subagent"] as const;
+type TypeFilter = (typeof FILTER_TYPES)[number];
 
 interface MarketplaceItemRow {
   id: string;
@@ -91,10 +96,13 @@ async function downloadMarketplacePlugin(
 export default function MarketplacePage() {
   const params = useParams<{ tenantId: string }>();
   const tenantId = params?.tenantId;
+  const { user } = useAuth();
   const { lang } = useLanguage();
   const t = useDict("marketplace", lang);
   const ct = useDict("common", lang);
+  const isPlatformSuper = !!user?.platform_super_admin;
 
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [items, setItems] = useState<MarketplaceItemRow[]>([]);
   const [subs, setSubs] = useState<SubscriptionRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,14 +120,39 @@ export default function MarketplacePage() {
     return set;
   }, [subs]);
 
+  const typeFilterLabel = useCallback(
+    (f: TypeFilter) => {
+      if (f === "all") return t.filterAll;
+      if (f === "plugin") return t.typePlugin;
+      if (f === "mcp") return t.typeMcp;
+      if (f === "skill") return t.typeSkill;
+      if (f === "rule") return t.typeRule;
+      return t.typeSubagent;
+    },
+    [t],
+  );
+
+  const itemTypeLabel = useCallback(
+    (raw: string) => {
+      if (raw === "plugin") return t.typePlugin;
+      if (raw === "mcp") return t.typeMcp;
+      if (raw === "skill") return t.typeSkill;
+      if (raw === "rule") return t.typeRule;
+      if (raw === "subagent") return t.typeSubagent;
+      return raw;
+    },
+    [t],
+  );
+
   const load = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
     setError(null);
+    const typeQ = typeFilter === "all" ? "" : `&type=${typeFilter}`;
     try {
       const [itemsRes, subsRes] = await Promise.all([
         api.get<{ items?: MarketplaceItemRow[] }>(
-          `/tenants/${tenantId}/marketplace/items?status=published&page=1&page_size=100`
+          `/tenants/${tenantId}/marketplace/items?status=published&page=1&page_size=100${typeQ}`
         ),
         api.get<{ items?: SubscriptionRow[] }>(
           `/tenants/${tenantId}/marketplace/subscriptions?page=1&page_size=100`
@@ -138,7 +171,7 @@ export default function MarketplacePage() {
     } finally {
       setLoading(false);
     }
-  }, [tenantId, ct.error]);
+  }, [tenantId, ct.error, typeFilter]);
 
   useEffect(() => {
     void load();
@@ -183,9 +216,39 @@ export default function MarketplacePage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-slate-900 tracking-tight">{t.title}</h1>
-        <p className="mt-1 text-sm text-slate-500">{t.subtitle}</p>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">{t.title}</h1>
+          <p className="mt-1 text-sm text-slate-500">{t.subtitle}</p>
+        </div>
+        {isPlatformSuper && tenantId && (
+          <Link
+            href={`/tenants/${tenantId}/marketplace/publish`}
+            className="inline-flex shrink-0 items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+          >
+            {t.publishComponent}
+          </Link>
+        )}
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-1.5 border-b border-slate-200 pb-3">
+        {FILTER_TYPES.map((f) => {
+          const active = typeFilter === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setTypeFilter(f)}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-slate-900 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {typeFilterLabel(f)}
+            </button>
+          );
+        })}
       </div>
 
       {error && (
@@ -222,7 +285,7 @@ export default function MarketplacePage() {
                           <div className="text-xs text-slate-500 line-clamp-2 mt-0.5">{item.description}</div>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{item.type}</td>
+                      <td className="px-4 py-3 text-slate-600">{itemTypeLabel(item.type)}</td>
                       <td className="px-4 py-3 text-slate-600">{item.version}</td>
                       <td className="px-4 py-3 text-slate-600">{item.author || "—"}</td>
                       <td className="px-4 py-3">
