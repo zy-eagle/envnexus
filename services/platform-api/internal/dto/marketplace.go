@@ -39,3 +39,9 @@ type TenantSubscriptionResponse struct {
 type MarketplaceItemDownloadResponse struct {
 	DownloadURL string `json:"download_url"`
 }
+
+// ExtensionUpdateResponse contains the latest version and download URL for the IDE extension.
+type ExtensionUpdateResponse struct {
+	Version     string `json:"version"`
+	DownloadURL string `json:"download_url"`
+}
