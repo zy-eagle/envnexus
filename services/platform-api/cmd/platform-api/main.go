@@ -31,8 +31,10 @@ import (
 	device_group_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_group"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/health"
 	file_access_svc "github.com/zy-eagle/envnexus/services/platform-api/internal/service/file_access"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/device_auth"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/governance"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/license"
+	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/marketplace"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/metrics"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/model_profile"
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/service/notification"
@@ -240,6 +242,13 @@ func main() {
 		go rbacService.SeedDefaultRoles(context.Background(), "system")
 	}
 
+	var deviceAuthService *device_auth.Service
+	var marketplaceService *marketplace.Service
+	if gormDB != nil {
+		deviceAuthService = device_auth.NewService(repository.NewMySQLDeviceAuthRepository(gormDB))
+		marketplaceService = marketplace.NewService(repository.NewMySQLMarketplaceRepository(gormDB))
+	}
+
 	// --- Feishu Integration ---
 	var feishuHandler *feishu.Handler
 	feishuClient := feishu.NewClient(feishuAppID, feishuAppSecret)
@@ -291,6 +300,17 @@ func main() {
 	}
 	if licenseService != nil {
 		licenseHandler = httphandler.NewLicenseHandler(licenseService)
+	}
+
+	var deviceAuthHandler *httphandler.DeviceAuthHandler
+	var marketplaceHandler *httphandler.MarketplaceHandler
+	var ideSyncHandler *httphandler.IdeSyncHandler
+	if deviceAuthService != nil {
+		deviceAuthHandler = httphandler.NewDeviceAuthHandler(deviceAuthService)
+	}
+	if marketplaceService != nil {
+		marketplaceHandler = httphandler.NewMarketplaceHandler(marketplaceService)
+		ideSyncHandler = httphandler.NewIdeSyncHandler(marketplaceService)
 	}
 
 	agentEnrollHandler := agent.NewEnrollHandler(enrollService)
@@ -370,6 +390,11 @@ func main() {
 		publicV1.POST("/auth/refresh", middleware.RateLimiter(20, 40), func(c *gin.Context) { authHandler.RefreshToken(c) })
 		publicV1.GET("/bootstrap", func(c *gin.Context) { authHandler.Bootstrap(c) })
 	}
+	if deviceAuthHandler != nil {
+		da := publicV1.Group("")
+		da.Use(middleware.RateLimiter(20, 40))
+		deviceAuthHandler.RegisterPublicRoutes(da)
+	}
 
 	// Protected console API
 	protectedV1 := router.Group("/api/v1")
@@ -403,6 +428,19 @@ func main() {
 		if licenseHandler != nil {
 			licenseHandler.RegisterRoutes(protectedV1)
 		}
+		if deviceAuthHandler != nil {
+			deviceAuthHandler.RegisterProtectedRoutes(protectedV1)
+		}
+		if marketplaceHandler != nil {
+			marketplaceHandler.RegisterRoutes(protectedV1)
+		}
+	}
+
+	// IDE sync (IDE access token, not console JWT)
+	if ideSyncHandler != nil && deviceAuthService != nil {
+		ideV1 := router.Group("/api/v1")
+		ideV1.Use(middleware.IdeAuth(deviceAuthService))
+		ideSyncHandler.RegisterRoutes(ideV1)
 	}
 
 	// Feishu webhook endpoints (no console auth, verified by Feishu token)

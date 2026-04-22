@@ -62,4 +62,16 @@ var (
 	ErrNotificationChannelNotFound = NewAppError("notification_channel_not_found", "notification channel not found", http.StatusNotFound)
 	ErrInsufficientPermission      = NewAppError("insufficient_permission", "you do not have permission for this operation", http.StatusForbidden)
 	ErrSeparationOfDutyViolation   = NewAppError("sod_violation", "creator cannot approve their own task", http.StatusForbidden)
+
+	ErrDeviceAuthNotFound      = NewAppError("device_auth_not_found", "device authorization session not found", http.StatusNotFound)
+	ErrDeviceAuthExpired       = NewAppError("device_auth_expired", "device authorization session has expired", http.StatusBadRequest)
+	ErrDeviceAuthDenied        = NewAppError("device_auth_denied", "user denied the authorization request", http.StatusForbidden)
+	ErrDeviceAuthInvalidState  = NewAppError("device_auth_invalid_state", "device authorization session is in an invalid state for this operation", http.StatusConflict)
+	ErrIdeClientTokenNotFound  = NewAppError("ide_client_token_not_found", "IDE client token not found or invalid", http.StatusUnauthorized)
+	ErrIdeClientTokenExpired   = NewAppError("ide_client_token_expired", "IDE client refresh token has expired", http.StatusUnauthorized)
+
+	ErrMarketplaceItemNotFound       = NewAppError("marketplace_item_not_found", "marketplace item not found", http.StatusNotFound)
+	ErrMarketplaceItemNotPublished   = NewAppError("marketplace_item_not_published", "marketplace item is not published", http.StatusBadRequest)
+	ErrMarketplaceAlreadySubscribed  = NewAppError("marketplace_already_subscribed", "tenant is already subscribed to this item", http.StatusConflict)
+	ErrMarketplaceSubscriptionNotFound = NewAppError("marketplace_subscription_not_found", "subscription not found", http.StatusNotFound)
 )
