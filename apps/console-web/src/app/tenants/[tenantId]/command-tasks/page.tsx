@@ -1914,11 +1914,12 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                     </label>
                     <textarea
                       required
+                      readOnly
                       value={formCommandPayload}
                       onChange={(e) => setFormCommandPayload(e.target.value)}
                       placeholder={(t as any).commandContentPlaceholder}
                       rows={Math.max(3, Math.min(10, formCommandPayload.split("\n").length + 1))}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono bg-gray-900 text-green-400 resize-y"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono bg-gray-800 text-green-400 resize-y cursor-not-allowed opacity-90"
                     />
                   </div>
                 </>
@@ -2062,11 +2063,12 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {(t as any).note}
                 </label>
-                <textarea
+                <input
+                  type="text"
                   value={formNote}
                   onChange={(e) => setFormNote(e.target.value)}
                   placeholder={(t as any).notePlaceholder}
-                  rows={2}
+                  maxLength={60}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                 />
               </div>
