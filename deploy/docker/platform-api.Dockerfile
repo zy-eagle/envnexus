@@ -2,7 +2,7 @@
 FROM node:20-alpine AS ext-builder
 WORKDIR /app
 COPY apps/ide-extension/package*.json ./
-RUN npm install
+RUN npm install --registry=https://registry.npmmirror.com
 COPY apps/ide-extension/ ./
 RUN npm run package
 
