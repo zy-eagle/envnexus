@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import fetch from "node-fetch";
-import { API_BASE, getValidAccessToken } from "./auth";
+import { getApiBase, getValidAccessToken } from "./auth";
 
 type ApiSuccess<T> = { data: T; error: null; request_id?: string };
 type ApiErrorBody = { data: null; error: { code: string; message: string }; request_id?: string };
@@ -108,7 +108,7 @@ async function applyRuleItem(folder: vscode.Uri, item: ManifestItem): Promise<vo
 }
 
 async function fetchIdeSyncManifest(accessToken: string): Promise<{ items: ManifestItem[] }> {
-  const res = await fetch(`${API_BASE}/ide-sync/manifest`, {
+  const res = await fetch(`${getApiBase()}/ide-sync/manifest`, {
     method: "GET",
     headers: {
       Accept: "application/json",

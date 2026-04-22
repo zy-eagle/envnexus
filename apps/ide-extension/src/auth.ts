@@ -2,9 +2,17 @@ import * as os from "os";
 import * as vscode from "vscode";
 import fetch from "node-fetch";
 
-export const API_BASE = "http://localhost:8080/api/v1";
-/** Web console base URL where the user confirms device auth (`/device-auth/confirm?code=…`). */
-const CONSOLE_DEVICE_AUTH_ORIGIN = "http://localhost:3000";
+export function getApiBase(): string {
+  const config = vscode.workspace.getConfiguration("envnexus");
+  const url = config.get<string>("serverUrl") || "http://localhost:8080";
+  return `${url.replace(/\/+$/, "")}/api/v1`;
+}
+
+export function getConsoleUrl(): string {
+  const config = vscode.workspace.getConfiguration("envnexus");
+  const url = config.get<string>("consoleUrl") || "http://localhost:3000";
+  return url.replace(/\/+$/, "");
+}
 
 const SECRET_ACCESS = "access_token";
 const SECRET_REFRESH = "refresh_token";
@@ -112,7 +120,7 @@ export async function login(context: vscode.ExtensionContext): Promise<void> {
   const deviceInfo = JSON.stringify({ name: "VSCode", os: os.platform() });
   let init: ApiSuccess<DeviceInitData> | ApiErrorBody;
   try {
-    init = await postJson<ApiSuccess<DeviceInitData> | ApiErrorBody>(`${API_BASE}/device-auth/init`, {
+    init = await postJson<ApiSuccess<DeviceInitData> | ApiErrorBody>(`${getApiBase()}/device-auth/init`, {
       device_info: deviceInfo
     });
   } catch (e) {
@@ -128,7 +136,7 @@ export async function login(context: vscode.ExtensionContext): Promise<void> {
   const intervalSec = Math.max(1, d.interval);
   const verificationUri =
     d.verification_uri_complete ??
-    `${CONSOLE_DEVICE_AUTH_ORIGIN}/device-auth/confirm?code=${encodeURIComponent(d.user_code)}`;
+    `${getConsoleUrl()}/device-auth/confirm?code=${encodeURIComponent(d.user_code)}`;
 
   const choice = await vscode.window.showInformationMessage(
     `Please authenticate in your browser. User Code: ${d.user_code}`,
@@ -147,7 +155,7 @@ export async function login(context: vscode.ExtensionContext): Promise<void> {
     }
     let res: ApiSuccess<DevicePollData> | ApiErrorBody;
     try {
-      res = await postJson<ApiSuccess<DevicePollData> | ApiErrorBody>(`${API_BASE}/device-auth/poll`, {
+      res = await postJson<ApiSuccess<DevicePollData> | ApiErrorBody>(`${getApiBase()}/device-auth/poll`, {
         device_code: d.device_code
       });
     } catch (e) {
@@ -248,7 +256,7 @@ export async function getValidAccessToken(context: vscode.ExtensionContext): Pro
 
   let res: ApiSuccess<RefreshData> | ApiErrorBody;
   try {
-    res = await postJson<ApiSuccess<RefreshData> | ApiErrorBody>(`${API_BASE}/device-auth/refresh`, {
+    res = await postJson<ApiSuccess<RefreshData> | ApiErrorBody>(`${getApiBase()}/device-auth/refresh`, {
       refresh_token: refresh
     });
   } catch (e) {
