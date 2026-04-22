@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,10 +26,27 @@ func (h *MarketplaceHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		m.GET("/items", h.ListItems)
 		m.GET("/items/:itemId/download", h.GetItemDownload)
+		m.POST("/items", h.CreateItem)
+		m.PUT("/items/:itemId", h.UpdateItem)
+		m.DELETE("/items/:itemId", h.DeleteItem)
 		m.GET("/subscriptions", h.ListSubscriptions)
 		m.POST("/subscriptions", h.Subscribe)
 		m.DELETE("/subscriptions/:itemId", h.Unsubscribe)
 	}
+}
+
+func (h *MarketplaceHandler) requirePlatformSuperAdmin(c *gin.Context) bool {
+	v, ok := c.Get("platform_super_admin")
+	if !ok {
+		mw.RespondErrorCode(c, http.StatusForbidden, "forbidden", "platform administrator access required")
+		return false
+	}
+	b, ok := v.(bool)
+	if !ok || !b {
+		mw.RespondErrorCode(c, http.StatusForbidden, "forbidden", "platform administrator access required")
+		return false
+	}
+	return true
 }
 
 func (h *MarketplaceHandler) requireTenantScope(c *gin.Context, tenantID string) bool {
@@ -158,4 +176,116 @@ func (h *MarketplaceHandler) GetItemDownload(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, out)
+}
+
+const maxMarketplaceMultipartMemory = 32 << 20
+
+func parseMarketplaceForm(c *gin.Context) error {
+	if err := c.Request.ParseMultipartForm(maxMarketplaceMultipartMemory); err != nil {
+		if err2 := c.Request.ParseForm(); err2 != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CreateItem creates a marketplace item (platform super admin). multipart/form-data: type, name, version, optional description, author, status, optional file, optional payload (JSON for non-plugin).
+func (h *MarketplaceHandler) CreateItem(c *gin.Context) {
+	if !h.requirePlatformSuperAdmin(c) {
+		return
+	}
+	if err := parseMarketplaceForm(c); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+	typ := domain.MarketplaceItemType(strings.TrimSpace(c.PostForm("type")))
+	in := marketplace.CreateMarketplaceItemInput{
+		Type:        typ,
+		Name:        strings.TrimSpace(c.PostForm("name")),
+		Description: strings.TrimSpace(c.PostForm("description")),
+		Version:     strings.TrimSpace(c.PostForm("version")),
+		Author:      strings.TrimSpace(c.PostForm("author")),
+		PayloadJSON: c.PostForm("payload"),
+	}
+	if s := strings.TrimSpace(c.PostForm("status")); s != "" {
+		in.Status = domain.MarketplaceItemStatus(s)
+	}
+	if fh, err := c.FormFile("file"); err == nil && fh != nil {
+		f, err := fh.Open()
+		if err != nil {
+			mw.RespondErrorCode(c, http.StatusBadRequest, "invalid_file", "could not read uploaded file")
+			return
+		}
+		defer f.Close()
+		in.File = f
+		in.FileSize = fh.Size
+		in.Filename = fh.Filename
+		in.ContentType = fh.Header.Get("Content-Type")
+	}
+	out, err := h.svc.CreateMarketplaceItem(c.Request.Context(), in)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusCreated, out)
+}
+
+// UpdateItem updates a marketplace item (platform super admin). multipart/form-data with optional file and fields; empty string keeps existing values.
+func (h *MarketplaceHandler) UpdateItem(c *gin.Context) {
+	if !h.requirePlatformSuperAdmin(c) {
+		return
+	}
+	itemID := c.Param("itemId")
+	if itemID == "" {
+		mw.RespondValidationError(c, "itemId is required")
+		return
+	}
+	if err := parseMarketplaceForm(c); err != nil {
+		mw.RespondValidationError(c, err.Error())
+		return
+	}
+	in := marketplace.UpdateMarketplaceItemInput{
+		Type:        c.PostForm("type"),
+		Name:        c.PostForm("name"),
+		Description: c.PostForm("description"),
+		Version:     c.PostForm("version"),
+		Author:      c.PostForm("author"),
+		Status:      c.PostForm("status"),
+		PayloadJSON: c.PostForm("payload"),
+	}
+	if fh, err := c.FormFile("file"); err == nil && fh != nil {
+		f, err := fh.Open()
+		if err != nil {
+			mw.RespondErrorCode(c, http.StatusBadRequest, "invalid_file", "could not read uploaded file")
+			return
+		}
+		defer f.Close()
+		in.File = f
+		in.FileSize = fh.Size
+		in.Filename = fh.Filename
+		in.ContentType = fh.Header.Get("Content-Type")
+	}
+	out, err := h.svc.UpdateMarketplaceItem(c.Request.Context(), itemID, in)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, out)
+}
+
+// DeleteItem removes a marketplace item (platform super admin).
+func (h *MarketplaceHandler) DeleteItem(c *gin.Context) {
+	if !h.requirePlatformSuperAdmin(c) {
+		return
+	}
+	itemID := c.Param("itemId")
+	if itemID == "" {
+		mw.RespondValidationError(c, "itemId is required")
+		return
+	}
+	if err := h.svc.DeleteMarketplaceItem(c.Request.Context(), itemID); err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "ok"})
 }

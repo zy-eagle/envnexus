@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"time"
@@ -111,4 +112,27 @@ func (m *MinIOClient) PresignedPutURL(ctx context.Context, objectName string, ex
 func (m *MinIOClient) ObjectExists(ctx context.Context, objectName string) bool {
 	_, err := m.client.StatObject(ctx, m.bucketName, objectName, minio.StatObjectOptions{})
 	return err == nil
+}
+
+// PutObject uploads an object to the configured bucket.
+func (m *MinIOClient) PutObject(ctx context.Context, objectName string, reader io.Reader, size int64, contentType string) error {
+	opts := minio.PutObjectOptions{}
+	if contentType != "" {
+		opts.ContentType = contentType
+	}
+	_, err := m.client.PutObject(ctx, m.bucketName, objectName, reader, size, opts)
+	return err
+}
+
+// RemoveObject deletes an object from the configured bucket. Missing objects are not treated as an error.
+func (m *MinIOClient) RemoveObject(ctx context.Context, objectName string) error {
+	err := m.client.RemoveObject(ctx, m.bucketName, objectName, minio.RemoveObjectOptions{})
+	if err == nil {
+		return nil
+	}
+	er := minio.ToErrorResponse(err)
+	if er.Code == "NoSuchKey" || er.Code == "NotFound" {
+		return nil
+	}
+	return err
 }

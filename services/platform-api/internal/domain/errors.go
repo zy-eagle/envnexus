@@ -74,4 +74,5 @@ var (
 	ErrMarketplaceItemNotPublished   = NewAppError("marketplace_item_not_published", "marketplace item is not published", http.StatusBadRequest)
 	ErrMarketplaceAlreadySubscribed  = NewAppError("marketplace_already_subscribed", "tenant is already subscribed to this item", http.StatusConflict)
 	ErrMarketplaceSubscriptionNotFound = NewAppError("marketplace_subscription_not_found", "subscription not found", http.StatusNotFound)
+	ErrObjectStorageUnavailable        = NewAppError("object_storage_unavailable", "object storage is not configured or unavailable", http.StatusServiceUnavailable)
 )
