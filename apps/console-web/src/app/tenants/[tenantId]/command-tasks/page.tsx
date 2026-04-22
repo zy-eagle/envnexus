@@ -67,6 +67,7 @@ interface Device {
   status: string;
   platform?: string;
   arch?: string;
+  last_seen_at?: string | null;
 }
 
 /** Multi-target shell/tool commands must run on the same OS and CPU arch. */
@@ -152,6 +153,13 @@ const POLL_INTERVAL_MS = 15_000;
 
 /** Device picker: active targets with OS + arch set (required for multi-target command portability). */
 const DEVICES_FOR_COMMAND_QUERY = "?active_only=true&require_platform_arch=true";
+
+const ONLINE_THRESHOLD_MS = 90 * 1000;
+
+function isOnline(lastSeenAt: string | null, nowMs: number): boolean {
+  if (!lastSeenAt) return false;
+  return nowMs - new Date(lastSeenAt).getTime() < ONLINE_THRESHOLD_MS;
+}
 
 function normalizeDevicesResponse(data: unknown): Device[] {
   if (Array.isArray(data)) return data as Device[];
@@ -624,7 +632,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     let cancelled = false;
     (async () => {
       try {
-        const data = await api.get<unknown>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
+        const data = await api.get<unknown>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}&page_size=1000`);
         const list = normalizeDevicesResponse(data);
         if (!cancelled) setDetailActiveDevices(list);
       } catch {
@@ -666,17 +674,17 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setDevicesLoading(true);
     try {
       // Fetch all devices to ensure we have complete data for online status
-      const allDevicesData = await api.get<any>(`/tenants/${tenantId}/devices`);
+      const allDevicesData = await api.get<any>(`/tenants/${tenantId}/devices?page_size=1000`);
       const allDevicesList = normalizeDevicesResponse(allDevicesData);
       
       // Fetch devices for command execution (with required filters)
-      const devicesData = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
+      const devicesData = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}&page_size=1000`);
       const devicesList = normalizeDevicesResponse(devicesData);
       setDevices(devicesList);
       setFormDeviceIds((prev) => intersectDeviceSelection(prev, devicesList));
       
       // Fetch device groups
-      const groupsData = await api.get<any>(`/tenants/${tenantId}/device-groups`);
+      const groupsData = await api.get<any>(`/tenants/${tenantId}/device-groups?page_size=1000`);
       let groupsList: any[] = [];
       if (Array.isArray(groupsData)) {
         groupsList = groupsData;
@@ -691,7 +699,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
         groupsList.map(async (group) => {
           try {
             // Get group members
-            const membersData = await api.get<any>(`/tenants/${tenantId}/device-groups/${group.id}/members`);
+            const membersData = await api.get<any>(`/tenants/${tenantId}/device-groups/${group.id}/members?page_size=1000`);
             const members = Array.isArray(membersData) ? membersData : (membersData?.items ?? []);
             
             // Get device IDs from members
@@ -700,9 +708,10 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
             // Get online devices
             let onlineCount = 0;
             if (deviceIds.length > 0) {
+              const nowMs = Date.now();
               // Use all devices data to ensure we have complete online status information
               onlineCount = allDevicesList
-                .filter((device: any) => deviceIds.includes(device.id) && device.status === 'online')
+                .filter((device: any) => deviceIds.includes(device.id) && isOnline(device.last_seen_at, nowMs))
                 .length;
             }
             
@@ -800,7 +809,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     setShowNewModal(true);
     setDevicesLoading(true);
     try {
-      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
+      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}&page_size=1000`);
       const list = normalizeDevicesResponse(data);
       setDevices(list);
       const wanted = parseDeviceIds(task.device_ids);
@@ -827,7 +836,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
     loadTaskIntoForm(task, true);
     setDevicesLoading(true);
     try {
-      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}`);
+      const data = await api.get<any>(`/tenants/${tenantId}/devices${DEVICES_FOR_COMMAND_QUERY}&page_size=1000`);
       const list = normalizeDevicesResponse(data);
       setDevices(list);
       setFormDeviceIds([]);
@@ -1736,10 +1745,10 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
               {/* Target Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  目标类型
+                  {lang === "zh" ? "目标类型" : "Target Type"}
                 </label>
                 <div className="flex rounded-lg border border-gray-200 overflow-hidden mb-3">
-                  {([{ value: 'devices', label: '设备' }, { value: 'device_group', label: '设备组' }] as const).map((option) => (
+                  {([{ value: 'devices', label: lang === "zh" ? '设备' : 'Devices' }, { value: 'device_group', label: lang === "zh" ? '设备组' : 'Device Group' }] as const).map((option) => (
                     <button
                       key={option.value}
                       type="button"
@@ -1803,17 +1812,17 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                 {targetType === 'device_group' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      目标设备组
+                      {lang === "zh" ? "目标设备组" : "Target Device Group"}
                     </label>
                     <select
                       value={selectedDeviceGroupId}
                       onChange={(e) => setSelectedDeviceGroupId(e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                     >
-                      <option value="">请选择设备组</option>
+                      <option value="">{lang === "zh" ? "请选择设备组" : "Select device group"}</option>
                       {deviceGroups.map((group) => (
                         <option key={group.id} value={group.id}>
-                          {group.name} ({group.online_device_count || 0} 台在线设备)
+                          {group.name} ({group.online_device_count || 0} {lang === "zh" ? "台在线设备" : "online devices"})
                         </option>
                       ))}
                     </select>
