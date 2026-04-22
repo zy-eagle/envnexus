@@ -107,8 +107,8 @@ export default function OverviewPage() {
                       {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'Unknown Time'}
                     </p>
                   </div>
-                  <div className="text-sm text-slate-600 flex items-center">
-                    {activity.device_id ? `Device: ${activity.device_id.substring(0, 8)}...` : 'System'}
+                  <div className="text-sm text-slate-600 flex items-center truncate" title={activity.device_id ? `Device: ${activity.device_id}` : 'System'}>
+                    {activity.device_id ? `Device: ${activity.device_id}` : 'System'}
                   </div>
                 </div>
               </div>
