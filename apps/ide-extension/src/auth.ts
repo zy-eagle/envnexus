@@ -273,6 +273,31 @@ export async function getValidAccessToken(context: vscode.ExtensionContext): Pro
   return r.access_token;
 }
 
+/**
+ * Quick local check for whether the extension has a usable session in secret storage.
+ * This avoids network calls and is suitable for lightweight UI state (e.g. status bar).
+ */
+export async function hasUsableSession(context: vscode.ExtensionContext): Promise<boolean> {
+  const access = await readSecret(context, SECRET_ACCESS);
+  const refresh = await readSecret(context, SECRET_REFRESH);
+  const expStored = await readSecret(context, SECRET_ACCESS_EXPIRES);
+  if (!access && !refresh) {
+    return false;
+  }
+
+  if (access) {
+    const expiredByJwt = isJwtExpired(access, ACCESS_SKEW_SEC);
+    const expMs = parseExpiresAtMs(expStored);
+    const expiredByStored = expMs !== undefined ? Date.now() >= expMs - ACCESS_SKEW_SEC * 1000 : false;
+    if (!expiredByJwt && !expiredByStored) {
+      return true;
+    }
+  }
+
+  // Access token may expire; a refresh token still means the user can continue.
+  return Boolean(refresh);
+}
+
 async function postJson<T extends ApiErrorBody | ApiSuccess<unknown>>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",

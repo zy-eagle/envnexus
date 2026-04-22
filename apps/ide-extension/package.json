@@ -17,6 +17,7 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:envnexus.login",
     "onCommand:envnexus.sync"
   ],

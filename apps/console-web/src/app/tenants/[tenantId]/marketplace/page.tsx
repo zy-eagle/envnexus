@@ -19,6 +19,7 @@ interface MarketplaceItemRow {
   version: string;
   author?: string;
   status: string;
+  updated_at?: string;
 }
 
 interface SubscriptionRow {
@@ -109,6 +110,18 @@ export default function MarketplacePage() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const fmtDateTime = useCallback(
+    (iso?: string) => {
+      if (!iso) return "—";
+      try {
+        return new Date(iso).toLocaleString(lang === "zh" ? "zh-CN" : "en-US");
+      } catch {
+        return iso;
+      }
+    },
+    [lang],
+  );
 
   const subscribedActive = useMemo(() => {
     const set = new Set<string>();
@@ -204,7 +217,9 @@ export default function MarketplacePage() {
     if (!tenantId) return;
     setDownloadingId(item.id);
     setError(null);
-    const safe = `${item.name.replace(/[^a-zA-Z0-9._-]+/g, "_")}.vsix`;
+    const safeName = item.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const safeVersion = (item.version || "latest").replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const safe = `${safeName}-${safeVersion}.vsix`;
     try {
       await downloadMarketplacePlugin(tenantId, item.id, safe);
     } catch (e) {
@@ -269,6 +284,7 @@ export default function MarketplacePage() {
                   <th className="px-4 py-3 font-medium text-slate-600">{t.type}</th>
                   <th className="px-4 py-3 font-medium text-slate-600">{t.version}</th>
                   <th className="px-4 py-3 font-medium text-slate-600">{t.author}</th>
+                  <th className="px-4 py-3 font-medium text-slate-600">{t.uploadedAt}</th>
                   <th className="px-4 py-3 font-medium text-slate-600">{t.subscription}</th>
                   <th className="px-4 py-3 font-medium text-slate-600 w-48">{ct.actions}</th>
                 </tr>
@@ -288,6 +304,7 @@ export default function MarketplacePage() {
                       <td className="px-4 py-3 text-slate-600">{itemTypeLabel(item.type)}</td>
                       <td className="px-4 py-3 text-slate-600">{item.version}</td>
                       <td className="px-4 py-3 text-slate-600">{item.author || "—"}</td>
+                      <td className="px-4 py-3 text-slate-600">{fmtDateTime(item.updated_at)}</td>
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${

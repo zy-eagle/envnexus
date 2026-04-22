@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -25,7 +27,7 @@ const (
 	accessTokenLifetime        = 1 * time.Hour
 	refreshTokenLifetime       = 30 * 24 * time.Hour
 	maxUserCodeGenerationTries = 5
-	ideClientTokenName         = "device_authorization"
+	ideClientTokenName         = "IDE Client"
 )
 
 // user code charset: visually unambiguous alphanumerics.
@@ -40,6 +42,13 @@ type IdeAccessPrincipal struct {
 
 type Service struct {
 	repo domain.DeviceAuthRepository
+}
+
+type deviceInfoPayload struct {
+	Name     string `json:"name"`
+	OS       string `json:"os"`
+	Hostname string `json:"hostname"`
+	Client   string `json:"client"`
 }
 
 func NewService(repo domain.DeviceAuthRepository) *Service {
@@ -84,6 +93,35 @@ func NormalizeUserCode(s string) string {
 		return s[:4] + "-" + s[4:]
 	}
 	return s
+}
+
+func buildIdeClientTokenName(rawDeviceInfo string) string {
+	base := ideClientTokenName
+	info := strings.TrimSpace(rawDeviceInfo)
+	if info == "" {
+		return base
+	}
+	var p deviceInfoPayload
+	if err := json.Unmarshal([]byte(info), &p); err != nil {
+		return base
+	}
+
+	clientName := strings.TrimSpace(p.Name)
+	if clientName == "" {
+		clientName = strings.TrimSpace(p.Client)
+	}
+	if clientName == "" {
+		clientName = base
+	}
+
+	platform := strings.TrimSpace(p.OS)
+	if platform == "" {
+		platform = strings.TrimSpace(p.Hostname)
+	}
+	if platform == "" {
+		return clientName
+	}
+	return fmt.Sprintf("%s (%s)", clientName, platform)
 }
 
 // InitDeviceAuthorization starts a device authorization request and returns the codes the device and user must use.
@@ -193,7 +231,7 @@ func (s *Service) PollForTokens(ctx context.Context, deviceCode string) (*dto.De
 			ID:               ulid.Make().String(),
 			UserID:           *code.UserID,
 			TenantID:         *code.TenantID,
-			Name:             ideClientTokenName,
+			Name:             buildIdeClientTokenName(code.DeviceInfo),
 			AccessTokenHash:  tokenHash(accessRaw),
 			RefreshTokenHash: tokenHash(refreshRaw),
 			AccessExpiresAt:  accessExp,

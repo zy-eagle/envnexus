@@ -84,6 +84,7 @@ func SeedIDEExtension(ctx context.Context, svc *Service, vsixPath string) error 
 		slog.Warn("marketplace: failed to parse IDE extension version from .vsix, using default", "path", vsixPath, "err", err)
 		extensionVersion = ideExtensionDefaultVersion
 	}
+	versionedName := fmt.Sprintf("envnexus-sync-%s.vsix", normalizeVersionForFilename(extensionVersion))
 
 	if existing == nil {
 		_, err := svc.CreateMarketplaceItem(ctx, CreateMarketplaceItemInput{
@@ -95,13 +96,13 @@ func SeedIDEExtension(ctx context.Context, svc *Service, vsixPath string) error 
 			Status:      domain.MarketplaceItemStatusPublished,
 			File:        f,
 			FileSize:    fi.Size(),
-			Filename:    filename,
+			Filename:    versionedName,
 			ContentType: "application/octet-stream",
 		})
 		if err != nil {
 			return err
 		}
-		slog.Info("marketplace: seeded IDE extension plugin", "name", ideExtensionItemName, "version", extensionVersion, "file", filename)
+		slog.Info("marketplace: seeded IDE extension plugin", "name", ideExtensionItemName, "version", extensionVersion, "file", versionedName)
 		return nil
 	}
 
@@ -116,14 +117,36 @@ func SeedIDEExtension(ctx context.Context, svc *Service, vsixPath string) error 
 		Status:      string(domain.MarketplaceItemStatusPublished),
 		File:        f,
 		FileSize:    fi.Size(),
-		Filename:    filename,
+		Filename:    versionedName,
 		ContentType: "application/octet-stream",
 	})
 	if err != nil {
 		return err
 	}
-	slog.Info("marketplace: updated IDE extension plugin", "id", existing.ID, "name", ideExtensionItemName, "version", extensionVersion, "file", filename)
+	slog.Info("marketplace: updated IDE extension plugin", "id", existing.ID, "name", ideExtensionItemName, "version", extensionVersion, "file", versionedName)
 	return nil
+}
+
+func normalizeVersionForFilename(version string) string {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		return "latest"
+	}
+	v = strings.Map(func(r rune) rune {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			return r
+		case r == '.', r == '-', r == '_':
+			return r
+		default:
+			return '_'
+		}
+	}, v)
+	v = strings.Trim(v, "._-")
+	if v == "" {
+		return "latest"
+	}
+	return v
 }
 
 func readVSIXVersion(vsixPath string) (string, error) {

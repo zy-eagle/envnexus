@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { api, APIError } from "@/lib/api/client";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useDict } from "@/lib/i18n/dictionary";
+import { useAuth } from "@/lib/auth/AuthContext";
 
 interface IdeTokenRow {
   id: string;
@@ -20,6 +21,7 @@ export default function DeveloperSettingsPage() {
   const params = useParams<{ tenantId: string }>();
   const tenantId = params?.tenantId;
   const { lang } = useLanguage();
+  const { user } = useAuth();
   const t = useDict("developerSettings", lang);
   const ct = useDict("common", lang);
 
@@ -86,6 +88,25 @@ export default function DeveloperSettingsPage() {
     }
   };
 
+  const fmtClientName = (name?: string) => {
+    const raw = (name || "").trim();
+    if (!raw || raw === "device_authorization") {
+      return t.defaultClientName;
+    }
+    return raw;
+  };
+
+  const fmtAccount = (row: IdeTokenRow) => {
+    if (!row.user_id) {
+      return "—";
+    }
+    if (user?.id && row.user_id === user.id) {
+      const label = (user.display_name || "").trim() || user.email || row.user_id;
+      return `${label}${lang === "zh" ? "（当前账号）" : " (current account)"}`;
+    }
+    return row.user_id;
+  };
+
   return (
     <div>
       <div className="mb-6">
@@ -118,8 +139,8 @@ export default function DeveloperSettingsPage() {
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} className="border-b border-slate-50 last:border-0">
-                    <td className="px-4 py-3 text-slate-800">{row.name || "—"}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">{row.user_id || "—"}</td>
+                    <td className="px-4 py-3 text-slate-800">{fmtClientName(row.name)}</td>
+                    <td className="px-4 py-3 text-slate-600">{fmtAccount(row)}</td>
                     <td className="px-4 py-3 text-slate-600">{fmt(row.last_used_at)}</td>
                     <td className="px-4 py-3 text-slate-600">{fmt(row.access_expires_at)}</td>
                     <td className="px-4 py-3 text-slate-600">{fmt(row.created_at)}</td>
