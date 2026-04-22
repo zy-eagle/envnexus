@@ -27,8 +27,8 @@ func (r *fakeBatchRepo) UpdateBatchTask(_ context.Context, t *domain.BatchTask) 
 	return nil
 }
 
-func (r *fakeBatchRepo) ListMembers(_ context.Context, _ string) ([]*domain.DeviceGroupMember, error) {
-	return r.members, nil
+func (r *fakeBatchRepo) ListMembers(_ context.Context, _ string, _ int, _ int) ([]*domain.DeviceGroupMember, int64, error) {
+	return r.members, int64(len(r.members)), nil
 }
 
 type fakeExecRepo struct {
