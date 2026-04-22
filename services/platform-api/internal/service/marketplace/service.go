@@ -470,7 +470,7 @@ func (s *Service) UpdateMarketplaceItem(ctx context.Context, id string, in Updat
 			if err := s.minioClient.PutObject(ctx, newKey, in.File, in.FileSize, ct); err != nil {
 				return nil, err
 			}
-			if old := extractObjectKey(item.Payload); old != "" {
+			if old := extractObjectKey(item.Payload); old != "" && old != newKey {
 				_ = s.minioClient.RemoveObject(ctx, old)
 			}
 			p, err := s.buildPluginPayloadJSON(ctx, newKey)
