@@ -324,3 +324,39 @@ func (s *Service) ValidateIdeAccessToken(ctx context.Context, accessToken string
 		TenantID: tok.TenantID,
 	}, nil
 }
+
+// ListIdeTokens returns paginated IDE client token records for a tenant (hashes are never exposed).
+func (s *Service) ListIdeTokens(ctx context.Context, tenantID string, page, pageSize int) ([]*dto.IdeTokenListItem, int64, error) {
+	rows, total, err := s.repo.ListIdeClientTokensByTenantID(ctx, tenantID, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]*dto.IdeTokenListItem, 0, len(rows))
+	for _, t := range rows {
+		out = append(out, &dto.IdeTokenListItem{
+			ID:               t.ID,
+			Name:             t.Name,
+			UserID:           t.UserID,
+			AccessExpiresAt:  t.AccessExpiresAt,
+			RefreshExpiresAt: t.RefreshExpiresAt,
+			LastUsedAt:       t.LastUsedAt,
+			CreatedAt:        t.CreatedAt,
+		})
+	}
+	return out, total, nil
+}
+
+// RevokeIdeToken deletes an IDE client token if it exists and belongs to the given tenant.
+func (s *Service) RevokeIdeToken(ctx context.Context, tenantID, tokenID string) error {
+	tok, err := s.repo.GetIdeClientTokenByID(ctx, tokenID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+	if tok.TenantID != tenantID {
+		return domain.ErrForbidden
+	}
+	return s.repo.DeleteIdeClientToken(ctx, tokenID)
+}

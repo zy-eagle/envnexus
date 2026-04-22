@@ -24,6 +24,7 @@ func (h *MarketplaceHandler) RegisterRoutes(router *gin.RouterGroup) {
 	m := router.Group("/tenants/:tenantId/marketplace")
 	{
 		m.GET("/items", h.ListItems)
+		m.GET("/items/:itemId/download", h.GetItemDownload)
 		m.GET("/subscriptions", h.ListSubscriptions)
 		m.POST("/subscriptions", h.Subscribe)
 		m.DELETE("/subscriptions/:itemId", h.Unsubscribe)
@@ -139,4 +140,22 @@ func (h *MarketplaceHandler) Unsubscribe(c *gin.Context) {
 		return
 	}
 	mw.RespondSuccess(c, http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *MarketplaceHandler) GetItemDownload(c *gin.Context) {
+	tenantID := c.Param("tenantId")
+	if !h.requireTenantScope(c, tenantID) {
+		return
+	}
+	itemID := c.Param("itemId")
+	if itemID == "" {
+		mw.RespondValidationError(c, "itemId is required")
+		return
+	}
+	out, err := h.svc.GetItemDownloadURL(c.Request.Context(), tenantID, itemID)
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, out)
 }

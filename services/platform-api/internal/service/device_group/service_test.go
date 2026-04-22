@@ -2,6 +2,7 @@ package device_group
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/zy-eagle/envnexus/services/platform-api/internal/domain"
@@ -32,14 +33,27 @@ func (r *memGroupRepo) GetGroup(_ context.Context, id string) (*domain.DeviceGro
 	}
 	return g, nil
 }
-func (r *memGroupRepo) ListGroups(_ context.Context, tenantID string) ([]*domain.DeviceGroup, error) {
+func (r *memGroupRepo) ListGroups(_ context.Context, tenantID string, page, pageSize int) ([]*domain.DeviceGroup, int64, error) {
 	var result []*domain.DeviceGroup
 	for _, g := range r.groups {
 		if g.TenantID == tenantID {
 			result = append(result, g)
 		}
 	}
-	return result, nil
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	total := int64(len(result))
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		if offset >= len(result) {
+			return nil, total, nil
+		}
+		end := offset + pageSize
+		if end > len(result) {
+			end = len(result)
+		}
+		result = result[offset:end]
+	}
+	return result, total, nil
 }
 func (r *memGroupRepo) UpdateGroup(_ context.Context, g *domain.DeviceGroup) error {
 	r.groups[g.ID] = g
@@ -67,8 +81,21 @@ func (r *memGroupRepo) RemoveMember(_ context.Context, groupID, deviceID string)
 	r.members[groupID] = filtered
 	return nil
 }
-func (r *memGroupRepo) ListMembers(_ context.Context, groupID string) ([]*domain.DeviceGroupMember, error) {
-	return r.members[groupID], nil
+func (r *memGroupRepo) ListMembers(_ context.Context, groupID string, page, pageSize int) ([]*domain.DeviceGroupMember, int64, error) {
+	mems := r.members[groupID]
+	total := int64(len(mems))
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		if offset >= len(mems) {
+			return nil, total, nil
+		}
+		end := offset + pageSize
+		if end > len(mems) {
+			end = len(mems)
+		}
+		mems = mems[offset:end]
+	}
+	return mems, total, nil
 }
 func (r *memGroupRepo) CreateBatchTask(_ context.Context, t *domain.BatchTask) error {
 	r.batches[t.ID] = t
@@ -81,14 +108,27 @@ func (r *memGroupRepo) GetBatchTask(_ context.Context, id string) (*domain.Batch
 	}
 	return bt, nil
 }
-func (r *memGroupRepo) ListBatchTasks(_ context.Context, tenantID string) ([]*domain.BatchTask, error) {
+func (r *memGroupRepo) ListBatchTasks(_ context.Context, tenantID string, page, pageSize int) ([]*domain.BatchTask, int64, error) {
 	var result []*domain.BatchTask
 	for _, bt := range r.batches {
 		if bt.TenantID == tenantID {
 			result = append(result, bt)
 		}
 	}
-	return result, nil
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	total := int64(len(result))
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		if offset >= len(result) {
+			return nil, total, nil
+		}
+		end := offset + pageSize
+		if end > len(result) {
+			end = len(result)
+		}
+		result = result[offset:end]
+	}
+	return result, total, nil
 }
 func (r *memGroupRepo) UpdateBatchTask(_ context.Context, t *domain.BatchTask) error {
 	r.batches[t.ID] = t
@@ -113,7 +153,7 @@ func TestCreateGroupAndMembers(t *testing.T) {
 		t.Fatalf("AddMembers: %v", err)
 	}
 
-	members, err := svc.ListMembers(ctx, g.ID)
+	members, _, err := svc.ListMembers(ctx, g.ID, 0, 0)
 	if err != nil {
 		t.Fatalf("ListMembers: %v", err)
 	}

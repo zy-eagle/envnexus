@@ -59,7 +59,8 @@ func TestCreateAndApprove(t *testing.T) {
 	svc := NewService(repo, nil, nil, nil, nil, nil)
 	ctx := context.Background()
 
-	req, err := svc.CreateRequest(ctx, "t1", "d1", "u1", "/var/log/app.log", domain.FileAccessBrowse, "need to check logs")
+	// Use download: browse/preview are auto-approved by CreateRequest; download stays pending when policy is nil.
+	req, err := svc.CreateRequest(ctx, "t1", "d1", "u1", "/var/log/app.log", domain.FileAccessDownload, "need to check logs")
 	if err != nil {
 		t.Fatalf("CreateRequest: %v", err)
 	}

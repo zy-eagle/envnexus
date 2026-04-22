@@ -19,7 +19,7 @@ frontend_impact: yes
 - [x] **T7** [backend] 创建 IDE 同步 API 接口 (`GET /api/v1/ide-sync/manifest`)，使用 Access Token 鉴权 · depends: T4, T5 · outputs: `services/platform-api/internal/handler/http/ide_sync_handler.go`
 
 ## Group 4 (parallel — after Group 3)
-- [ ] **T8** [frontend] 创建设备授权确认 UI (接收 user_code 并确认授权) · depends: T5 · outputs: `apps/console-web/src/app/device-auth/confirm/page.tsx`
-- [ ] **T9** [frontend] 创建已授权设备管理 UI (开发者设置页面，展示并撤销 IDE Tokens) · depends: T5 · outputs: `apps/console-web/src/app/tenants/[tenantId]/developer-settings/page.tsx`
-- [ ] **T10** [frontend] 创建市场模块 UI (浏览与订阅，支持直接下载 `plugin` 类型的 `.vsix` 文件) · depends: T6 · outputs: `apps/console-web/src/app/tenants/[tenantId]/marketplace/page.tsx`
-- [ ] **T11** [frontend] 更新侧边栏/导航菜单，加入市场模块和开发者设置 · depends: T9, T10 · outputs: `apps/console-web/src/components/Sidebar.tsx`
+- [x] **T8** [frontend] 创建设备授权确认 UI (接收 user_code 并确认授权) · depends: T5 · outputs: `apps/console-web/src/app/device-auth/confirm/page.tsx`
+- [x] **T9** [frontend] 创建已授权设备管理 UI (开发者设置页面，展示并撤销 IDE Tokens) · depends: T5 · outputs: `apps/console-web/src/app/tenants/[tenantId]/developer-settings/page.tsx`
+- [x] **T10** [frontend] 创建市场模块 UI (浏览与订阅，支持直接下载 `plugin` 类型的 `.vsix` 文件) · depends: T6 · outputs: `apps/console-web/src/app/tenants/[tenantId]/marketplace/page.tsx`
+- [x] **T11** [frontend] 更新侧边栏/导航菜单，加入市场模块和开发者设置 · depends: T9, T10 · outputs: `apps/console-web/src/components/Sidebar.tsx`

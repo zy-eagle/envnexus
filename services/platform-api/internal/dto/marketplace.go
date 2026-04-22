@@ -34,3 +34,8 @@ type TenantSubscriptionResponse struct {
 	CreatedAt time.Time                     `json:"created_at"`
 	UpdatedAt time.Time                     `json:"updated_at"`
 }
+
+// MarketplaceItemDownloadResponse returns a time-limited or external URL to fetch the item artifact.
+type MarketplaceItemDownloadResponse struct {
+	DownloadURL string `json:"download_url"`
+}

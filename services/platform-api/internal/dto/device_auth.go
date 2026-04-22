@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 // DeviceAuthInitResponse is the device authorization (RFC 8628) "device code" response.
 type DeviceAuthInitResponse struct {
 	DeviceCode string `json:"device_code"`
@@ -52,4 +54,15 @@ type IdeClientTokenResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 	TokenType    string `json:"token_type"`
 	TokenID      string `json:"token_id"`
+}
+
+// IdeTokenListItem is a safe, hash-free view of an IDE client token for tenant admin listing.
+type IdeTokenListItem struct {
+	ID               string     `json:"id"`
+	Name             string     `json:"name,omitempty"`
+	UserID           string     `json:"user_id"`
+	AccessExpiresAt  time.Time  `json:"access_expires_at"`
+	RefreshExpiresAt time.Time  `json:"refresh_expires_at"`
+	LastUsedAt       *time.Time `json:"last_used_at"`
+	CreatedAt        time.Time  `json:"created_at"`
 }

@@ -2,7 +2,10 @@ package marketplace
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -156,4 +159,40 @@ func (s *Service) IdeSyncManifest(ctx context.Context, tenantID string) ([]*dto.
 		out = append(out, itemToDTO(it))
 	}
 	return out, nil
+}
+
+// GetItemDownloadURL returns a download URL for a published, subscribed marketplace item.
+// If the item payload JSON contains "download_url", that value is used; otherwise a placeholder URL is returned.
+func (s *Service) GetItemDownloadURL(ctx context.Context, tenantID, itemID string) (*dto.MarketplaceItemDownloadResponse, error) {
+	item, err := s.repo.GetMarketplaceItemByID(ctx, itemID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrMarketplaceItemNotFound
+		}
+		return nil, err
+	}
+	if item.Status != domain.MarketplaceItemStatusPublished {
+		return nil, domain.ErrMarketplaceItemNotPublished
+	}
+	sub, err := s.repo.GetTenantSubscriptionByTenantAndItem(ctx, tenantID, itemID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrMarketplaceSubscriptionNotFound
+		}
+		return nil, err
+	}
+	if sub.Status != domain.TenantSubscriptionStatusActive {
+		return nil, domain.ErrMarketplaceSubscriptionNotFound
+	}
+	var payload struct {
+		DownloadURL string `json:"download_url"`
+	}
+	if item.Payload != "" {
+		_ = json.Unmarshal([]byte(item.Payload), &payload)
+	}
+	url := strings.TrimSpace(payload.DownloadURL)
+	if url == "" {
+		url = fmt.Sprintf("https://example.com/marketplace/plugins/%s.zip", itemID)
+	}
+	return &dto.MarketplaceItemDownloadResponse{DownloadURL: url}, nil
 }
