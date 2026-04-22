@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useDict } from '@/lib/i18n/dictionary';
 import { api } from '@/lib/api/client';
+import { getToolCatalog } from '@/lib/constants/tools';
 
 interface ToolPermission {
   id: string;
@@ -27,6 +28,9 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
     total: 0
   });
   
+  const TOOL_CATALOG = getToolCatalog(lang);
+  const [roles, setRoles] = useState<{ id: string; name: string }[]>([]);
+
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -82,7 +86,25 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
     }
   };
 
-  useEffect(() => { fetchPerms(pagination.page, pagination.pageSize); }, [params.tenantId, pagination.page, pagination.pageSize]);
+  const fetchRoles = async () => {
+    try {
+      const data = await api.get<{ items: { id: string; name: string }[] } | { id: string; name: string }[]>(
+        `/tenants/${params.tenantId}/roles?page_size=1000`
+      );
+      if (Array.isArray(data)) {
+        setRoles(data);
+      } else if (data && 'items' in data) {
+        setRoles(data.items);
+      }
+    } catch (error) {
+      console.error('Failed to fetch roles:', error);
+    }
+  };
+
+  useEffect(() => { 
+    fetchPerms(pagination.page, pagination.pageSize); 
+    fetchRoles();
+  }, [params.tenantId, pagination.page, pagination.pageSize]);
 
   const handleDelete = async (id: string) => {
     if (!confirm(ct.confirmDelete)) return;
@@ -170,10 +192,17 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {perms.map(p => (
+              {perms.map(p => {
+                const toolDef = TOOL_CATALOG.find(t => t.name === p.tool_name);
+                const roleDef = roles.find(r => r.id === p.role_id);
+                return (
                 <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">{p.tool_name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.role_id || 'All'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                    {p.tool_name} {toolDef && <span className="text-gray-500 text-xs ml-1">({toolDef.label})</span>}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {roleDef ? roleDef.name : (p.role_id || 'All')}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       p.allowed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
@@ -187,7 +216,7 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
                     <button onClick={() => handleDelete(p.id)} className="text-red-600 hover:text-red-900 text-xs font-medium">{ct.delete}</button>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
             {perms.length > 0 && (
@@ -241,23 +270,33 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">工具名称</label>
-                <input 
-                  type="text" 
+                <select 
                   value={newPerm.tool_name}
                   onChange={(e) => setNewPerm({ ...newPerm, tool_name: e.target.value })}
                   className="w-full border rounded-md px-3 py-2"
-                  placeholder="例如：shell_exec, file_download"
-                />
+                >
+                  <option value="" disabled>请选择工具</option>
+                  {TOOL_CATALOG.map((tool) => (
+                    <option key={tool.name} value={tool.name}>
+                      {tool.name} ({tool.label})
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">角色 ID (可选)</label>
-                <input 
-                  type="text" 
+                <label className="block text-sm font-medium text-gray-700 mb-1">角色 (可选)</label>
+                <select 
                   value={newPerm.role_id || ''}
                   onChange={(e) => setNewPerm({ ...newPerm, role_id: e.target.value || null })}
                   className="w-full border rounded-md px-3 py-2"
-                  placeholder="留空表示所有角色"
-                />
+                >
+                  <option value="">所有角色</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">是否允许</label>
