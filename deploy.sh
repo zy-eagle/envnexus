@@ -151,12 +151,19 @@ patch_env() {
 
     local HOST_IP
     HOST_IP=$(detect_host_ip)
+    local console_port
+    console_port=$(grep "^ENX_CONSOLE_PORT=" "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true)
+    [ -z "$console_port" ] && console_port="3000"
 
     if ! grep -q "^ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=" "$env_file" 2>/dev/null; then
         log_info "Patching .env: adding ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=${HOST_IP}:9000"
         echo "" >> "$env_file"
         echo "# ===== Auto-patched: MinIO public endpoint for presigned URLs =====" >> "$env_file"
         echo "ENX_OBJECT_STORAGE_PUBLIC_ENDPOINT=${HOST_IP}:9000" >> "$env_file"
+    fi
+    if ! grep -q "^ENX_EXTERNAL_CONSOLE_URL=" "$env_file" 2>/dev/null; then
+        log_info "Patching .env: adding ENX_EXTERNAL_CONSOLE_URL=http://${HOST_IP}:${console_port}"
+        echo "ENX_EXTERNAL_CONSOLE_URL=http://${HOST_IP}:${console_port}" >> "$env_file"
     fi
 
     # Fix PUBLIC URLs that still point to localhost — these are used by Agent Desktop
@@ -184,6 +191,10 @@ patch_env() {
                 sed -i "s|^ENX_CORS_ALLOWED_ORIGINS=.*|ENX_CORS_ALLOWED_ORIGINS=${new_cors}|" "$env_file"
                 log_info "Patched ENX_CORS_ALLOWED_ORIGINS: added ${HOST_IP}"
             fi
+        fi
+        if grep -q "^ENX_EXTERNAL_CONSOLE_URL=http://localhost:" "$env_file" 2>/dev/null; then
+            sed -i "s|^ENX_EXTERNAL_CONSOLE_URL=http://localhost:.*|ENX_EXTERNAL_CONSOLE_URL=http://${HOST_IP}:${console_port}|" "$env_file"
+            log_info "Patched ENX_EXTERNAL_CONSOLE_URL: localhost -> ${HOST_IP}"
         fi
     fi
 }
