@@ -68,6 +68,7 @@ func (TenantSubscription) TableName() string { return "tenant_subscriptions" }
 type MarketplaceRepository interface {
 	CreateMarketplaceItem(ctx context.Context, item *MarketplaceItem) error
 	GetMarketplaceItemByID(ctx context.Context, id string) (*MarketplaceItem, error)
+	GetLatestMarketplaceItemByName(ctx context.Context, name string) (*MarketplaceItem, error)
 	ListMarketplaceItems(ctx context.Context, itemType *MarketplaceItemType, status *MarketplaceItemStatus, page, pageSize int) ([]*MarketplaceItem, int64, error)
 	UpdateMarketplaceItem(ctx context.Context, item *MarketplaceItem) error
 	DeleteMarketplaceItem(ctx context.Context, id string) error

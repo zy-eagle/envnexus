@@ -202,7 +202,66 @@ func (s *Service) IdeSyncManifest(ctx context.Context, tenantID string) ([]*dto.
 // GetItemDownloadURL returns a download URL for a published, subscribed marketplace item.
 // If the payload has "object_key" and object storage is configured, a fresh presigned GET URL is returned.
 // Otherwise, if the payload has "download_url", that value is used; else a placeholder URL is returned.
+func (s *Service) GetLatestIDEExtensionInfo(ctx context.Context) (*dto.ExtensionUpdateResponse, error) {
+	item, err := s.repo.GetLatestMarketplaceItemByName(ctx, "EnvNexus IDE Sync")
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrMarketplaceItemNotFound
+		}
+		return nil, err
+	}
+	var payload struct {
+		ObjectKey   string `json:"object_key"`
+		DownloadURL string `json:"download_url"`
+	}
+	if item.Payload != "" {
+		_ = json.Unmarshal([]byte(item.Payload), &payload)
+	}
+	url := strings.TrimSpace(payload.DownloadURL)
+	if payload.ObjectKey != "" && s.minioClient != nil {
+		if presigned, err := s.minioClient.PresignedGetObject(ctx, payload.ObjectKey, time.Hour); err == nil {
+			url = presigned.String()
+		}
+	}
+	if url == "" {
+		url = fmt.Sprintf("https://example.com/marketplace/plugins/%s.zip", item.ID)
+	}
+	return &dto.ExtensionUpdateResponse{
+		Version:     item.Version,
+		DownloadURL: url,
+	}, nil
+}
+
 func (s *Service) GetItemDownloadURL(ctx context.Context, tenantID, itemID string) (*dto.MarketplaceItemDownloadResponse, error) {
+	item, err := s.repo.GetMarketplaceItemByID(ctx, itemID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrMarketplaceItemNotFound
+		}
+		return nil, err
+	}
+	var payload struct {
+		ObjectKey   string `json:"object_key"`
+		DownloadURL string `json:"download_url"`
+	}
+	if item.Payload != "" {
+		_ = json.Unmarshal([]byte(item.Payload), &payload)
+	}
+	url := strings.TrimSpace(payload.DownloadURL)
+	if payload.ObjectKey != "" && s.minioClient != nil {
+		if presigned, err := s.minioClient.PresignedGetObject(ctx, payload.ObjectKey, time.Hour); err == nil {
+			url = presigned.String()
+		}
+	}
+	if url == "" {
+		url = fmt.Sprintf("https://example.com/marketplace/plugins/%s.zip", item.ID)
+	}
+	return &dto.ExtensionUpdateResponse{
+		Version:     item.Version,
+		DownloadURL: url,
+	}, nil
+}
+
 	item, err := s.repo.GetMarketplaceItemByID(ctx, itemID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

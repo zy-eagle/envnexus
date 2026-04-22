@@ -21,6 +21,10 @@ func NewMarketplaceHandler(svc *marketplace.Service) *MarketplaceHandler {
 	return &MarketplaceHandler{svc: svc}
 }
 
+func (h *MarketplaceHandler) RegisterPublicRoutes(router *gin.RouterGroup) {
+	router.GET("/ide-sync/extension/latest", h.GetLatestIDEExtension)
+}
+
 func (h *MarketplaceHandler) RegisterRoutes(router *gin.RouterGroup) {
 	m := router.Group("/tenants/:tenantId/marketplace")
 	{
@@ -33,6 +37,15 @@ func (h *MarketplaceHandler) RegisterRoutes(router *gin.RouterGroup) {
 		m.POST("/subscriptions", h.Subscribe)
 		m.DELETE("/subscriptions/:itemId", h.Unsubscribe)
 	}
+}
+
+func (h *MarketplaceHandler) GetLatestIDEExtension(c *gin.Context) {
+	out, err := h.svc.GetLatestIDEExtensionInfo(c.Request.Context())
+	if err != nil {
+		mw.RespondError(c, err)
+		return
+	}
+	mw.RespondSuccess(c, http.StatusOK, out)
 }
 
 func (h *MarketplaceHandler) requirePlatformSuperAdmin(c *gin.Context) bool {

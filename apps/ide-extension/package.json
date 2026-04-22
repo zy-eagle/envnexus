@@ -54,11 +54,13 @@
     "package": "vsce package"
   },
   "dependencies": {
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "semver": "^7.6.2"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/node-fetch": "^2.6.11",
+    "@types/semver": "^7.5.8",
     "@types/vscode": "^1.80.0",
     "@vscode/vsce": "^3.2.0",
     "ts-loader": "^9.5.1",

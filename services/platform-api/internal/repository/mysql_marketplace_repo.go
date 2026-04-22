@@ -29,6 +29,14 @@ func (r *MySQLMarketplaceRepository) GetMarketplaceItemByID(ctx context.Context,
 	return &item, nil
 }
 
+func (r *MySQLMarketplaceRepository) GetLatestMarketplaceItemByName(ctx context.Context, name string) (*domain.MarketplaceItem, error) {
+	var item domain.MarketplaceItem
+	if err := r.db.WithContext(ctx).Where("name = ? AND status = ?", name, domain.MarketplaceItemStatusPublished).Order("created_at DESC").First(&item).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
 func (r *MySQLMarketplaceRepository) ListMarketplaceItems(
 	ctx context.Context, itemType *domain.MarketplaceItemType, status *domain.MarketplaceItemStatus, page, pageSize int,
 ) ([]*domain.MarketplaceItem, int64, error) {
