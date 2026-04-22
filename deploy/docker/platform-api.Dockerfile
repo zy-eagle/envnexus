@@ -1,4 +1,11 @@
 # syntax=docker/dockerfile:1
+FROM node:20-alpine AS ext-builder
+WORKDIR /app
+COPY apps/ide-extension/package*.json ./
+RUN npm install
+COPY apps/ide-extension/ ./
+RUN npm run package
+
 FROM golang:1.25-alpine AS builder
 # Monorepo layout: go.mod replace ../../libs/shared must resolve (from services/platform-api)
 WORKDIR /src
@@ -28,5 +35,7 @@ WORKDIR /app
 COPY --from=builder /src/services/platform-api/platform-api .
 COPY --from=builder /src/services/platform-api/enx-migrate .
 COPY --from=builder /src/services/platform-api/config ./config
+COPY --from=ext-builder /app/envnexus-sync-*.vsix ./assets/
+ENV ENX_IDE_EXTENSION_VSIX_PATH=/app/assets/envnexus-sync-0.1.0.vsix
 EXPOSE 8080
 CMD ["./platform-api"]
