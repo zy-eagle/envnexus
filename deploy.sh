@@ -257,6 +257,7 @@ ENX_WS_URL=ws://session-gateway:8081/ws/v1/sessions
 # ===== Console Web =====
 ENX_CONSOLE_PORT=3000
 ENX_CONSOLE_WEB_API_URL=http://platform-api:8080
+ENX_EXTERNAL_CONSOLE_URL=http://${HOST_IP}:3000
 EOF
 
     log_info "Generated .env with:"
@@ -561,6 +562,7 @@ ENX_WS_URL=ws://session-gateway:${gw_port}/ws/v1/sessions
 # ===== Console Web =====
 ENX_CONSOLE_PORT=${console_port}
 ENX_CONSOLE_WEB_API_URL=http://platform-api:${pa_port}
+ENX_EXTERNAL_CONSOLE_URL=http://${HOST_IP}:${console_port}
 EOF
 
     log_info ".env regenerated with host IP: ${HOST_IP}"

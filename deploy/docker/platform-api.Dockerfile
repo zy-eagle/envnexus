@@ -4,7 +4,13 @@ WORKDIR /app
 COPY apps/ide-extension/package*.json ./
 RUN npm install --registry=https://registry.npmmirror.com
 COPY apps/ide-extension/ ./
-RUN npm run package
+ARG ENX_EXTERNAL_API_URL="http://localhost:8080"
+ARG ENX_EXTERNAL_CONSOLE_URL="http://localhost:3000"
+RUN sed -i "s|\"default\": \"http://localhost:8080\"|\"default\": \"${ENX_EXTERNAL_API_URL}\"|g" package.json && \
+    sed -i "s|\"default\": \"http://localhost:3000\"|\"default\": \"${ENX_EXTERNAL_CONSOLE_URL}\"|g" package.json && \
+    sed -i "s|\"http://localhost:8080\"|\"${ENX_EXTERNAL_API_URL}\"|g" src/auth.ts && \
+    sed -i "s|\"http://localhost:3000\"|\"${ENX_EXTERNAL_CONSOLE_URL}\"|g" src/auth.ts && \
+    npm run package
 
 FROM golang:1.25-alpine AS builder
 # Monorepo layout: go.mod replace ../../libs/shared must resolve (from services/platform-api)
