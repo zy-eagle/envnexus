@@ -48,6 +48,7 @@ services:
       dockerfile: deploy/docker/platform-api.Dockerfile
       args:
         ENX_BUILD_REVISION: ${ENX_BUILD_REVISION:-unknown}
+        ENX_IDE_EXTENSION_VERSION: ${ENX_IDE_EXTENSION_VERSION:-auto}
     command: ["./enx-migrate"]
     env_file:
       - .env
@@ -97,6 +98,7 @@ services:
         ENX_BUILD_REVISION: ${ENX_BUILD_REVISION:-unknown}
         ENX_EXTERNAL_API_URL: ${ENX_PLATFORM_API_PUBLIC_BASE_URL:-http://localhost:8080}
         ENX_EXTERNAL_CONSOLE_URL: ${ENX_EXTERNAL_CONSOLE_URL:-http://localhost:3000}
+        ENX_IDE_EXTENSION_VERSION: ${ENX_IDE_EXTENSION_VERSION:-auto}
     env_file:
       - .env
     depends_on:

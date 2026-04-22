@@ -1,8 +1,12 @@
 package marketplace
 
 import (
+	"archive/zip"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,10 +16,10 @@ import (
 )
 
 const (
-	ideExtensionItemName    = "EnvNexus IDE Sync"
-	ideExtensionVersion     = "0.1.0"
-	ideExtensionAuthor      = "EnvNexus"
-	ideExtensionDescription = "Sync skills and rules with EnvNexus from your IDE (VSIX marketplace plugin)."
+	ideExtensionItemName       = "EnvNexus IDE Sync"
+	ideExtensionDefaultVersion = "0.1.0"
+	ideExtensionAuthor         = "EnvNexus"
+	ideExtensionDescription    = "Sync skills and rules with EnvNexus from your IDE (VSIX marketplace plugin)."
 )
 
 // SeedIDEExtension upserts the bundled Visual Studio Code extension (.vsix) as a published plugin marketplace item.
@@ -75,13 +79,18 @@ func SeedIDEExtension(ctx context.Context, svc *Service, vsixPath string) error 
 	if filename == "" || filename == "." {
 		filename = "envnexus-sync-0.1.0.vsix"
 	}
+	extensionVersion, err := readVSIXVersion(vsixPath)
+	if err != nil {
+		slog.Warn("marketplace: failed to parse IDE extension version from .vsix, using default", "path", vsixPath, "err", err)
+		extensionVersion = ideExtensionDefaultVersion
+	}
 
 	if existing == nil {
 		_, err := svc.CreateMarketplaceItem(ctx, CreateMarketplaceItemInput{
 			Type:        domain.MarketplaceItemTypePlugin,
 			Name:        ideExtensionItemName,
 			Description: ideExtensionDescription,
-			Version:     ideExtensionVersion,
+			Version:     extensionVersion,
 			Author:      ideExtensionAuthor,
 			Status:      domain.MarketplaceItemStatusPublished,
 			File:        f,
@@ -92,7 +101,7 @@ func SeedIDEExtension(ctx context.Context, svc *Service, vsixPath string) error 
 		if err != nil {
 			return err
 		}
-		slog.Info("marketplace: seeded IDE extension plugin", "name", ideExtensionItemName, "version", ideExtensionVersion, "file", filename)
+		slog.Info("marketplace: seeded IDE extension plugin", "name", ideExtensionItemName, "version", extensionVersion, "file", filename)
 		return nil
 	}
 
@@ -102,7 +111,7 @@ func SeedIDEExtension(ctx context.Context, svc *Service, vsixPath string) error 
 	_, err = svc.UpdateMarketplaceItem(ctx, existing.ID, UpdateMarketplaceItemInput{
 		Name:        ideExtensionItemName,
 		Description: ideExtensionDescription,
-		Version:     ideExtensionVersion,
+		Version:     extensionVersion,
 		Author:      ideExtensionAuthor,
 		Status:      string(domain.MarketplaceItemStatusPublished),
 		File:        f,
@@ -113,6 +122,46 @@ func SeedIDEExtension(ctx context.Context, svc *Service, vsixPath string) error 
 	if err != nil {
 		return err
 	}
-	slog.Info("marketplace: updated IDE extension plugin", "id", existing.ID, "name", ideExtensionItemName, "version", ideExtensionVersion, "file", filename)
+	slog.Info("marketplace: updated IDE extension plugin", "id", existing.ID, "name", ideExtensionItemName, "version", extensionVersion, "file", filename)
 	return nil
+}
+
+func readVSIXVersion(vsixPath string) (string, error) {
+	zr, err := zip.OpenReader(vsixPath)
+	if err != nil {
+		return "", err
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() || !strings.HasSuffix(f.Name, "package.json") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		body, readErr := io.ReadAll(io.LimitReader(rc, 1024*1024))
+		_ = rc.Close()
+		if readErr != nil {
+			return "", readErr
+		}
+		var pkg struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(body, &pkg); err != nil {
+			continue
+		}
+		if strings.TrimSpace(pkg.Name) != "envnexus-sync" {
+			continue
+		}
+		v := strings.TrimSpace(pkg.Version)
+		if v == "" {
+			return "", errors.New("extension version is empty in VSIX package.json")
+		}
+		return v, nil
+	}
+
+	return "", errors.New("envnexus-sync package.json not found in VSIX")
 }

@@ -6,11 +6,16 @@ RUN npm install --registry=https://registry.npmmirror.com
 COPY apps/ide-extension/ ./
 ARG ENX_EXTERNAL_API_URL="http://localhost:8080"
 ARG ENX_EXTERNAL_CONSOLE_URL="http://localhost:3000"
-RUN sed -i "s|\"default\": \"http://localhost:8080\"|\"default\": \"${ENX_EXTERNAL_API_URL}\"|g" package.json && \
+ARG ENX_IDE_EXTENSION_VERSION="auto"
+RUN IDE_VERSION="${ENX_IDE_EXTENSION_VERSION}" && \
+    if [ -z "${IDE_VERSION}" ] || [ "${IDE_VERSION}" = "auto" ]; then IDE_VERSION="0.1.$(date +%s)"; fi && \
+    sed -i "s|\"version\": \"0.1.0\"|\"version\": \"${IDE_VERSION}\"|g" package.json && \
+    sed -i "s|\"default\": \"http://localhost:8080\"|\"default\": \"${ENX_EXTERNAL_API_URL}\"|g" package.json && \
     sed -i "s|\"default\": \"http://localhost:3000\"|\"default\": \"${ENX_EXTERNAL_CONSOLE_URL}\"|g" package.json && \
     sed -i "s|\"http://localhost:8080\"|\"${ENX_EXTERNAL_API_URL}\"|g" src/auth.ts && \
     sed -i "s|\"http://localhost:3000\"|\"${ENX_EXTERNAL_CONSOLE_URL}\"|g" src/auth.ts && \
-    npm run package
+    npm run package && \
+    cp envnexus-sync-*.vsix envnexus-sync.vsix
 
 FROM golang:1.25-alpine AS builder
 # Monorepo layout: go.mod replace ../../libs/shared must resolve (from services/platform-api)
@@ -41,7 +46,7 @@ WORKDIR /app
 COPY --from=builder /src/services/platform-api/platform-api .
 COPY --from=builder /src/services/platform-api/enx-migrate .
 COPY --from=builder /src/services/platform-api/config ./config
-COPY --from=ext-builder /app/envnexus-sync-*.vsix ./assets/
-ENV ENX_IDE_EXTENSION_VSIX_PATH=/app/assets/envnexus-sync-0.1.0.vsix
+COPY --from=ext-builder /app/envnexus-sync.vsix ./assets/envnexus-sync.vsix
+ENV ENX_IDE_EXTENSION_VSIX_PATH=/app/assets/envnexus-sync.vsix
 EXPOSE 8080
 CMD ["./platform-api"]
