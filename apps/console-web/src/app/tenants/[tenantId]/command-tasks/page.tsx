@@ -1641,7 +1641,7 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                               </span>
                             </label>
                           );
-                        }))
+                        })
                       )}
                     </div>
                   </div>
