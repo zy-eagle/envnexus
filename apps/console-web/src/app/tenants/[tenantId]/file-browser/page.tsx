@@ -54,6 +54,14 @@ interface Device {
   platform: string;
   arch: string;
   status: string;
+  last_seen_at?: string | null;
+}
+
+const ONLINE_THRESHOLD_MS = 90 * 1000;
+
+function isOnline(lastSeenAt: string | null | undefined, nowMs: number): boolean {
+  if (!lastSeenAt) return false;
+  return nowMs - new Date(lastSeenAt).getTime() < ONLINE_THRESHOLD_MS;
 }
 
 function formatBytes(bytes: number): string {
@@ -422,7 +430,7 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
             >
               <option value="">{t.selectDevice}</option>
-              {devices.map(d => (
+              {devices.filter(d => isOnline(d.last_seen_at, Date.now())).map(d => (
                 <option key={d.id} value={d.id}>
                   {d.device_name || d.hostname || d.id.substring(0, 12)} — {d.platform}/{d.arch}
                 </option>
