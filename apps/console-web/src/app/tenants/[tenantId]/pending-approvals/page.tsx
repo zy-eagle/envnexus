@@ -526,7 +526,12 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
       {approveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">{t.approveTitle}</h2>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-lg font-semibold text-gray-900">{t.approveTitle}</h2>
+              <button type="button" onClick={() => { setApproveModal(null); setApproveNote(''); setApproveError(''); }} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <p className="text-sm text-gray-500 mb-4">
               {t.approveDesc} <span className="font-medium text-gray-700">{approveModal.title}</span>
             </p>
@@ -584,7 +589,12 @@ function PendingApprovalsContent({ tenantId }: { tenantId: string }) {
       {denyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">{t.denyTitle}</h2>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-lg font-semibold text-gray-900">{t.denyTitle}</h2>
+              <button type="button" onClick={() => { setDenyModal(null); setDenyReason(''); setDenyError(''); }} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <p className="text-sm text-gray-500 mb-4">
               {t.denyDesc} <span className="font-medium text-gray-700">{denyModal.title}</span>
             </p>

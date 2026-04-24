@@ -1545,9 +1545,14 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
       {showNewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-            <h2 className="text-xl font-semibold mb-4">
-              {editingDraftId ? (t as any).editDraftTitle : (t as any).newTask}
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">
+                {editingDraftId ? (t as any).editDraftTitle : (t as any).newTask}
+              </h2>
+              <button type="button" onClick={closeTaskModal} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -1608,28 +1613,35 @@ function CommandTasksContent({ tenantId }: { tenantId: string }) {
                           {(t as any).noDevicesAvailable}
                         </p>
                       ) : (
-                        devices.map((d) => (
-                          <label
-                            key={d.id}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={formDeviceIds.includes(d.id)}
-                              onChange={() => toggleDevice(d.id)}
-                              className="rounded text-blue-600"
-                            />
-                            <span className="font-medium text-gray-900">
-                              {d.device_name}
-                            </span>
-                            <span className="text-gray-400 text-xs">
-                              {d.hostname}
-                            </span>
-                            <span className="text-gray-500 text-xs font-mono shrink-0" title={lang === "zh" ? "系统/架构" : "OS / arch"}>
-                              {d.platform}/{d.arch}
-                            </span>
-                          </label>
-                        ))
+                        devices.map((d) => {
+                          const online = isOnline(d.last_seen_at ?? null, Date.now());
+                          return (
+                            <label
+                              key={d.id}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formDeviceIds.includes(d.id)}
+                                onChange={() => toggleDevice(d.id)}
+                                className="rounded text-blue-600"
+                              />
+                              <span
+                                className={`inline-block w-2 h-2 rounded-full shrink-0 ${online ? "bg-green-500" : "bg-gray-300"}`}
+                                title={online ? (lang === "zh" ? "在线" : "Online") : (lang === "zh" ? "离线" : "Offline")}
+                              />
+                              <span className="font-medium text-gray-900">
+                                {d.device_name}
+                              </span>
+                              <span className="text-gray-400 text-xs">
+                                {d.hostname}
+                              </span>
+                              <span className="text-gray-500 text-xs font-mono shrink-0" title={lang === "zh" ? "系统/架构" : "OS / arch"}>
+                                {d.platform}/{d.arch}
+                              </span>
+                            </label>
+                          );
+                        }))
                       )}
                     </div>
                   </div>

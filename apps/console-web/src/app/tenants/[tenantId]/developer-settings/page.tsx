@@ -164,7 +164,12 @@ export default function DeveloperSettingsPage() {
       {revokeId != null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-elevated">
-            <h2 className="text-base font-semibold text-slate-900">{t.revokeTitle}</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-slate-900">{t.revokeTitle}</h2>
+              <button type="button" onClick={() => setRevokeId(null)} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <p className="mt-2 text-sm text-slate-600">{t.revokeBody}</p>
             <div className="mt-6 flex justify-end gap-2">
               <button

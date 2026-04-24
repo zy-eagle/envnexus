@@ -432,7 +432,12 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-semibold mb-5">{editingId ? t.editTitle : t.createTitle}</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-semibold">{editingId ? t.editTitle : t.createTitle}</h2>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <form onSubmit={handleSave} className="space-y-5">
               {formError && (
                 <div className="flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -689,7 +694,12 @@ export default function ApprovalPoliciesPage({ params }: { params: { tenantId: s
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">{ct.confirm}</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold text-gray-900">{ct.confirm}</h3>
+              <button type="button" onClick={() => setDeleteTarget(null)} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <p className="text-sm text-gray-600 mb-1">{t.confirmDelete}</p>
             <p className="text-sm font-medium text-gray-800 mb-5">
               {deleteTarget.name}

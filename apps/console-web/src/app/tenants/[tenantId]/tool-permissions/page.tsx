@@ -266,7 +266,12 @@ export default function ToolPermissionsPage({ params }: { params: { tenantId: st
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">{isEditMode ? '编辑工具权限' : '添加工具权限'}</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">{isEditMode ? '编辑工具权限' : '添加工具权限'}</h2>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">工具名称</label>

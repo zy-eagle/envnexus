@@ -118,7 +118,12 @@ export default function TenantsPage() {
       {isModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content max-w-md">
-            <h2 className="text-lg font-semibold text-slate-900 mb-5">{editingId ? t.editModalTitle : t.modalTitle}</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-semibold text-slate-900">{editingId ? t.editModalTitle : t.modalTitle}</h2>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
             <form onSubmit={handleSaveTenant} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">{t.tenantName}</label>

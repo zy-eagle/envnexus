@@ -351,8 +351,11 @@ export default function TenantRolesPage() {
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-slate-100 shrink-0">
+            <div className="p-6 border-b border-slate-100 shrink-0 flex items-center justify-between">
               <h2 className="text-xl font-semibold">{title}</h2>
+              <button type="button" onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
               <div>

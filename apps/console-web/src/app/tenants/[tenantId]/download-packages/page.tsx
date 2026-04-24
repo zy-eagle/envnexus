@@ -308,7 +308,12 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
             {createdKey ? (
               <div className="space-y-4">
-                <h2 className="text-xl font-semibold text-green-700">{t.activationKey}</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold text-green-700">{t.activationKey}</h2>
+                  <button type="button" onClick={() => { setIsModalOpen(false); setCreatedKey(''); setKeyCopied(false); }} className="text-gray-400 hover:text-gray-600">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
                   <p className="text-sm text-yellow-800 mb-2">{t.activationKeyWarning}</p>
                   <div className="flex items-center gap-2">
@@ -358,7 +363,12 @@ export default function DownloadPackagesPage({ params }: { params: { tenantId: s
               </div>
             ) : (
               <>
-                <h2 className="text-xl font-semibold mb-4">{t.modalTitle}</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold">{t.modalTitle}</h2>
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
                 <p className="text-sm text-gray-600 mb-6">{t.modalDesc}</p>
                 <form onSubmit={handleGenerate} className="space-y-4">
                   <div>
