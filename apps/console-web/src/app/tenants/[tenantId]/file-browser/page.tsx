@@ -502,6 +502,17 @@ export default function FileBrowserPage({ params }: { params: { tenantId: string
           <p className="text-sm text-gray-500">
             {activeBrowseId ? (t as any).awaitingResult : ct.loading}
           </p>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveBrowseId(null);
+              setLoading(false);
+              setPendingDownloadId(null);
+            }}
+            className="mt-4 px-4 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            {ct.cancel}
+          </button>
         </div>
       )}
 
